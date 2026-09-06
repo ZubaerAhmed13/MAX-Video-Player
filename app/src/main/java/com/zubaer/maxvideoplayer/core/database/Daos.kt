@@ -70,7 +70,10 @@ interface ExcludedFolderDao {
 
 @Dao
 interface MediaIndexDao {
-    @Query("SELECT * FROM media_index ORDER BY title COLLATE NOCASE") fun observeAll(): Flow<List<MediaIndexEntity>>
+    @Query("SELECT * FROM media_index ORDER BY title COLLATE NOCASE, stableMediaId") fun observeAll(): Flow<List<MediaIndexEntity>>
+    @Query("SELECT COUNT(*) FROM media_index") fun observeCount(): Flow<Int>
+    @Query("SELECT * FROM media_index ORDER BY title COLLATE NOCASE, stableMediaId LIMIT :limit OFFSET :offset")
+    suspend fun page(limit: Int, offset: Int): List<MediaIndexEntity>
     @Query("SELECT * FROM media_index WHERE stableMediaId = :stableMediaId LIMIT 1") suspend fun get(stableMediaId: String): MediaIndexEntity?
     @Query("SELECT * FROM media_index WHERE stableMediaId IN (:stableIds)") suspend fun byIds(stableIds: List<String>): List<MediaIndexEntity>
     @Query("SELECT * FROM media_index WHERE sourceId = :sourceId") suspend fun bySource(sourceId: String): List<MediaIndexEntity>
