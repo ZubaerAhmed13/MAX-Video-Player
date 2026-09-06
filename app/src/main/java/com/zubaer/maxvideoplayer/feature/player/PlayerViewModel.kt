@@ -188,7 +188,25 @@ class PlayerViewModel(
         autoHideJob?.cancel()
         val current = _state.value
         val nextZoom = PlayerInteractionPolicy.zoom(current.zoom, zoomMultiplier)
-        val bounds = PlayerInteractionPolicy.panBounds(viewportWidthPx, viewportHeightPx, nextZoom)
+        val renderedTransform = PlayerInteractionPolicy.transform(
+            resizeMode = current.resizeMode,
+            customAspectRatio = current.customAspectRatio,
+            sourceWidth = media.width,
+            sourceHeight = media.height,
+            sourceRotationDegrees = media.rotationDegrees,
+            manualZoom = nextZoom,
+            panX = 0f,
+            panY = 0f,
+            displayRotationDegrees = current.displayRotationDegrees,
+            viewportWidthPx = viewportWidthPx,
+            viewportHeightPx = viewportHeightPx,
+        )
+        val bounds = PlayerInteractionPolicy.panBounds(
+            viewportWidthPx = viewportWidthPx,
+            viewportHeightPx = viewportHeightPx,
+            scaleX = renderedTransform.scaleX,
+            scaleY = renderedTransform.scaleY,
+        )
         val (nextX, nextY) = PlayerInteractionPolicy.clampPan(current.panX + panDx, current.panY + panDy, bounds)
         _state.value = current.copy(
             interactionInProgress = true,
