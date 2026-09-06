@@ -6,13 +6,11 @@ MX Player Pro is used only as a functionality, workflow, interaction, and featur
 
 ## Current development status
 
-**Step 2 of 10 — Professional Media Library**
+**Step 2 of 10 — Professional Media Library: SOFTWARE/EMULATOR PASS**
 
-Active development branch: `step-2-professional-media-library`
+Step-2 implementation branch: `step-2-professional-media-library`
 
-Step 1 remains the playback/lifecycle/storage foundation. Step 2 extends that foundation with a persistent, storage-aware, queue-aware video library without moving playback ownership back into an Activity or replacing the MediaSession architecture.
-
-Step-2 completion is evidence-based: a screen or table existing by itself is not counted as PASS. Physical 3 GB+, 4K/HDR, SD-card/USB/OEM MediaStore, Bluetooth, battery, thermal, and broad hardware certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
+Step 1 remains the playback/lifecycle/storage foundation. Step 2 extends it with a persistent, storage-aware, queue-aware professional video library while preserving service-owned MediaSession playback. Physical 3 GB+, 4K/HDR, SD-card/USB/OEM MediaStore, Bluetooth, battery, thermal, and broad hardware certification remain **NOT VERIFIED — DEFERRED TO STEP 10** by project policy.
 
 ## Platform baseline
 
@@ -32,34 +30,33 @@ Step-2 completion is evidence-based: a screen or table existing by itself is not
 
 This is a fully native Android application. It does not use WebView, Capacitor, Cordova, React Native, Flutter, or TWA as its application architecture.
 
-## Step-2 library capabilities
+## Step-2 professional library
 
-The Step-2 branch currently implements the following software foundations and integrated flows:
+Implemented and automated-test-backed software flows include:
 
 - Videos, Folders, Continue Watching, Recent, History, Favourites, and Playlists sections
-- list and grid library views with persisted preference
-- debounced search across title, filename, and folder
-- video sorting by name, added/modified date, duration, size, resolution, and last played
-- watched/unwatched/in-progress/favourites filtering
-- MediaStore discovery using a bounded projection rather than opening every source file
-- MediaStore change observation with debouncing
-- user-approved SAF directory sources through `ACTION_OPEN_DOCUMENT_TREE`
-- persisted SAF tree permission state and provider-aware traversal
+- lazy list and adaptive grid views with stable IDs and persisted preference
+- professional search across title, filename, and folder, with normalization, 180 ms derived-query debounce, IME Search, explicit Clear, no-results state, and Android-back-to-clear behavior
+- video sorting by name, date added, date modified, duration, size, resolution, and last played, both directions
+- folder sorting by name, video count, last modified, and total size
+- filters for watched/unwatched/in-progress/favourites, resolution groups, and duration ranges
+- MediaStore discovery with a bounded projection and debounced change observation
+- user-approved SAF folder sources via `ACTION_OPEN_DOCUMENT_TREE`, persisted permissions/status, exclusions, and provider-aware traversal
 - stable source/folder identities that do not depend only on display names
-- excluded-folder persistence and restore workflow
-- Room-backed media index/cache, favourites, playlists, sources, exclusions, and library preferences
-- explicit Room database `MIGRATION_1_2`; no destructive migration fallback
-- Continue Watching and Recent based on the existing authoritative Step-1 playback history/resume policy
-- playlist create/rename/delete/add/remove/reorder persistence
-- folder/list/playlist playback requests that construct real queues for the existing service-owned player path
-- missing playlist media represented as unavailable instead of crashing
-- stable-ID-preserving relink validation/repository foundation
-- Android-policy-compliant delete/rename repository foundation for MediaStore/SAF
-- dedicated bounded in-memory thumbnail repository with cancellation and failure fallback
-- 10,000-entry deterministic search/sort verification
-- Long-safe multi-GB size handling throughout the library model/database
-
-Some Step-2 requirements still require explicit evidence or final integration before they may be marked PASS; see `PARITY_MATRIX.md` and `STEP_2_COMPLETION_REPORT.md`.
+- Room v2 media index/cache, favourites, playlists, sources, exclusions, and library preferences
+- explicit `MIGRATION_1_2`, with no destructive migration fallback
+- deterministic, cancellable Room media-index loading in 512-row chunks with progressive snapshots
+- Continue Watching progress bar, percentage, and time remaining using the existing Step-1 resume/history authority
+- Recent and full History with single-item removal and confirmed clear-history flow
+- favourites as stable-ID relationships rather than duplicated media rows
+- playlist create/rename/delete/add/remove/reorder and real ordered playback queues
+- folder/current-visible-list queues and selected-item start index
+- professional multi-selection with batch favourite/unfavourite/add-to-playlist actions
+- rich media details using available URI, source, MIME, duration, resolution, size, rotation, frame rate, codecs, audio properties, dates, and playback progress
+- Android-policy-compliant MediaStore/SAF rename and delete, including provider/system confirmation and truthful unsupported states
+- unavailable-source `Locate original` relink with plausibility validation while preserving stable IDs and user relationships
+- bounded/cancellable thumbnail loading with a 16 MiB LRU memory cache, request-size policy, invalidation, and placeholder failure path
+- 10,000-entry deterministic search/sort/filter tests and Long-safe multi-GB metadata tests
 
 ## Playback ownership — preserved from Step 1
 
@@ -79,54 +76,60 @@ PlaybackEngine
 Media3 / ExoPlayer
 ```
 
-Library work does not create an Activity-owned player. Selecting media from a folder, sorted video list, or playlist passes lightweight queue state into the existing playback/session architecture.
+Step 2 does not create an Activity-owned player. Library playback requests construct lightweight queues and pass them into the existing service/session path.
 
-## Storage model
+## Storage and persistence model
 
-The library distinguishes source truth from cached/indexed metadata. MediaStore is queried for fast indexed metadata. User-approved SAF trees are traversed through Android document-provider APIs without assuming filesystem paths. Missing or permission-lost sources are retained as recoverable/unavailable state rather than silently treated as valid or immediately erased.
+MediaStore and SAF are source truth; Room `media_index` is a recoverable metadata index/cache. Missing or permission-lost sources remain represented as unavailable/recoverable state instead of being silently treated as valid. User relationships and history live separately from the media index.
 
 The app does **not** request `MANAGE_EXTERNAL_STORAGE` merely for convenience. If broad media permission is denied, SAF Open File and Add Folder remain usable.
 
-## Persistence
-
-Room database version 2 adds persistent favourites, playlists and playlist items, library sources, excluded folders, media index rows, and library preferences while retaining Step-1 history and playback preferences. `MIGRATION_1_2` is explicit and is covered by an Android migration test intended to prove Step-1 history/resume values survive the upgrade.
+Room database version 2 retains Step-1 history/playback preferences and adds favourites, playlists/items, library sources, excluded folders, media index rows, and library preferences. `MIGRATION_1_2` is explicit and migration-tested.
 
 ## Large-library and large-media policy
 
-Library scans, SAF traversal, metadata work, thumbnail work, and large derived-list operations run off the UI thread. Compose uses lazy list/grid containers with stable media IDs as keys. Search/sort correctness is exercised with 10,000 synthetic media rows; the project avoids brittle nanosecond timing assertions.
+Fast discovery avoids opening every video for deep metadata. MediaStore/SAF I/O, thumbnail work, and derived search/sort/filter/grouping run away from the UI thread. Room index reads are deterministic and bounded at 512 rows per query and emit progressive snapshots. Compose renders through lazy containers with stable keys.
 
-File sizes, durations, positions, and relevant counters remain `Long`-safe. Normal library operations do not read entire videos, calculate thumbnails from full 4K/8K frames, or duplicate multi-GB media. Real 3 GB+, 5 GB+, 10 GB+, 4K, and removable-storage behavior still require Step-10 physical certification.
+The ViewModel ultimately holds lightweight O(n) metadata for the current library rather than using Paging 3, but the database no longer requires one giant index query. Correctness is exercised with 10,000 synthetic entries without brittle wall-clock timing assertions.
+
+File sizes, durations, and positions remain `Long`-safe. Normal library operations do not duplicate multi-GB media or load whole videos into RAM. Real 3 GB+/4K/removable-storage behavior remains Step-10 physical certification.
 
 ## Thumbnail policy
 
-`ThumbnailRepository` centralizes thumbnail loading. Requests are dimension-bounded, executed off the main thread, cancellable, and cached in a bounded LRU memory cache. Thumbnail failure returns a placeholder and never blocks playback. No unbounded bitmap cache is allowed.
+`ThumbnailRepository` owns thumbnail work. Requests are dimension-bounded, off-main-thread, cancellable, and cached in a bounded 16 MiB LRU memory cache. Unsupported/missing sources return a placeholder path rather than crashing or blocking playback. The current cache is intentionally memory-only; there is no unbounded bitmap cache.
 
-## Build and verification
+## Automated build and verification
 
-From the repository root:
+Authoritative Step-2 implementation gate:
+
+- GitHub Actions run: `34052267617` (#68)
+- implementation SHA: `a901f41007643c90cc37a7e0467caa0c3af9bd2f`
+- debug build + JVM tests: **PASS**
+- release compilation: **PASS**
+- lint: **PASS**
+- API-35 instrumentation: **PASS**
+
+CI commands:
 
 ```bash
-gradle :app:assembleDebug
-gradle :app:testDebugUnitTest
-gradle :app:assembleRelease
-gradle :app:lintDebug
-gradle :app:connectedDebugAndroidTest
+gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
+gradle --no-daemon :app:assembleRelease
+gradle --no-daemon :app:lintDebug
+gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
 ```
-
-GitHub Actions runs the same Step-2 gate, with API-35 instrumentation and KVM acceleration where available. A failed gate is fixed at the root cause; tests are not disabled, weakened, or ignored merely to make CI green.
 
 ## Documentation
 
-- `ARCHITECTURE.md` — Step-1 playback ownership plus Step-2 media-library/source/cache/queue architecture
-- `DEPENDENCIES.md` — dependency register and licenses/purposes
-- `PARITY_MATRIX.md` — evidence-backed capability status
+- `ARCHITECTURE.md` — Step-1 playback ownership plus Step-2 discovery/index/queue/file-action architecture
+- `DEPENDENCIES.md` — dependency register and Step-2 dependency decisions
+- `PARITY_MATRIX.md` — evidence-backed capability matrix
 - `LARGE_MEDIA_AUDIT.md` — large-media/integer safety boundary
 - `STEP_1_COMPLETION_REPORT.md` — Step-1 certification record
-- `STEP_2_COMPLETION_REPORT.md` — Step-2 implementation/test/CI report
+- `STEP_2_COMPLETION_REPORT.md` — Step-2 A–W certification record
 
 ## Roadmap boundary
 
-Step 2 intentionally does **not** implement the final advanced gesture system, professional external subtitle engine, audio DSP/equalizer, real software-decoder routing, later network/cloud/cast features, or final physical-device certification. Those remain later steps.
+Step 2 intentionally does **not** implement the final advanced gesture system, professional external subtitle engine, audio DSP/equalizer, real software-decoder routing, later network/cloud/cast features, or final physical-device certification. Those remain later steps. **Step 3 has not been started by this Step-2 completion work.**
 
 ## Contribution principle
 

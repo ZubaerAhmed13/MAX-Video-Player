@@ -2,73 +2,89 @@
 
 Status vocabulary: `PASS`, `PARTIAL`, `FAIL`, `NOT VERIFIED`, `NOT IMPLEMENTED`, `NOT APPLICABLE`.
 
-A `PASS` requires implementation, integration, a real functional flow, error handling, and automated evidence where feasible. Physical-device requirements are not inferred from emulator/software evidence.
+A `PASS` requires implementation, integration, a real functional flow, error handling, and automated evidence where feasible. Physical-device requirements are never inferred from emulator/software evidence.
 
 ## Step-2 professional media library
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
-| Library | Videos | PASS | MediaStore/SAF-indexed videos feed persistent library state and lazy Compose list/grid rendering |
-| Library | Folders | PASS | Provider/source-aware folder keys, folder browser, folder detail and exclusion workflow implemented |
-| Library | Search | PASS | Debounced title/filename/folder search; deterministic 10,000-item JVM test |
-| Library | Sorting | PASS | Name, added/modified date, duration, size, resolution, last played; asc/desc and preference persistence |
-| Library | Filtering | PARTIAL | Watched, unwatched, in-progress and favourites implemented; resolution/duration filters not yet exposed |
-| Library | Continue Watching | PASS | Uses the authoritative Step-1 `ResumePolicy` and history; completed/trivial progress excluded |
-| Library | Recently Played | PASS | Derived from persistent history ordered by `lastPlayedAtMs` |
-| Library | Full History | PASS | Persistent chronological history, replay/resume source, single-item removal, confirmed clear-history flow |
-| Library | Favourites | PASS | Room-backed stable-ID relationship; add/remove/list and database persistence coverage |
-| Library | Playlists | PASS | Room-backed create/rename/delete/add/remove/open flows and missing-entry handling |
-| Library | Playlist reorder | PASS | Transaction-oriented collision-safe reorder implementation; ordered persistence coverage |
-| Library | Folder queue | PASS | Selecting from folder detail builds a queue matching the visible folder ordering |
-| Library | Playlist queue | PASS | Selecting a playlist media item builds a real ordered queue and starts at selected item |
-| Library | List view | PASS | LazyColumn with stable media keys |
-| Library | Grid view | PASS | Adaptive LazyVerticalGrid with stable media keys; preference persists |
-| Library | Multi-selection | NOT IMPLEMENTED | Step-2 specification requests professional multi-select/architecture; no integrated selection mode yet |
-| Library | Media details | PARTIAL | Useful duration/resolution/size/folder metadata is visible on cards; dedicated full details action with codec/date/source fields is not yet integrated |
-| Storage | MediaStore | PASS | Efficient projection, provider IDs/metadata, off-main-thread scan, debounced ContentObserver refresh |
-| Storage | SAF file | PASS | Step-1 OpenDocument path remains; persistable read grant requested where supported |
-| Storage | SAF folder | PASS | OpenDocumentTree source addition and provider-aware recursive scanning implemented |
-| Storage | Persisted tree permission | PASS | Permission result stored with source; permission loss maps to source state |
-| Storage | Excluded folders | PASS | Persistent exclusion and restore management implemented |
-| Storage | Missing source | PASS | Indexed rows can remain unavailable; lost SAF permission/source does not crash library |
-| Storage | Relink | PARTIAL | Stable-ID-preserving repository + plausibility validator/tests exist; complete end-user picker/recovery UI is not integrated |
-| Files | Delete | PARTIAL | Android-policy-compliant MediaStore/SAF repository exists with system confirmation results; complete library UI/action-result integration is not yet present |
-| Files | Rename | PARTIAL | Provider/MediaStore-safe repository exists and reports unsupported states; complete library UI/action-result integration is not yet present |
-| Media | Thumbnails | PARTIAL | Dedicated bounded/cancellable memory-cached repository and placeholder failure path; dedicated thumbnail test matrix remains incomplete |
-| Media | Metadata | PARTIAL | Fast MediaStore metadata and Step-1 deep extractor exist; full dedicated media-details integration/deep-cache workflow is incomplete |
-| Performance | Large library | PARTIAL | 10,000-entry deterministic derivation test and lazy Compose rendering; data index is still materialized as a list rather than paged/chunked |
-| Performance | No main-thread scanning | PASS | MediaStore/SAF I/O and large derived-list work run off UI thread |
-| Database | v1 → v2 migration | PASS | Explicit `MIGRATION_1_2`; no destructive fallback; Android migration test protects history/resume values |
-| Database | Favourites/playlists/sources/index/preferences | PASS | Relational Room v2 entities/DAOs and persistence tests |
-| Privacy | Local metadata/history | PASS | No Step-2 upload path for filenames, history, thumbnails or library inventory |
+| Library | Videos | PASS | MediaStore/SAF-indexed videos feed persistent library state and lazy list/grid rendering |
+| Library | Folders | PASS | Source/provider-aware keys, folder browser/detail, counts/sizes, exclusion/restore, selectable folder sorting |
+| Library | Search | PASS | Debounced normalized title/filename/folder search plus IME Search, Clear, no-results and Android-back behavior; 10,000-item JVM test + API-35 UI test |
+| Library | Sorting | PASS | Video: name, added/modified, duration, size, resolution, last played; folder: name, count, modified, size; asc/desc persistence |
+| Library | Filtering | PASS | watched, unwatched, in-progress, favourites, resolution groups, duration ranges |
+| Library | Continue Watching | PASS | Step-1 ResumePolicy/history reused; trivial/completed excluded; progress bar, percentage, time remaining |
+| Library | Recently Played | PASS | Derived from persistent history ordered by last played |
+| Library | Full History | PASS | Persistent history, replay/resume source, single-item remove, confirmed clear-history distinct from file delete |
+| Library | Favourites | PASS | Room-backed stable-ID relation; add/remove/list + persistence coverage |
+| Library | Playlists | PASS | Room-backed create/rename/delete/add/remove/open; unavailable-item handling |
+| Library | Playlist reorder | PASS | Transactional collision-safe reorder; persistence/order tests |
+| Library | All/visible queue | PASS | Selected media starts real queue preserving visible ordering |
+| Library | Folder queue | PASS | Folder selection builds queue in current folder ordering |
+| Library | Playlist queue | PASS | Ordered playlist queue starts at selected item; previous/next planner tests |
+| Library | List view | PASS | LazyColumn, stable IDs |
+| Library | Grid view | PASS | Adaptive LazyVerticalGrid, stable IDs, persisted view preference |
+| Library | Multi-selection | PASS | Stable-ID selection with batch favourite, unfavourite and add-to-playlist plus cancel flow |
+| Library | Media details | PASS | Dedicated dialog exposes available filename/location/URI/duration/resolution/size/MIME/codecs/frame rate/dates/progress and other deep fields |
+| Storage | MediaStore | PASS | Efficient projection, stable provider identities, off-main scan, debounced observer refresh |
+| Storage | SAF file | PASS | Step-1 OpenDocument path retained; persistable read permission where supported |
+| Storage | SAF folder | PASS | OpenDocumentTree addition and provider-aware recursive scanning |
+| Storage | Persisted tree permission | PASS | Permission/source status persisted; permission loss becomes recoverable source state |
+| Storage | Excluded folders | PASS | Persistent exclude/restore management |
+| Storage | Missing source | PASS | Unavailable rows/source states are represented rather than crashing or being faked available |
+| Storage | Relink | PASS | `Locate original` picker + plausibility validator + stable-ID-preserving repository update; validator tests |
+| Files | Delete | PASS | Explicit app confirmation, Android/provider-aware MediaStore/SAF flow, system confirmation support, relational cleanup tests |
+| Files | Rename | PASS | MediaStore/SAF provider-aware flow, system/write confirmation handling, truthful unsupported state, instrumented repository coverage |
+| Media | Thumbnails | PASS | Bounded/cancellable 16 MiB memory cache, bounded requests, invalidation/placeholder; JVM policy + instrumented failure/cancellation coverage |
+| Media | Metadata | PASS | Fast MediaStore metadata plus optional deep extractor; details surface deep fields when available without deep-scanning every index row |
+| Performance | Large library | PASS | 10,000-entry deterministic derivation tests, lazy Compose, off-main work, 512-row deterministic cancellable Room chunks with progressive snapshots |
+| Performance | No main-thread scanning | PASS | MediaStore/SAF I/O, thumbnails and large derived-list work stay off UI thread |
+| Database | v1 → v2 migration | PASS | Explicit MIGRATION_1_2, no destructive fallback, Android migration test protects Step-1 history/resume/Long values |
+| Database | Collections/sources/index/preferences | PASS | Relational Room v2 entities/DAOs with database instrumentation |
+| Privacy | Local metadata/history | PASS | No Step-2 upload path for filenames, history, thumbnails, playlists or inventory |
 
 ## Step-1 foundations preserved during Step 2
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
 | Player | Service-owned playback architecture | PASS | Playback remains `PlaybackConnection -> MediaController -> MediaSessionService -> MediaSession -> PlaybackEngine -> Media3` |
-| Player | Local playback / play / pause / seek | PASS | Existing Step-1 automated integration path retained |
-| Player | Previous / next queue foundation | PASS | Existing playback queue/session architecture retained and consumed by Step-2 library queues |
+| Player | Local playback / play / pause / seek | PASS | Existing Step-1 local playback integration test retained in final API-35 suite |
+| Player | Previous / next queue foundation | PASS | Existing session queue architecture retained and consumed by Step-2 queues |
 | Player | Playback speed | PASS | Step-1 implementation retained |
-| Player | PiP foundation | PARTIAL | Architecture retained; physical/device-specific certification deferred |
-| Player | Audio focus / noisy-route handling | PARTIAL | Media3 implementation retained; representative hardware routing certification deferred |
-| Media | Large-file-safe types | PASS | Long-safe file sizes/durations retained; Step-2 tests include 5–10 GB metadata values |
-| Decoder | Software decoder | NOT IMPLEMENTED | Correctly remains later Step 6 work; no fake decoder added |
-| Subtitles | Professional external subtitle engine | NOT IMPLEMENTED | Correctly remains later Step 4 work |
-| Audio | Equalizer / boost / advanced DSP | NOT IMPLEMENTED | Correctly remains later Step 5 work |
+| Player | PiP foundation | PARTIAL | Architecture retained; physical/device-specific certification remains later |
+| Player | Audio focus / noisy-route handling | PARTIAL | Media3 implementation retained; representative physical hardware routing certification deferred |
+| Media | Large-file-safe types | PASS | Long-safe sizes/durations/positions; tests include multi-GB metadata values |
+| Decoder | Software decoder | NOT IMPLEMENTED | Correctly remains later Step-6 work; no fake decoder added |
+| Subtitles | Professional external subtitle engine | NOT IMPLEMENTED | Correctly remains later Step-4 work |
+| Audio | Equalizer / boost / advanced DSP | NOT IMPLEMENTED | Correctly remains later Step-5 work |
+
+The two Step-1 rows marked PARTIAL above are physical/later-step certification boundaries, not missing Step-2 library requirements.
+
+## Automated Step-2 certification
+
+Authoritative implementation gate:
+
+- CI run `34052267617` (#68)
+- SHA `a901f41007643c90cc37a7e0467caa0c3af9bd2f`
+- debug build + JVM tests — PASS
+- release compilation — PASS
+- lint — PASS
+- API-35 instrumentation — PASS
 
 ## Physical certification deferred to Step 10
 
-The following remain **NOT VERIFIED — DEFERRED TO STEP 10** and do not block Step-2 software/emulator work:
+The following remain **NOT VERIFIED — DEFERRED TO STEP 10** and do not block the Step-2 software/emulator result:
 
 - real 3 GB+ / 5 GB+ / 10 GB+ playback
 - real 3840×2160 4K and HDR playback
 - real SD-card and USB/OTG behavior
-- OEM/manufacturer-specific MediaStore and document-provider behavior
+- OEM/manufacturer-specific MediaStore/document-provider behavior
 - physical Bluetooth/headset behavior
 - battery, thermal and long-run physical testing
 - broad phone/tablet device matrix
 
 ## Step-2 overall matrix result
 
-**PARTIAL** until the remaining mandatory software gaps are closed and a final green CI run confirms all automated gates. In particular, the current branch must not be called Step-2 PASS while multi-selection, full media-details/file-action/relink UI integration, dedicated thumbnail coverage, and truly incremental/paged data loading remain incomplete.
+**PASS — software/emulator Step-2 requirements are implemented and the authoritative automated gate is green.**
+
+Later-step capabilities and Step-10 physical certification remain explicitly outside this result. Step 3 has not been started.
