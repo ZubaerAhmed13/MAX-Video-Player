@@ -2,15 +2,20 @@ package com.zubaer.maxvideoplayer.feature.library
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,10 +35,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +48,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.zubaer.maxvideoplayer.core.model.AppMedia
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LibraryScreen(
@@ -122,6 +131,8 @@ private fun MediaRow(media: AppMedia, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        MediaThumbnail(media)
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(media.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
             val details = buildList {
@@ -133,6 +144,28 @@ private fun MediaRow(media: AppMedia, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(12.dp))
         Button(onClick = onClick) { Text("Play") }
+    }
+}
+
+@Composable
+private fun MediaThumbnail(media: AppMedia) {
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(initialValue = null, media.uri) {
+        value = withContext(Dispatchers.IO) {
+            if (Build.VERSION.SDK_INT < 29) return@withContext null
+            val uri = runCatching { Uri.parse(media.uri) }.getOrNull() ?: return@withContext null
+            if (uri.scheme != "content") return@withContext null
+            runCatching { context.contentResolver.loadThumbnail(uri, Size(240, 135), null) }.getOrNull()
+        }
+    }
+
+    val modifier = Modifier.width(112.dp).aspectRatio(16f / 9f)
+    if (bitmap != null) {
+        Image(bitmap = bitmap!!.asImageBitmap(), contentDescription = null, modifier = modifier)
+    } else {
+        Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+            Text("Video", style = MaterialTheme.typography.labelSmall)
+        }
     }
 }
 

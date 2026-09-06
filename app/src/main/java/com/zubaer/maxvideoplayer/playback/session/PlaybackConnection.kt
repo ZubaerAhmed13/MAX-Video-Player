@@ -10,6 +10,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
+import com.zubaer.maxvideoplayer.core.model.RepeatMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -95,6 +96,13 @@ class PlaybackConnection(context: Context) {
     fun seekToNext() = withController { if (it.hasNextMediaItem()) it.seekToNextMediaItem() }
     fun seekToPrevious() = withController { if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem() }
     fun setPlaybackSpeed(speed: Float) = withController { it.setPlaybackSpeed(speed.coerceIn(0.25f, 4f)) }
+    fun setRepeatMode(mode: RepeatMode) = withController {
+        it.repeatMode = when (mode) {
+            RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+            RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+            RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+        }
+    }
     fun playerOrNull(): Player? = controller
 
     private fun withController(block: (MediaController) -> Unit) {

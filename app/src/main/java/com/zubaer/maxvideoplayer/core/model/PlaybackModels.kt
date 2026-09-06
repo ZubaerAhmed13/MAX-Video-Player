@@ -7,6 +7,12 @@ enum class DecoderMode {
     SOFTWARE,
 }
 
+enum class RepeatMode {
+    OFF,
+    ONE,
+    ALL,
+}
+
 enum class ImplementationStatus {
     IMPLEMENTED,
     SHARED_IMPLEMENTATION,

@@ -4,10 +4,7 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zubaer.maxvideoplayer.core.model.AppMedia
@@ -28,14 +25,15 @@ fun MaxApp(
     onEnterPip: () -> Unit,
     onFullscreenChanged: (Boolean) -> Unit,
 ) {
-    var selectedMedia by remember { mutableStateOf<AppMedia?>(null) }
     val scope = rememberCoroutineScope()
+    val navigationViewModel: AppNavigationViewModel = viewModel()
+    val selectedMedia by navigationViewModel.selectedMedia.collectAsStateWithLifecycle()
     val libraryViewModel: LibraryViewModel = viewModel(factory = simpleFactory { LibraryViewModel(container.mediaStoreRepository) })
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(externalMedia?.stableId) {
         externalMedia?.let {
-            selectedMedia = it
+            navigationViewModel.select(it)
             onExternalConsumed()
         }
     }
@@ -49,11 +47,11 @@ fun MaxApp(
                 onOpenDocument = { uri ->
                     persistUriPermission(uri)
                     scope.launch {
-                        selectedMedia = container.metadataExtractor.fromUri(uri, MediaSourceType.SAF)
+                        navigationViewModel.select(container.metadataExtractor.fromUri(uri, MediaSourceType.SAF))
                     }
                 },
-                onPlay = { selectedMedia = it },
-                onOpenNetworkUrl = { url -> selectedMedia = container.metadataExtractor.fromNetworkUrl(url) },
+                onPlay = navigationViewModel::select,
+                onOpenNetworkUrl = { url -> navigationViewModel.select(container.metadataExtractor.fromNetworkUrl(url)) },
             )
         } else {
             val playerViewModel: PlayerViewModel = viewModel(
@@ -64,7 +62,7 @@ fun MaxApp(
                 media = media,
                 viewModel = playerViewModel,
                 playbackConnection = container.playbackConnection,
-                onBack = { selectedMedia = null },
+                onBack = navigationViewModel::clearSelection,
                 onEnterPip = onEnterPip,
                 onFullscreenChanged = onFullscreenChanged,
             )

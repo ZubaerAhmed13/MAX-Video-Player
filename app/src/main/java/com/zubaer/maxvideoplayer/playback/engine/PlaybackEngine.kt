@@ -2,6 +2,7 @@ package com.zubaer.maxvideoplayer.playback.engine
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.zubaer.maxvideoplayer.core.model.RepeatMode
 
 interface PlaybackEngine {
     val player: Player
@@ -12,5 +13,6 @@ interface PlaybackEngine {
     fun pause()
     fun seekTo(positionMs: Long)
     fun setPlaybackSpeed(speed: Float)
+    fun setRepeatMode(mode: RepeatMode)
     fun release()
 }
