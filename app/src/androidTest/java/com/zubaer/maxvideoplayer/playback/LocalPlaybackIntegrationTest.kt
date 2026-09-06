@@ -4,8 +4,10 @@ import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
 import android.util.Base64
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.zubaer.maxvideoplayer.MainActivity
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
@@ -26,8 +28,11 @@ import java.security.MessageDigest
  * so CI does not depend on network media or a binary GitHub fixture. A SHA-256 assertion verifies
  * the exact decoded bytes before Media3 sees them.
  *
- * The test goes through PlaybackConnection -> MediaController -> MediaSessionService -> ExoPlayer,
- * which verifies the service-owned player path rather than only testing a fake or isolated UI state.
+ * Playback is initiated while MainActivity is foreground because Android 15+ only grants media
+ * audio focus to an eligible foreground app/foreground service. The actual player remains owned
+ * by PlaybackService; the Activity never owns an ExoPlayer instance.
+ *
+ * The tested path is PlaybackConnection -> MediaController -> MediaSessionService -> ExoPlayer.
  */
 @RunWith(AndroidJUnit4::class)
 class LocalPlaybackIntegrationTest {
@@ -43,6 +48,9 @@ class LocalPlaybackIntegrationTest {
         val fixture = File(context.cacheDir, "step1_local_playback_fixture.mp4")
         fixture.writeBytes(fixtureBytes)
         assertEquals(FIXTURE_SIZE_BYTES.toLong(), fixture.length())
+
+        val activityScenario = ActivityScenario.launch(MainActivity::class.java)
+        instrumentation.waitForIdleSync()
 
         val connection = PlaybackConnection(context)
         val media = AppMedia(
@@ -104,6 +112,7 @@ class LocalPlaybackIntegrationTest {
                 connection.pause()
                 connection.disconnect()
             }
+            activityScenario.close()
             context.stopService(Intent(context, PlaybackService::class.java))
             fixture.delete()
         }
