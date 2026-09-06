@@ -1,6 +1,9 @@
 package com.zubaer.maxvideoplayer.feature.player
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -60,11 +63,63 @@ class PlayerControlsInstrumentedTest {
         composeRule.onNodeWithTag("orientation_button").assertExists()
         composeRule.onNodeWithTag("lock_button").assertExists()
         composeRule.onNodeWithTag("pip_button").assertExists()
+        composeRule.onNodeWithTag("fullscreen_button").assertExists()
         assertTrue(playClicked)
     }
 
     @Test
+    fun visibilityStateActuallyHidesAndRestoresControlOverlay() {
+        var state by mutableStateOf(PlayerCoordinatorState(controlsVisible = true))
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerControlsOverlay(
+                    coordinator = state,
+                    playback = PlaybackUiState(durationMs = 60_000L),
+                    fallbackTitle = "Visibility",
+                    onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                    onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                    onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                    onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("seek_bar").assertExists()
+        composeRule.runOnIdle { state = state.copy(controlsVisible = false) }
+        composeRule.mainClock.advanceTimeBy(600L)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("seek_bar").assertDoesNotExist()
+        composeRule.runOnIdle { state = state.copy(controlsVisible = true) }
+        composeRule.mainClock.advanceTimeBy(600L)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("seek_bar").assertExists()
+    }
+
+    @Test
+    fun bufferingAndHudRemainVisibleIndependentlyOfControls() {
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerControlsOverlay(
+                    coordinator = PlayerCoordinatorState(
+                        controlsVisible = false,
+                        hud = PlayerHudState.Brightness(0.65f),
+                    ),
+                    playback = PlaybackUiState(isBuffering = true),
+                    fallbackTitle = "Buffering",
+                    onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                    onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                    onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                    onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("buffering_indicator").assertExists()
+        composeRule.onNodeWithTag("player_hud").assertExists()
+        composeRule.onNodeWithTag("seek_bar").assertDoesNotExist()
+    }
+
+    @Test
     fun lockedStateBlocksNormalOverlayAndKeepsExplicitUnlock() {
+        var unlockClicked = false
         composeRule.setContent {
             MaterialTheme {
                 PlayerControlsOverlay(
@@ -86,15 +141,16 @@ class PlayerControlsInstrumentedTest {
                     onOpenMenu = {},
                     onRotate = {},
                     onLock = {},
-                    onUnlock = {},
+                    onUnlock = { unlockClicked = true },
                     onPip = {},
                     onFullscreen = {},
                 )
             }
         }
 
-        composeRule.onNodeWithTag("unlock_button").assertExists()
+        composeRule.onNodeWithTag("unlock_button").assertExists().performClick()
         composeRule.onNodeWithTag("seek_bar").assertDoesNotExist()
         composeRule.onNodeWithTag("play_pause_button").assertDoesNotExist()
+        assertTrue(unlockClicked)
     }
 }
