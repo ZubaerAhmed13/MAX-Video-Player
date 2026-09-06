@@ -235,6 +235,13 @@ private fun PlayerBottomBar(
                 Text("${formatSpeed(playback.playbackSpeed)}×")
             }
             TextButton(onClick = { onOpenMenu(PlayerMenu.PLAYBACK) }, modifier = Modifier.testTag("playback_mode_button")) { Text("Mode") }
+            TextButton(
+                onClick = { onOpenMenu(PlayerMenu.SUBTITLES) },
+                modifier = Modifier.testTag("subtitle_button").semantics { contentDescription = "Subtitles and closed captions" },
+            ) {
+                val selected = playback.subtitles.tracks.firstOrNull { it.selected }
+                Text(if (!playback.subtitles.enabled) "CC Off" else selected?.language?.uppercase()?.let { "CC $it" } ?: "CC")
+            }
             TextButton(onClick = { onOpenMenu(PlayerMenu.DISPLAY) }, modifier = Modifier.testTag("display_button")) { Text("Display") }
             TextButton(onClick = onRotate, modifier = Modifier.testTag("rotation_button")) { Text("Rotate") }
             TextButton(onClick = { onOpenMenu(PlayerMenu.ORIENTATION) }, modifier = Modifier.testTag("orientation_button")) { Text("Orient") }
