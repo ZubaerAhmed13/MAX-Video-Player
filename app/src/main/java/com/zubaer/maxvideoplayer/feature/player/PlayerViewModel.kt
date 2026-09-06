@@ -192,13 +192,14 @@ class PlayerViewModel(
         if (surfaceInteractionBlocked(_state.value) || !_state.value.preferences.pinchZoomEnabled) return
         autoHideJob?.cancel()
         val current = _state.value
+        val activeMedia = mediaForPlaybackId(playbackConnection.state.value.mediaId)
         val nextZoom = PlayerInteractionPolicy.zoom(current.zoom, zoomMultiplier)
         val renderedTransform = PlayerInteractionPolicy.transform(
             resizeMode = current.resizeMode,
             customAspectRatio = current.customAspectRatio,
-            sourceWidth = media.width,
-            sourceHeight = media.height,
-            sourceRotationDegrees = media.rotationDegrees,
+            sourceWidth = activeMedia.width,
+            sourceHeight = activeMedia.height,
+            sourceRotationDegrees = activeMedia.rotationDegrees,
             manualZoom = nextZoom,
             panX = 0f,
             panY = 0f,
