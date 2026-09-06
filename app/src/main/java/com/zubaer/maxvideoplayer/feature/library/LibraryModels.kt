@@ -13,8 +13,20 @@ import java.util.Locale
 enum class LibrarySection { VIDEOS, FOLDERS, CONTINUE_WATCHING, RECENT, FAVOURITES, PLAYLISTS, HISTORY }
 enum class LibraryViewMode { LIST, GRID }
 enum class VideoSort { NAME, DATE_ADDED, DATE_MODIFIED, DURATION, SIZE, RESOLUTION, LAST_PLAYED }
+enum class FolderSort { NAME, VIDEO_COUNT, LAST_MODIFIED, TOTAL_SIZE }
 enum class SortDirection { ASCENDING, DESCENDING }
-enum class LibraryFilter { ALL, WATCHED, UNWATCHED, IN_PROGRESS, FAVOURITES }
+enum class LibraryFilter {
+    ALL,
+    WATCHED,
+    UNWATCHED,
+    IN_PROGRESS,
+    FAVOURITES,
+    RESOLUTION_720P_PLUS,
+    RESOLUTION_1080P_PLUS,
+    RESOLUTION_2160P,
+    UNDER_10_MINUTES,
+    OVER_60_MINUTES,
+}
 
 data class FolderItem(
     val key: String,
@@ -35,6 +47,7 @@ data class LibraryUiState(
     val section: LibrarySection = LibrarySection.VIDEOS,
     val query: String = "",
     val sort: VideoSort = VideoSort.DATE_MODIFIED,
+    val folderSort: FolderSort = FolderSort.NAME,
     val sortDirection: SortDirection = SortDirection.DESCENDING,
     val filter: LibraryFilter = LibraryFilter.ALL,
     val viewMode: LibraryViewMode = LibraryViewMode.LIST,
@@ -49,6 +62,29 @@ data class LibraryUiState(
     val sources: List<LibrarySourceEntity> = emptyList(),
     val excludedFolders: List<ExcludedFolderEntity> = emptyList(),
 )
+
+object LibraryFolderEngine {
+    fun sort(input: List<FolderItem>, sort: FolderSort, direction: SortDirection): List<FolderItem> {
+        val comparator = Comparator<FolderItem> { a, b ->
+            val primary = when (sort) {
+                FolderSort.NAME -> a.name.compareTo(b.name, ignoreCase = true)
+                FolderSort.VIDEO_COUNT -> a.videos.size.compareTo(b.videos.size)
+                FolderSort.LAST_MODIFIED -> compareNullable(a.newestModifiedMs, b.newestModifiedMs)
+                FolderSort.TOTAL_SIZE -> a.totalSizeBytes.compareTo(b.totalSizeBytes)
+            }
+            if (primary != 0) primary else a.name.compareTo(b.name, ignoreCase = true)
+        }
+        val sorted = input.sortedWith(comparator)
+        return if (direction == SortDirection.ASCENDING) sorted else sorted.asReversed()
+    }
+
+    private fun <T : Comparable<T>> compareNullable(a: T?, b: T?): Int = when {
+        a == null && b == null -> 0
+        a == null -> -1
+        b == null -> 1
+        else -> a.compareTo(b)
+    }
+}
 
 object LibraryQueryEngine {
     fun apply(
@@ -96,7 +132,20 @@ object LibraryQueryEngine {
             LibraryFilter.UNWATCHED -> item == null
             LibraryFilter.IN_PROGRESS -> item?.let(::isContinueWatching) == true
             LibraryFilter.FAVOURITES -> media.stableId in favouriteIds
+            LibraryFilter.RESOLUTION_720P_PLUS -> resolutionAtLeast(media, 1280, 720)
+            LibraryFilter.RESOLUTION_1080P_PLUS -> resolutionAtLeast(media, 1920, 1080)
+            LibraryFilter.RESOLUTION_2160P -> resolutionAtLeast(media, 3840, 2160)
+            LibraryFilter.UNDER_10_MINUTES -> media.durationMs?.let { it in 0L..599_999L } == true
+            LibraryFilter.OVER_60_MINUTES -> media.durationMs?.let { it >= 3_600_000L } == true
         }
+    }
+
+    private fun resolutionAtLeast(media: AppMedia, minWidth: Int, minHeight: Int): Boolean {
+        val width = media.width ?: return false
+        val height = media.height ?: return false
+        val longEdge = maxOf(width, height)
+        val shortEdge = minOf(width, height)
+        return longEdge >= maxOf(minWidth, minHeight) && shortEdge >= minOf(minWidth, minHeight)
     }
 
     private fun comparator(sort: VideoSort, history: Map<String, MediaHistoryEntity>): Comparator<AppMedia> = Comparator { a, b ->
