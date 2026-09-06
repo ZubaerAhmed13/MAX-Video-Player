@@ -26,16 +26,16 @@ A `PASS` requires implementation, integration, a real functional flow, error han
 | Library | Grid view | PASS | Adaptive LazyVerticalGrid, stable IDs, persisted view preference |
 | Library | Multi-selection | PASS | Stable-ID selection with batch favourite, unfavourite and add-to-playlist plus cancel flow |
 | Library | Media details | PASS | Dedicated dialog exposes available filename/location/URI/duration/resolution/size/MIME/codecs/frame rate/dates/progress and other deep fields |
-| Storage | MediaStore | PASS | Efficient projection, stable provider identities, off-main scan, debounced observer refresh |
+| Storage | MediaStore | PASS | Efficient projection, stable provider identities, off-main scan, debounced observer refresh; post-rename scans reconcile known provider URIs back to the historical stable ID |
 | Storage | SAF file | PASS | Step-1 OpenDocument path retained; persistable read permission where supported |
-| Storage | SAF folder | PASS | OpenDocumentTree addition and provider-aware recursive scanning |
+| Storage | SAF folder | PASS | OpenDocumentTree addition and provider-aware recursive scanning; permission and provider failures consistently mark indexed rows unavailable before returning/throwing |
 | Storage | Persisted tree permission | PASS | Permission/source status persisted; permission loss becomes recoverable source state |
 | Storage | Excluded folders | PASS | Persistent exclude/restore management |
-| Storage | Missing source | PASS | Unavailable rows/source states are represented rather than crashing or being faked available |
-| Storage | Relink | PASS | `Locate original` picker + plausibility validator + stable-ID-preserving repository update; validator tests |
+| Storage | Missing source | PASS | Unavailable rows/source states are represented consistently for permission loss and generic SAF provider failure rather than remaining falsely available |
+| Storage | Relink | PASS | `Locate original` picker + plausibility validator + stable-ID-preserving repository update; rename/rescan reconciliation regression tests retain the historical ID |
 | Files | Delete | PASS | Explicit app confirmation, Android/provider-aware MediaStore/SAF flow, system confirmation support, relational cleanup tests |
-| Files | Rename | PASS | MediaStore/SAF provider-aware flow, system/write confirmation handling, truthful unsupported state, instrumented repository coverage |
-| Media | Thumbnails | PASS | Bounded/cancellable 16 MiB memory cache, bounded requests, invalidation/placeholder; JVM policy + instrumented failure/cancellation coverage |
+| Files | Rename | PASS | MediaStore/SAF provider-aware flow plus scan-boundary stable-ID reconciliation; rename→rescan regression tests verify favourites/playlists/history identity can remain attached |
+| Media | Thumbnails | PASS | API 29+ ContentResolver thumbnails; API 27–28 scaled MediaMetadataRetriever; API 23–26 legacy retriever + bounded downscale; API-26/API-28 emulator tests and API-level JVM policy tests pass |
 | Media | Metadata | PASS | Fast MediaStore metadata plus optional deep extractor; details surface deep fields when available without deep-scanning every index row |
 | Performance | Large library | PASS | 10,000-entry deterministic derivation tests, lazy Compose, off-main work, 512-row deterministic cancellable Room chunks with progressive snapshots |
 | Performance | No main-thread scanning | PASS | MediaStore/SAF I/O, thumbnails and large derived-list work stay off UI thread |
@@ -62,7 +62,7 @@ The two Step-1 rows marked PARTIAL above are physical/later-step certification b
 
 ## Automated Step-2 certification
 
-Authoritative implementation gate:
+Original Step-2 implementation gate:
 
 - CI run `34052267617` (#68)
 - SHA `a901f41007643c90cc37a7e0467caa0c3af9bd2f`
@@ -70,6 +70,17 @@ Authoritative implementation gate:
 - release compilation — PASS
 - lint — PASS
 - API-35 instrumentation — PASS
+
+Post-certification hardening gate for rename/rescan identity, Android 23–28 thumbnails, and SAF failure availability consistency:
+
+- CI run `34054268096` (#73)
+- SHA `7d2170f4003f7f6a1b60b843583bac623395e730`
+- debug build + JVM tests — PASS
+- release compilation — PASS
+- lint — PASS
+- API-35 full instrumentation — PASS
+- API-26 targeted legacy-thumbnail instrumentation — PASS
+- API-28 targeted legacy-thumbnail instrumentation — PASS
 
 ## Physical certification deferred to Step 10
 
@@ -85,6 +96,6 @@ The following remain **NOT VERIFIED — DEFERRED TO STEP 10** and do not block t
 
 ## Step-2 overall matrix result
 
-**PASS — software/emulator Step-2 requirements are implemented and the authoritative automated gate is green.**
+**PASS — software/emulator Step-2 requirements and the three post-certification hardening defects are resolved with green automated evidence.**
 
 Later-step capabilities and Step-10 physical certification remain explicitly outside this result. Step 3 has not been started.
