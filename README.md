@@ -6,18 +6,18 @@ MX Player Pro is used only as a functionality, workflow, interaction, and featur
 
 ## Current development status
 
-**Step 1 of 10 — Professional Android Foundation**
+**Step 2 of 10 — Professional Media Library**
 
-Active development branch: `step-1-professional-foundation`
+Active development branch: `step-2-professional-media-library`
 
-Step 1 establishes the native playback, lifecycle, persistence, large-media, device-capability, storage, testing, and certification architecture required for later parity work. Step 2 remains intentionally out of scope until Step 1 is reviewed/approved.
+Step 1 remains the playback/lifecycle/storage foundation. Step 2 extends that foundation with a persistent, storage-aware, queue-aware video library without moving playback ownership back into an Activity or replacing the MediaSession architecture.
 
-**Step 1 implementation and automated verification gate: PASS.** The authoritative verified production/test code revision is `ebf58eb0a95ac6e59429417d990caac212ace58e`, verified by Android CI run `34032102391`. Physical 3 GB+, 4K/HDR, Bluetooth/headphone-route, manufacturer-specific codec, and broad multi-device certification remain `NOT VERIFIED` until representative hardware/assets are tested.
+Step-2 completion is evidence-based: a screen or table existing by itself is not counted as PASS. Physical 3 GB+, 4K/HDR, SD-card/USB/OEM MediaStore, Bluetooth, battery, thermal, and broad hardware certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
 ## Platform baseline
 
 - Kotlin
-- Jetpack Compose 1.11.x (BOM 2026.06.00)
+- Jetpack Compose
 - AndroidX
 - Media3 / ExoPlayer
 - MediaSession + MediaSessionService
@@ -32,54 +32,76 @@ Step 1 establishes the native playback, lifecycle, persistence, large-media, dev
 
 This is a fully native Android application. It does not use WebView, Capacitor, Cordova, React Native, Flutter, or TWA as its application architecture.
 
-## Step-1 capabilities
+## Step-2 library capabilities
 
-The current Step-1 implementation includes:
+The Step-2 branch currently implements the following software foundations and integrated flows:
 
-- service-owned Media3 playback engine rather than Activity/Composable-owned ExoPlayer instances
-- real MediaSession integration for Android system media controls
-- background-playback architecture through MediaSessionService
-- audio-focus handling and audio-becoming-noisy protection
-- local MediaStore discovery
-- Storage Access Framework file opening with persistable URI support
-- URI-based large-media access without whole-file copying or whole-file RAM loading
-- long-safe file-size, duration, position, and offset handling
-- bounded first/middle/end sampled media fingerprinting instead of hashing multi-GB media end-to-end
-- metadata extraction for duration, dimensions, rotation, codecs, audio information, and available colour metadata
-- Room playback history, completion state, and resume decision logic
-- playback queue foundation
-- basic professional library and player interfaces
-- play, pause, seek, previous/next foundation, playback speed, loading state, and structured errors
-- PiP foundation
-- HTTPS/HLS/DASH/RTSP Media3 dependency foundation
-- device/codec capability profiling using MediaCodecList/MediaCodecInfo
-- capability-aware 720p, 1080p, 1440p, and 2160p checks
-- explicit decoder-mode model without pretending a software decoder exists
-- unit, database instrumentation, Compose instrumentation, and real-media service-path instrumentation tests
-- GitHub Actions build/test/lint/API-35 instrumentation workflow with KVM acceleration where available
+- Videos, Folders, Continue Watching, Recent, History, Favourites, and Playlists sections
+- list and grid library views with persisted preference
+- debounced search across title, filename, and folder
+- video sorting by name, added/modified date, duration, size, resolution, and last played
+- watched/unwatched/in-progress/favourites filtering
+- MediaStore discovery using a bounded projection rather than opening every source file
+- MediaStore change observation with debouncing
+- user-approved SAF directory sources through `ACTION_OPEN_DOCUMENT_TREE`
+- persisted SAF tree permission state and provider-aware traversal
+- stable source/folder identities that do not depend only on display names
+- excluded-folder persistence and restore workflow
+- Room-backed media index/cache, favourites, playlists, sources, exclusions, and library preferences
+- explicit Room database `MIGRATION_1_2`; no destructive migration fallback
+- Continue Watching and Recent based on the existing authoritative Step-1 playback history/resume policy
+- playlist create/rename/delete/add/remove/reorder persistence
+- folder/list/playlist playback requests that construct real queues for the existing service-owned player path
+- missing playlist media represented as unavailable instead of crashing
+- stable-ID-preserving relink validation/repository foundation
+- Android-policy-compliant delete/rename repository foundation for MediaStore/SAF
+- dedicated bounded in-memory thumbnail repository with cancellation and failure fallback
+- 10,000-entry deterministic search/sort verification
+- Long-safe multi-GB size handling throughout the library model/database
 
-## Decoder status policy
+Some Step-2 requirements still require explicit evidence or final integration before they may be marked PASS; see `PARITY_MATRIX.md` and `STEP_2_COMPLETION_REPORT.md`.
 
-The architecture models `AUTO`, `HARDWARE`, `ENHANCED_HARDWARE`, and `SOFTWARE`. Step 1 does **not** claim four independent decoder engines. AUTO and hardware playback use Media3/MediaCodec; Enhanced Hardware currently shares the hardware foundation; Software is architecture-only and remains `NOT IMPLEMENTED` until its dedicated later step. No placebo decoder buttons are counted as implementation.
+## Playback ownership — preserved from Step 1
 
-## Large-media policy
+```text
+Compose UI
+   ↓
+PlaybackConnection
+   ↓
+MediaController
+   ↓
+MediaSessionService
+   ↓
+MediaSession
+   ↓
+PlaybackEngine
+   ↓
+Media3 / ExoPlayer
+```
 
-Large-media support is a non-negotiable architectural requirement. Normal playback references source URIs directly, does not duplicate multi-GB files just to play them, does not read entire videos into byte arrays, does not load complete media into RAM, uses `Long` for byte sizes/offsets and playback time values, and bounds optional fingerprint reads to small samples.
+Library work does not create an Activity-owned player. Selecting media from a folder, sorted video list, or playlist passes lightweight queue state into the existing playback/session architecture.
 
-The architecture targets 3 GB+ media, and automated integer/persistence tests exercise values above `Int.MAX_VALUE`; however, physical 3 GB+ playback remains `NOT VERIFIED` until such an asset is actually tested.
+## Storage model
 
-## 4K policy
+The library distinguishes source truth from cached/indexed metadata. MediaStore is queried for fast indexed metadata. User-approved SAF trees are traversed through Android document-provider APIs without assuming filesystem paths. Missing or permission-lost sources are retained as recoverable/unavailable state rather than silently treated as valid or immediately erased.
 
-The application does not impose an artificial resolution ceiling. It targets SD through 720p, 1080p, 1440p/2K, and 2160p/4K subject to the device decoder's real capabilities. It never assumes that a recent Android version automatically means 4K support. Physical 3840×2160 playback remains `NOT VERIFIED` until tested on appropriate hardware/media.
+The app does **not** request `MANAGE_EXTERNAL_STORAGE` merely for convenience. If broad media permission is denied, SAF Open File and Add Folder remain usable.
 
-## Build
+## Persistence
 
-Requirements:
+Room database version 2 adds persistent favourites, playlists and playlist items, library sources, excluded folders, media index rows, and library preferences while retaining Step-1 history and playback preferences. `MIGRATION_1_2` is explicit and is covered by an Android migration test intended to prove Step-1 history/resume values survive the upgrade.
 
-1. JDK 17
-2. Android SDK platform 36
-3. Android SDK Build Tools 36.0.0 or compatible installed tooling
-4. Gradle 9.6.0 (CI installs this explicitly)
+## Large-library and large-media policy
+
+Library scans, SAF traversal, metadata work, thumbnail work, and large derived-list operations run off the UI thread. Compose uses lazy list/grid containers with stable media IDs as keys. Search/sort correctness is exercised with 10,000 synthetic media rows; the project avoids brittle nanosecond timing assertions.
+
+File sizes, durations, positions, and relevant counters remain `Long`-safe. Normal library operations do not read entire videos, calculate thumbnails from full 4K/8K frames, or duplicate multi-GB media. Real 3 GB+, 5 GB+, 10 GB+, 4K, and removable-storage behavior still require Step-10 physical certification.
+
+## Thumbnail policy
+
+`ThumbnailRepository` centralizes thumbnail loading. Requests are dimension-bounded, executed off the main thread, cancellable, and cached in a bounded LRU memory cache. Thumbnail failure returns a placeholder and never blocks playback. No unbounded bitmap cache is allowed.
+
+## Build and verification
 
 From the repository root:
 
@@ -88,73 +110,24 @@ gradle :app:assembleDebug
 gradle :app:testDebugUnitTest
 gradle :app:assembleRelease
 gradle :app:lintDebug
-```
-
-For instrumentation on a connected/emulated Android device:
-
-```bash
 gradle :app:connectedDebugAndroidTest
 ```
 
-The repository intentionally does not rely on hidden signing credentials for Step 1 verification.
+GitHub Actions runs the same Step-2 gate, with API-35 instrumentation and KVM acceleration where available. A failed gate is fixed at the root cause; tests are not disabled, weakened, or ignored merely to make CI green.
 
-## Architecture overview
+## Documentation
 
-Playback ownership is deliberately separated from UI lifecycle:
-
-```text
-Compose UI
-   │
-PlaybackConnection / MediaController
-   │
-MediaSessionService
-   │
-MediaSession
-   │
-PlaybackEngine
-   │
-Media3 / ExoPlayer
-```
-
-The source tree is logically separated into `core.model`, `core.database`, `core.media`, `core.device`, `playback.engine`, `playback.session`, `feature.library`, `feature.player`, and `ui`. These package boundaries are designed so later Gradle-module extraction does not require replacing domain contracts.
-
-See `ARCHITECTURE.md` for the detailed ownership and dependency model.
-
-## Automated verification evidence
-
-Authoritative code SHA: `ebf58eb0a95ac6e59429417d990caac212ace58e`  
-Authoritative workflow: Android CI run `34032102391`
-
-Passed gates:
-
-- Debug build + JVM unit tests — **PASS**
-- Release compilation — **PASS**
-- Android lint — **PASS**
-- API-35 instrumentation — **PASS**
-- Instrumentation XML — **6 tests, 0 failures, 0 errors, 0 skipped**
-- SHA-256-verified local H.264 MP4 through `PlaybackConnection -> MediaController -> MediaSessionService -> ExoPlayer` — **PASS**
-- Load, foreground-eligible audio focus, play, advancing position, pause, and seek — **PASS**
-- Room history integration — **PASS**
-- Activity recreation/foundation UI — **PASS**
-- Runtime capability mapping — **PASS**
-
-See `STEP_1_VERIFICATION_SNAPSHOT.md` and `STEP_1_COMPLETION_REPORT.md` for the exact certification boundary.
-
-## Verification and documentation
-
-- `ARCHITECTURE.md` — architecture, ownership, lifecycle, decoder expansion, storage, and capability design
-- `PARITY_MATRIX.md` — target capability status using PASS/PARTIAL/FAIL/NOT VERIFIED/NOT IMPLEMENTED
-- `LARGE_MEDIA_AUDIT.md` — whole-file-loading and integer/offset safety audit
-- `DEPENDENCIES.md` — Step-1 dependency register and reasons
-- `STEP_1_VERIFICATION_SNAPSHOT.md` — exact green code SHA and CI evidence
-- `STEP_1_COMPLETION_REPORT.md` — A–R certification report and executed-gate status
-
-No UI-only stub is allowed to be marked `PASS`.
+- `ARCHITECTURE.md` — Step-1 playback ownership plus Step-2 media-library/source/cache/queue architecture
+- `DEPENDENCIES.md` — dependency register and licenses/purposes
+- `PARITY_MATRIX.md` — evidence-backed capability status
+- `LARGE_MEDIA_AUDIT.md` — large-media/integer safety boundary
+- `STEP_1_COMPLETION_REPORT.md` — Step-1 certification record
+- `STEP_2_COMPLETION_REPORT.md` — Step-2 implementation/test/CI report
 
 ## Roadmap boundary
 
-The following dedicated areas remain later steps and must not be mistaken for completed Step-1 functionality: full media-library management, advanced gestures, professional subtitle engine/styling, audio DSP, real software-decoder routing, SMB/WebDAV/FTP, cloud/Cast, advanced privacy/security features, and final multi-device/large-media/HDR certification.
+Step 2 intentionally does **not** implement the final advanced gesture system, professional external subtitle engine, audio DSP/equalizer, real software-decoder routing, later network/cloud/cast features, or final physical-device certification. Those remain later steps.
 
 ## Contribution principle
 
-Do not solve difficult architectural problems by deleting requirements. Prefer correct, maintainable, testable implementations; preserve working behavior; document genuine limitations; and never fabricate verification results.
+Do not solve difficult architectural problems by deleting requirements. Preserve working behavior, implement independently, document genuine limitations, keep user data through schema changes, and never fabricate verification results.
