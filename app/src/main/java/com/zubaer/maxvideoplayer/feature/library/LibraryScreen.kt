@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +31,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -38,6 +41,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -55,8 +59,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -109,6 +115,7 @@ fun LibraryScreen(
     playbackRequest: (AppMedia) -> LibraryPlaybackRequest,
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val mediaPermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
     var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, mediaPermission) == PackageManager.PERMISSION_GRANTED) }
     var pendingFileConfirmation by remember { mutableStateOf<FileActionConfirmation?>(null) }
@@ -133,6 +140,11 @@ fun LibraryScreen(
 
     var networkUrl by remember { mutableStateOf("") }
     var clearHistoryConfirm by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = state.query.isNotEmpty()) {
+        onQuery("")
+        focusManager.clearFocus()
+    }
 
     LaunchedEffect(hasPermission) { if (hasPermission) onRefresh() }
     LaunchedEffect(events) {
@@ -176,7 +188,10 @@ fun LibraryScreen(
             }
 
             Spacer(Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyRow(
+                modifier = Modifier.testTag("library_section_row"),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 items(LibrarySection.entries, key = { it.name }) { section ->
                     FilterChip(
                         selected = state.section == section,
@@ -194,13 +209,23 @@ fun LibraryScreen(
                     item { TextButton(onClick = onToggleSortDirection) { Text(if (state.sortDirection == SortDirection.ASCENDING) "↑ Asc" else "↓ Desc") } }
                 }
             } else {
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = onQuery,
-                    modifier = Modifier.fillMaxWidth().testTag("library_search_input"),
-                    singleLine = true,
-                    label = { Text("Search title, filename or folder") },
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = state.query,
+                        onValueChange = onQuery,
+                        modifier = Modifier.weight(1f).testTag("library_search_input"),
+                        singleLine = true,
+                        label = { Text("Search title, filename or folder") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                    )
+                    if (state.query.isNotEmpty()) {
+                        TextButton(
+                            onClick = { onQuery(""); focusManager.clearFocus() },
+                            modifier = Modifier.testTag("clear_search_button"),
+                        ) { Text("Clear") }
+                    }
+                }
                 Spacer(Modifier.height(6.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     item { TextButton(onClick = { onSort(state.sort.next()) }) { Text("Sort: ${state.sort.label()}") } }
@@ -411,7 +436,9 @@ private fun MediaCollection(
     val selectedMedia = state.media.filter { it.stableId in selectedIds }
 
     if (state.media.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(emptyMessage(state.section)) }
+        Box(Modifier.fillMaxSize().testTag("library_empty_state"), contentAlignment = Alignment.Center) {
+            Text(if (state.query.isNotBlank()) "No results for “${state.query}”." else emptyMessage(state.section))
+        }
         return
     }
 
@@ -572,8 +599,15 @@ private fun MediaCard(
             }.joinToString(" • ")
             if (details.isNotBlank()) Text(details, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             history?.takeIf { it.durationMs > 0L && it.lastPositionMs > 0L }?.let {
-                val percent = ((it.lastPositionMs.toDouble() / it.durationMs.toDouble()) * 100.0).toInt().coerceIn(0, 100)
-                Text("Progress $percent%", style = MaterialTheme.typography.labelSmall)
+                val positionMs = it.lastPositionMs.coerceIn(0L, it.durationMs)
+                val progress = (positionMs.toDouble() / it.durationMs.toDouble()).coerceIn(0.0, 1.0).toFloat()
+                val percent = (progress * 100f).toInt().coerceIn(0, 100)
+                val remainingMs = (it.durationMs - positionMs).coerceAtLeast(0L)
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp).testTag("progress_${media.stableId}"),
+                )
+                Text("Progress $percent% • ${formatDuration(remainingMs)} remaining", style = MaterialTheme.typography.labelSmall)
             }
             if (media.availability != SourceAvailability.AVAILABLE) {
                 Text("Source ${media.availability.name.lowercase().replace('_', ' ')}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
@@ -621,7 +655,7 @@ private fun MediaDetails(media: AppMedia, history: MediaHistoryEntity?) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         DetailRow("Title", media.title)
         DetailRow("Filename", media.fileName)
-        DetailRow("Folder", media.folderName)
+        DetailRow("Folder", media.folderName ?: media.relativePath)
         DetailRow("Source", media.sourceType.name)
         DetailRow("Availability", media.availability.name)
         DetailRow("URI", media.uri)
@@ -639,9 +673,13 @@ private fun MediaDetails(media: AppMedia, history: MediaHistoryEntity?) {
             media.audioChannelCount != null -> "${media.audioChannelCount} ch"
             else -> null
         })
-        DetailRow("Date added", media.dateAddedMs?.toString())
-        DetailRow("Date modified", media.dateModifiedMs?.toString())
-        DetailRow("Progress", history?.takeIf { it.durationMs > 0L }?.let { "${formatDuration(it.lastPositionMs)} / ${formatDuration(it.durationMs)}" })
+        DetailRow("Date added", media.dateAddedMs?.let(::formatDateTime))
+        DetailRow("Date modified", media.dateModifiedMs?.let(::formatDateTime))
+        DetailRow("Progress", history?.takeIf { it.durationMs > 0L }?.let {
+            val positionMs = it.lastPositionMs.coerceIn(0L, it.durationMs)
+            val percent = ((positionMs.toDouble() / it.durationMs.toDouble()) * 100.0).toInt().coerceIn(0, 100)
+            "${formatDuration(positionMs)} / ${formatDuration(it.durationMs)} ($percent%)"
+        })
     }
 }
 
@@ -706,6 +744,11 @@ private fun formatBytes(bytes: Long): String {
         else -> "$safe B"
     }
 }
+
+private fun formatDateTime(epochMs: Long): String = runCatching {
+    java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
+        .format(java.util.Date(epochMs))
+}.getOrDefault(epochMs.toString())
 
 private fun Set<String>.toggle(value: String): Set<String> = if (value in this) this - value else this + value
 private fun Modifier.weightSafe(): Modifier = this.fillMaxSize()
