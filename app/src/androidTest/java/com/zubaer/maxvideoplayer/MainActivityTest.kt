@@ -1,10 +1,14 @@
 package com.zubaer.maxvideoplayer
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNode
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
@@ -24,18 +28,18 @@ class MainActivityTest {
     }
 
     @Test fun primarySectionsNavigateWithoutDependingOnSeededMedia() {
-        rule.onNodeWithTag("section_folders").performScrollTo().performClick()
+        selectSection(index = 1, tag = "section_folders", anchorTag = "section_videos")
         rule.onNodeWithTag("folder_list").assertIsDisplayed()
 
-        rule.onNodeWithTag("section_favourites").performScrollTo().performClick()
+        selectSection(index = 4, tag = "section_favourites", anchorTag = "section_folders")
         rule.onNodeWithTag("library_search_input").assertIsDisplayed()
 
-        rule.onNodeWithTag("section_history").performScrollTo().performClick()
+        selectSection(index = 6, tag = "section_history", anchorTag = "section_favourites")
         rule.onNodeWithTag("library_search_input").assertIsDisplayed()
     }
 
     @Test fun playlistCreateFlowUsesPersistentProfessionalSurface() {
-        rule.onNodeWithTag("section_playlists").performScrollTo().performClick()
+        selectSection(index = 5, tag = "section_playlists", anchorTag = "section_videos")
         rule.onNodeWithTag("playlist_list").assertIsDisplayed()
         rule.onNodeWithTag("new_playlist_input").performTextInput("Instrumentation Playlist")
         rule.onNodeWithTag("create_playlist_button").performClick()
@@ -48,5 +52,13 @@ class MainActivityTest {
         rule.waitForIdle()
         rule.onNodeWithTag("open_file_button").assertIsDisplayed()
         rule.onNodeWithTag("library_search_input").assertIsDisplayed()
+    }
+
+    private fun selectSection(index: Int, tag: String, anchorTag: String) {
+        rule.onNode(hasScrollAction() and hasAnyDescendant(hasTestTag(anchorTag)))
+            .performScrollToIndex(index)
+        rule.waitForIdle()
+        rule.onNodeWithTag(tag).assertIsDisplayed().performClick()
+        rule.waitForIdle()
     }
 }
