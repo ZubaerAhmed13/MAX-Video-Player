@@ -187,8 +187,22 @@ object PlayerInteractionPolicy {
         return when {
             ratio > 2.39 -> 239 to 100
             ratio < (1.0 / 2.39) -> 100 to 239
-            else -> w to h
+            else -> {
+                val divisor = gcd(w, h)
+                (w / divisor) to (h / divisor)
+            }
         }
+    }
+
+    private fun gcd(a: Int, b: Int): Int {
+        var x = a
+        var y = b
+        while (y != 0) {
+            val remainder = x % y
+            x = y
+            y = remainder
+        }
+        return x.coerceAtLeast(1)
     }
 
     private fun saturatingAdd(a: Long, b: Long): Long = when {
