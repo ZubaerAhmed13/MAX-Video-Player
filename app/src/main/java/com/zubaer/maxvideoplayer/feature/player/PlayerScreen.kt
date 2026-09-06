@@ -39,7 +39,7 @@ import com.zubaer.maxvideoplayer.core.model.PlaybackError
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 import kotlin.math.roundToLong
 
-@androidx.annotation.OptIn(markerClass = UnstableApi::class)
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 @Composable
 fun PlayerScreen(
     media: AppMedia,
