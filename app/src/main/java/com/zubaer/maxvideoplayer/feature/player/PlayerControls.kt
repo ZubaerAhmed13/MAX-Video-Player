@@ -1,5 +1,6 @@
 package com.zubaer.maxvideoplayer.feature.player
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -247,30 +248,37 @@ private fun PlayerBottomBar(
 
 @Composable
 fun PlayerHud(hud: PlayerHudState, modifier: Modifier = Modifier) {
-    if (hud == PlayerHudState.Hidden) return
-    val text = when (hud) {
-        PlayerHudState.Hidden -> ""
-        is PlayerHudState.Seek -> {
-            val delta = hud.targetMs - hud.fromMs
-            val sign = if (delta >= 0L) "+" else "−"
-            "$sign${formatPlayerTime(kotlin.math.abs(delta))}\n${formatPlayerTime(hud.fromMs)} → ${formatPlayerTime(hud.targetMs)}"
+    AnimatedContent(
+        targetState = hud,
+        modifier = modifier,
+        label = "player_hud_transition",
+    ) { targetHud ->
+        if (targetHud != PlayerHudState.Hidden) {
+            val text = when (targetHud) {
+                PlayerHudState.Hidden -> ""
+                is PlayerHudState.Seek -> {
+                    val delta = targetHud.targetMs - targetHud.fromMs
+                    val sign = if (delta >= 0L) "+" else "−"
+                    "$sign${formatPlayerTime(kotlin.math.abs(delta))}\n${formatPlayerTime(targetHud.fromMs)} → ${formatPlayerTime(targetHud.targetMs)}"
+                }
+                is PlayerHudState.Brightness -> "Brightness\n${(targetHud.fraction * 100f).toInt()}%"
+                is PlayerHudState.Volume -> "Volume\n${(targetHud.fraction * 100f).toInt()}%"
+                is PlayerHudState.Zoom -> "Zoom\n${(targetHud.scale * 100f).toInt()}%"
+            }
+            Surface(
+                modifier = Modifier.testTag("player_hud"),
+                color = Color.Black.copy(alpha = 0.74f),
+                shape = MaterialTheme.shapes.medium,
+                tonalElevation = 4.dp,
+            ) {
+                Text(
+                    text = text,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                )
+            }
         }
-        is PlayerHudState.Brightness -> "Brightness\n${(hud.fraction * 100f).toInt()}%"
-        is PlayerHudState.Volume -> "Volume\n${(hud.fraction * 100f).toInt()}%"
-        is PlayerHudState.Zoom -> "Zoom\n${(hud.scale * 100f).toInt()}%"
-    }
-    Surface(
-        modifier = modifier.testTag("player_hud"),
-        color = Color.Black.copy(alpha = 0.74f),
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 4.dp,
-    ) {
-        Text(
-            text = text,
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-        )
     }
 }
 
