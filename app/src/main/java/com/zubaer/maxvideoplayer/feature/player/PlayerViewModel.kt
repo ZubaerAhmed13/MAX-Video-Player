@@ -30,13 +30,15 @@ class PlayerViewModel(
     private var autoHideJob: Job? = null
     private var hudHideJob: Job? = null
     private var tutorialChecked = false
+    private var preferencesInitialized = false
 
     init {
         playbackConnection.connect()
         viewModelScope.launch {
             preferences.state.collect { pref ->
                 val previous = _state.value
-                val firstPreferenceLoad = previous.preferences == PlayerPreferencesState()
+                val firstPreferenceLoad = !preferencesInitialized
+                preferencesInitialized = true
                 _state.value = previous.copy(
                     preferences = pref,
                     resizeMode = if (firstPreferenceLoad) pref.defaultResizeMode else previous.resizeMode,
@@ -58,6 +60,9 @@ class PlayerViewModel(
             }
         }
     }
+
+    fun mediaForPlaybackId(mediaId: String?): AppMedia =
+        queue.firstOrNull { it.stableId == mediaId } ?: media
 
     fun resume() {
         val position = _state.value.resumePositionMs ?: 0L
