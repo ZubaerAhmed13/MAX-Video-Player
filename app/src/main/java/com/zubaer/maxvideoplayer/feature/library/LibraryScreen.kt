@@ -1,11 +1,14 @@
 package com.zubaer.maxvideoplayer.feature.library
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -60,11 +63,14 @@ import androidx.core.content.ContextCompat
 import com.zubaer.maxvideoplayer.core.database.MediaHistoryEntity
 import com.zubaer.maxvideoplayer.core.database.PlaylistEntity
 import com.zubaer.maxvideoplayer.core.model.AppMedia
+import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.core.model.SourceAvailability
+import kotlinx.coroutines.flow.Flow
 
 @Composable
 fun LibraryScreen(
     state: LibraryUiState,
+    events: Flow<LibraryEvent>,
     thumbnailRepository: ThumbnailRepository,
     onRefresh: () -> Unit,
     onOpenDocument: (Uri) -> Unit,
@@ -74,6 +80,7 @@ fun LibraryScreen(
     onSection: (LibrarySection) -> Unit,
     onQuery: (String) -> Unit,
     onSort: (VideoSort) -> Unit,
+    onFolderSort: (FolderSort) -> Unit,
     onToggleSortDirection: () -> Unit,
     onFilter: (LibraryFilter) -> Unit,
     onViewMode: (LibraryViewMode) -> Unit,
@@ -82,10 +89,12 @@ fun LibraryScreen(
     onOpenPlaylist: (Long) -> Unit,
     onClosePlaylist: () -> Unit,
     onToggleFavourite: (AppMedia) -> Unit,
+    onSetFavourite: (AppMedia, Boolean) -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onRenamePlaylist: (Long, String) -> Unit,
     onDeletePlaylist: (Long) -> Unit,
     onAddToPlaylist: (Long, AppMedia) -> Unit,
+    onAddManyToPlaylist: (Long, Collection<AppMedia>) -> Unit,
     onRemoveFromPlaylist: (Long, AppMedia) -> Unit,
     onMovePlaylistItem: (Long, AppMedia, Int) -> Unit,
     onExcludeFolder: (FolderItem) -> Unit,
@@ -93,21 +102,50 @@ fun LibraryScreen(
     onRemoveSource: (String) -> Unit,
     onDeleteHistory: (String) -> Unit,
     onClearHistory: () -> Unit,
+    onRequestDelete: (AppMedia) -> Unit,
+    onRequestRename: (AppMedia, String) -> Unit,
+    onFileActionApproval: (FileActionConfirmation, Boolean) -> Unit,
+    onRelinkSelected: (AppMedia, Uri) -> Unit,
     playbackRequest: (AppMedia) -> LibraryPlaybackRequest,
 ) {
     val context = LocalContext.current
     val mediaPermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
     var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, mediaPermission) == PackageManager.PERMISSION_GRANTED) }
+    var pendingFileConfirmation by remember { mutableStateOf<FileActionConfirmation?>(null) }
+    var pendingRelink by remember { mutableStateOf<AppMedia?>(null) }
+
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasPermission = granted
         if (granted) onRefresh()
     }
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) onOpenDocument(uri) }
     val treeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> if (uri != null) onAddFolder(uri) }
+    val relinkLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val original = pendingRelink
+        pendingRelink = null
+        if (uri != null && original != null) onRelinkSelected(original, uri)
+    }
+    val fileConfirmationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val pending = pendingFileConfirmation
+        pendingFileConfirmation = null
+        if (pending != null) onFileActionApproval(pending, result.resultCode == Activity.RESULT_OK)
+    }
+
     var networkUrl by remember { mutableStateOf("") }
     var clearHistoryConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(hasPermission) { if (hasPermission) onRefresh() }
+    LaunchedEffect(events) {
+        events.collect { event ->
+            when (event) {
+                is LibraryEvent.Message -> Toast.makeText(context, event.text, Toast.LENGTH_SHORT).show()
+                is LibraryEvent.FileConfirmationRequired -> {
+                    pendingFileConfirmation = event.request
+                    fileConfirmationLauncher.launch(IntentSenderRequest.Builder(event.request.intentSender).build())
+                }
+            }
+        }
+    }
 
     if (clearHistoryConfirm) {
         AlertDialog(
@@ -129,7 +167,7 @@ fun LibraryScreen(
                 item {
                     Button(onClick = { fileLauncher.launch(arrayOf("video/*", "audio/*")) }, modifier = Modifier.testTag("open_file_button")) { Text("Open file") }
                 }
-                item { OutlinedButton(onClick = { treeLauncher.launch(null) }) { Text("Add folder") } }
+                item { OutlinedButton(onClick = { treeLauncher.launch(null) }, modifier = Modifier.testTag("add_folder_button")) { Text("Add folder") } }
                 item {
                     OutlinedButton(onClick = { if (hasPermission) onRefresh() else permissionLauncher.launch(mediaPermission) }) {
                         Text(if (hasPermission) "Refresh" else "Allow videos")
@@ -143,13 +181,19 @@ fun LibraryScreen(
                     FilterChip(
                         selected = state.section == section,
                         onClick = { onSection(section) },
+                        modifier = Modifier.testTag("section_${section.name.lowercase()}"),
                         label = { Text(section.label()) },
                     )
                 }
             }
 
             Spacer(Modifier.height(8.dp))
-            if (state.section != LibrarySection.FOLDERS || state.selectedFolderKey != null) {
+            if (state.section == LibrarySection.FOLDERS && state.selectedFolderKey == null) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    item { TextButton(onClick = { onFolderSort(state.folderSort.next()) }) { Text("Folder sort: ${state.folderSort.label()}") } }
+                    item { TextButton(onClick = onToggleSortDirection) { Text(if (state.sortDirection == SortDirection.ASCENDING) "↑ Asc" else "↓ Desc") } }
+                }
+            } else {
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = onQuery,
@@ -200,10 +244,15 @@ fun LibraryScreen(
                         thumbnailRepository = thumbnailRepository,
                         onPlay = { onPlay(playbackRequest(it)) },
                         onToggleFavourite = onToggleFavourite,
+                        onSetFavourite = onSetFavourite,
                         onAddToPlaylist = onAddToPlaylist,
+                        onAddManyToPlaylist = onAddManyToPlaylist,
                         onRemoveFromPlaylist = onRemoveFromPlaylist,
                         onMovePlaylistItem = onMovePlaylistItem,
                         onDeleteHistory = onDeleteHistory,
+                        onRequestDelete = onRequestDelete,
+                        onRequestRename = onRequestRename,
+                        onRequestRelink = { media -> pendingRelink = media; relinkLauncher.launch(arrayOf("video/*")) },
                     )
                 }
             }
@@ -286,9 +335,19 @@ private fun PlaylistsRoot(
     var name by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("New playlist") }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("New playlist") },
+                singleLine = true,
+                modifier = Modifier.weight(1f).testTag("new_playlist_input"),
+            )
             Spacer(Modifier.width(8.dp))
-            Button(onClick = { if (name.isNotBlank()) { onCreatePlaylist(name); name = "" } }, enabled = name.isNotBlank()) { Text("Create") }
+            Button(
+                onClick = { if (name.isNotBlank()) { onCreatePlaylist(name); name = "" } },
+                enabled = name.isNotBlank(),
+                modifier = Modifier.testTag("create_playlist_button"),
+            ) { Text("Create") }
         }
         Spacer(Modifier.height(8.dp))
         LazyColumn(Modifier.fillMaxSize().testTag("playlist_list")) {
@@ -337,55 +396,108 @@ private fun MediaCollection(
     thumbnailRepository: ThumbnailRepository,
     onPlay: (AppMedia) -> Unit,
     onToggleFavourite: (AppMedia) -> Unit,
+    onSetFavourite: (AppMedia, Boolean) -> Unit,
     onAddToPlaylist: (Long, AppMedia) -> Unit,
+    onAddManyToPlaylist: (Long, Collection<AppMedia>) -> Unit,
     onRemoveFromPlaylist: (Long, AppMedia) -> Unit,
     onMovePlaylistItem: (Long, AppMedia, Int) -> Unit,
     onDeleteHistory: (String) -> Unit,
+    onRequestDelete: (AppMedia) -> Unit,
+    onRequestRename: (AppMedia, String) -> Unit,
+    onRequestRelink: (AppMedia) -> Unit,
 ) {
+    var selectedIds by remember(state.section, state.selectedFolderKey, state.selectedPlaylistId) { mutableStateOf(emptySet<String>()) }
+    var batchPlaylistMenu by remember { mutableStateOf(false) }
+    val selectedMedia = state.media.filter { it.stableId in selectedIds }
+
     if (state.media.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(emptyMessage(state.section)) }
         return
     }
-    val historyById = state.history.associateBy { it.stableMediaId }
-    if (state.viewMode == LibraryViewMode.GRID) {
-        LazyVerticalGrid(columns = GridCells.Adaptive(170.dp), modifier = Modifier.fillMaxSize().testTag("library_grid")) {
-            gridItems(state.media, key = { it.stableId }) { media ->
-                MediaCard(
-                    media = media,
-                    history = historyById[media.stableId],
-                    favourite = media.stableId in state.favouriteIds,
-                    playlists = state.playlists,
-                    selectedPlaylistId = state.selectedPlaylistId,
-                    thumbnailRepository = thumbnailRepository,
-                    onPlay = onPlay,
-                    onToggleFavourite = onToggleFavourite,
-                    onAddToPlaylist = onAddToPlaylist,
-                    onRemoveFromPlaylist = onRemoveFromPlaylist,
-                    onMovePlaylistItem = onMovePlaylistItem,
-                    onDeleteHistory = onDeleteHistory,
-                    compact = true,
-                )
+
+    Column(Modifier.fillMaxSize()) {
+        if (selectedIds.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().testTag("multi_select_bar"),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                item { Text("${selectedIds.size} selected", fontWeight = FontWeight.SemiBold) }
+                item { TextButton(onClick = { selectedMedia.forEach { onSetFavourite(it, true) } }) { Text("Favourite") } }
+                item { TextButton(onClick = { selectedMedia.forEach { onSetFavourite(it, false) } }) { Text("Unfavourite") } }
+                if (state.playlists.isNotEmpty()) item {
+                    Box {
+                        TextButton(onClick = { batchPlaylistMenu = true }) { Text("Add to playlist") }
+                        DropdownMenu(expanded = batchPlaylistMenu, onDismissRequest = { batchPlaylistMenu = false }) {
+                            state.playlists.forEach { playlist ->
+                                DropdownMenuItem(
+                                    text = { Text(playlist.name) },
+                                    onClick = {
+                                        batchPlaylistMenu = false
+                                        onAddManyToPlaylist(playlist.id, selectedMedia)
+                                        selectedIds = emptySet()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                item { TextButton(onClick = { selectedIds = emptySet() }) { Text("Cancel") } }
             }
+            HorizontalDivider()
         }
-    } else {
-        LazyColumn(Modifier.fillMaxSize().testTag("library_list")) {
-            items(state.media, key = { it.stableId }) { media ->
-                MediaCard(
-                    media = media,
-                    history = historyById[media.stableId],
-                    favourite = media.stableId in state.favouriteIds,
-                    playlists = state.playlists,
-                    selectedPlaylistId = state.selectedPlaylistId,
-                    thumbnailRepository = thumbnailRepository,
-                    onPlay = onPlay,
-                    onToggleFavourite = onToggleFavourite,
-                    onAddToPlaylist = onAddToPlaylist,
-                    onRemoveFromPlaylist = onRemoveFromPlaylist,
-                    onMovePlaylistItem = onMovePlaylistItem,
-                    onDeleteHistory = onDeleteHistory,
-                    compact = false,
-                )
-                HorizontalDivider()
+
+        val historyById = state.history.associateBy { it.stableMediaId }
+        if (state.viewMode == LibraryViewMode.GRID) {
+            LazyVerticalGrid(columns = GridCells.Adaptive(170.dp), modifier = Modifier.fillMaxSize().testTag("library_grid")) {
+                gridItems(state.media, key = { it.stableId }) { media ->
+                    MediaCard(
+                        media = media,
+                        history = historyById[media.stableId],
+                        favourite = media.stableId in state.favouriteIds,
+                        selected = media.stableId in selectedIds,
+                        playlists = state.playlists,
+                        selectedPlaylistId = state.selectedPlaylistId,
+                        thumbnailRepository = thumbnailRepository,
+                        onPlay = onPlay,
+                        onToggleFavourite = onToggleFavourite,
+                        onToggleSelection = { selectedIds = selectedIds.toggle(media.stableId) },
+                        onAddToPlaylist = onAddToPlaylist,
+                        onRemoveFromPlaylist = onRemoveFromPlaylist,
+                        onMovePlaylistItem = onMovePlaylistItem,
+                        onDeleteHistory = onDeleteHistory,
+                        onRequestDelete = onRequestDelete,
+                        onRequestRename = onRequestRename,
+                        onRequestRelink = onRequestRelink,
+                        compact = true,
+                    )
+                }
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize().testTag("library_list")) {
+                items(state.media, key = { it.stableId }) { media ->
+                    MediaCard(
+                        media = media,
+                        history = historyById[media.stableId],
+                        favourite = media.stableId in state.favouriteIds,
+                        selected = media.stableId in selectedIds,
+                        playlists = state.playlists,
+                        selectedPlaylistId = state.selectedPlaylistId,
+                        thumbnailRepository = thumbnailRepository,
+                        onPlay = onPlay,
+                        onToggleFavourite = onToggleFavourite,
+                        onToggleSelection = { selectedIds = selectedIds.toggle(media.stableId) },
+                        onAddToPlaylist = onAddToPlaylist,
+                        onRemoveFromPlaylist = onRemoveFromPlaylist,
+                        onMovePlaylistItem = onMovePlaylistItem,
+                        onDeleteHistory = onDeleteHistory,
+                        onRequestDelete = onRequestDelete,
+                        onRequestRename = onRequestRename,
+                        onRequestRelink = onRequestRelink,
+                        compact = false,
+                    )
+                    HorizontalDivider()
+                }
             }
         }
     }
@@ -396,18 +508,57 @@ private fun MediaCard(
     media: AppMedia,
     history: MediaHistoryEntity?,
     favourite: Boolean,
+    selected: Boolean,
     playlists: List<PlaylistEntity>,
     selectedPlaylistId: Long?,
     thumbnailRepository: ThumbnailRepository,
     onPlay: (AppMedia) -> Unit,
     onToggleFavourite: (AppMedia) -> Unit,
+    onToggleSelection: () -> Unit,
     onAddToPlaylist: (Long, AppMedia) -> Unit,
     onRemoveFromPlaylist: (Long, AppMedia) -> Unit,
     onMovePlaylistItem: (Long, AppMedia, Int) -> Unit,
     onDeleteHistory: (String) -> Unit,
+    onRequestDelete: (AppMedia) -> Unit,
+    onRequestRename: (AppMedia, String) -> Unit,
+    onRequestRelink: (AppMedia) -> Unit,
     compact: Boolean,
 ) {
     var playlistMenu by remember { mutableStateOf(false) }
+    var detailsOpen by remember { mutableStateOf(false) }
+    var renameOpen by remember { mutableStateOf(false) }
+    var deleteConfirm by remember { mutableStateOf(false) }
+    var renameText by remember(media.stableId, media.fileName) { mutableStateOf(media.fileName ?: media.title) }
+
+    if (detailsOpen) {
+        AlertDialog(
+            onDismissRequest = { detailsOpen = false },
+            title = { Text("Media details") },
+            text = { MediaDetails(media, history) },
+            confirmButton = { TextButton(onClick = { detailsOpen = false }) { Text("Close") } },
+        )
+    }
+    if (renameOpen) {
+        AlertDialog(
+            onDismissRequest = { renameOpen = false },
+            title = { Text("Rename video") },
+            text = { OutlinedTextField(value = renameText, onValueChange = { renameText = it }, singleLine = true, label = { Text("File name") }) },
+            confirmButton = {
+                Button(onClick = { renameOpen = false; onRequestRename(media, renameText) }, enabled = renameText.isNotBlank()) { Text("Rename") }
+            },
+            dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancel") } },
+        )
+    }
+    if (deleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { deleteConfirm = false },
+            title = { Text("Delete actual video file?") },
+            text = { Text("This is different from removing history or a playlist item. Android may show an additional system confirmation.") },
+            confirmButton = { Button(onClick = { deleteConfirm = false; onRequestDelete(media) }) { Text("Delete file") } },
+            dismissButton = { TextButton(onClick = { deleteConfirm = false }) { Text("Cancel") } },
+        )
+    }
+
     val content: @Composable () -> Unit = {
         Column(Modifier.fillMaxWidth().padding(8.dp)) {
             MediaThumbnail(media, thumbnailRepository, if (compact) 360 else 240, if (compact) 203 else 135)
@@ -425,11 +576,13 @@ private fun MediaCard(
                 Text("Progress $percent%", style = MaterialTheme.typography.labelSmall)
             }
             if (media.availability != SourceAvailability.AVAILABLE) {
-                Text("Source unavailable", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                Text("Source ${media.availability.name.lowercase().replace('_', ' ')}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
             }
             LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 item { Button(onClick = { onPlay(media) }, enabled = media.availability == SourceAvailability.AVAILABLE) { Text("Play") } }
+                item { TextButton(onClick = onToggleSelection) { Text(if (selected) "Selected ✓" else "Select") } }
                 item { TextButton(onClick = { onToggleFavourite(media) }) { Text(if (favourite) "★" else "☆") } }
+                item { TextButton(onClick = { detailsOpen = true }) { Text("Details") } }
                 if (playlists.isNotEmpty()) item {
                     Box {
                         TextButton(onClick = { playlistMenu = true }) { Text("Playlist") }
@@ -449,10 +602,52 @@ private fun MediaCard(
                     item { TextButton(onClick = { onRemoveFromPlaylist(selectedPlaylistId, media) }) { Text("Remove") } }
                 }
                 if (history != null) item { TextButton(onClick = { onDeleteHistory(media.stableId) }) { Text("History ×") } }
+                if (media.sourceType != MediaSourceType.NETWORK && media.availability == SourceAvailability.AVAILABLE) {
+                    item { TextButton(onClick = { renameOpen = true }) { Text("Rename") } }
+                    item { TextButton(onClick = { deleteConfirm = true }) { Text("Delete") } }
+                }
+                if (media.sourceType != MediaSourceType.NETWORK && media.availability != SourceAvailability.AVAILABLE) {
+                    item { TextButton(onClick = { onRequestRelink(media) }) { Text("Locate") } }
+                }
             }
         }
     }
-    if (compact) Card(Modifier.padding(4.dp)) { content() } else content()
+    if (compact) Card(Modifier.padding(4.dp).testTag("media_${media.stableId}")) { content() }
+    else Box(Modifier.testTag("media_${media.stableId}")) { content() }
+}
+
+@Composable
+private fun MediaDetails(media: AppMedia, history: MediaHistoryEntity?) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        DetailRow("Title", media.title)
+        DetailRow("Filename", media.fileName)
+        DetailRow("Folder", media.folderName)
+        DetailRow("Source", media.sourceType.name)
+        DetailRow("Availability", media.availability.name)
+        DetailRow("URI", media.uri)
+        DetailRow("MIME", media.mimeType)
+        DetailRow("Duration", media.durationMs?.let(::formatDuration))
+        DetailRow("Resolution", if (media.width != null && media.height != null) "${media.width}×${media.height}" else null)
+        DetailRow("Size", media.sizeBytes?.let(::formatBytes))
+        DetailRow("Rotation", media.rotationDegrees?.let { "$it°" })
+        DetailRow("Frame rate", media.frameRate?.let { "%.2f fps".format(it) })
+        DetailRow("Video codec", media.videoCodec)
+        DetailRow("Audio codec", media.audioCodec)
+        DetailRow("Audio", when {
+            media.audioSampleRate != null && media.audioChannelCount != null -> "${media.audioSampleRate} Hz • ${media.audioChannelCount} ch"
+            media.audioSampleRate != null -> "${media.audioSampleRate} Hz"
+            media.audioChannelCount != null -> "${media.audioChannelCount} ch"
+            else -> null
+        })
+        DetailRow("Date added", media.dateAddedMs?.toString())
+        DetailRow("Date modified", media.dateModifiedMs?.toString())
+        DetailRow("Progress", history?.takeIf { it.durationMs > 0L }?.let { "${formatDuration(it.lastPositionMs)} / ${formatDuration(it.durationMs)}" })
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String?) {
+    if (!value.isNullOrBlank()) Text("$label: $value", style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
@@ -476,8 +671,10 @@ private fun LibrarySection.label() = when (this) {
 }
 
 private fun VideoSort.label() = name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
+private fun FolderSort.label() = name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 private fun LibraryFilter.label() = name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 private fun VideoSort.next(): VideoSort = VideoSort.entries[(ordinal + 1) % VideoSort.entries.size]
+private fun FolderSort.next(): FolderSort = FolderSort.entries[(ordinal + 1) % FolderSort.entries.size]
 private fun LibraryFilter.next(): LibraryFilter = LibraryFilter.entries[(ordinal + 1) % LibraryFilter.entries.size]
 private fun emptyMessage(section: LibrarySection) = when (section) {
     LibrarySection.VIDEOS -> "No videos found."
@@ -510,4 +707,5 @@ private fun formatBytes(bytes: Long): String {
     }
 }
 
+private fun Set<String>.toggle(value: String): Set<String> = if (value in this) this - value else this + value
 private fun Modifier.weightSafe(): Modifier = this.fillMaxSize()
