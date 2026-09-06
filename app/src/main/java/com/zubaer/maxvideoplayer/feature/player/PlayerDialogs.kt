@@ -204,7 +204,7 @@ private fun OrientationDialog(current: OrientationMode, onDismiss: () -> Unit, o
         onDismissRequest = onDismiss,
         title = { Text("Player orientation") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 listOf(
                     OrientationMode.AUTO to "Auto / sensor",
                     OrientationMode.PORTRAIT to "Portrait",
@@ -344,7 +344,10 @@ private fun GestureTutorialDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Player gestures") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text("Swipe left/right — seek")
                 Text("Swipe up/down on left — brightness")
                 Text("Swipe up/down on right — media volume")
