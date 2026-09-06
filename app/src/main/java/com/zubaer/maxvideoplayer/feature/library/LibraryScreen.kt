@@ -137,7 +137,7 @@ private fun MediaRow(media: AppMedia, onClick: () -> Unit) {
 }
 
 private fun formatDuration(ms: Long): String {
-    val total = (ms.coerceAtLeast(0L) / 1000L)
+    val total = ms.coerceAtLeast(0L) / 1000L
     val hours = total / 3600L
     val minutes = (total % 3600L) / 60L
     val seconds = total % 60L
@@ -146,9 +146,12 @@ private fun formatDuration(ms: Long): String {
 
 private fun formatBytes(bytes: Long): String {
     val safe = bytes.coerceAtLeast(0L)
+    val gib = 1L shl 30
+    val mib = 1L shl 20
+    val kib = 1L shl 10
     return when {
-        safe >= 1L shl 30 -> "%.1f GB".format(safe.toDouble() / (1L shl 30))
-        safe >= 1L shl 20 -> "%.1f MB".format(safe.toDouble() / (1L shl 20))
-        else -> "%.1f KB".format(safe.toDouble() / (1L shl 10))
+        safe >= gib -> "%.1f GB".format(safe.toDouble() / gib.toDouble())
+        safe >= mib -> "%.1f MB".format(safe.toDouble() / mib.toDouble())
+        else -> "%.1f KB".format(safe.toDouble() / kib.toDouble())
     }
 }
