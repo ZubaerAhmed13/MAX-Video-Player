@@ -57,6 +57,7 @@ fun PlayerControlsOverlay(
     onInteractionStart: () -> Unit,
     onInteractionEnd: () -> Unit,
     onOpenMenu: (PlayerMenu) -> Unit,
+    onSubtitles: () -> Unit,
     onRotate: () -> Unit,
     onLock: () -> Unit,
     onUnlock: () -> Unit,
@@ -115,6 +116,7 @@ fun PlayerControlsOverlay(
                     onInteractionStart = onInteractionStart,
                     onInteractionEnd = onInteractionEnd,
                     onOpenMenu = onOpenMenu,
+                    onSubtitles = onSubtitles,
                     onRotate = onRotate,
                     onLock = onLock,
                     onPip = onPip,
@@ -157,6 +159,7 @@ private fun PlayerBottomBar(
     onInteractionStart: () -> Unit,
     onInteractionEnd: () -> Unit,
     onOpenMenu: (PlayerMenu) -> Unit,
+    onSubtitles: () -> Unit,
     onRotate: () -> Unit,
     onLock: () -> Unit,
     onPip: () -> Unit,
@@ -236,7 +239,7 @@ private fun PlayerBottomBar(
             }
             TextButton(onClick = { onOpenMenu(PlayerMenu.PLAYBACK) }, modifier = Modifier.testTag("playback_mode_button")) { Text("Mode") }
             TextButton(
-                onClick = { onOpenMenu(PlayerMenu.SUBTITLES) },
+                onClick = onSubtitles,
                 modifier = Modifier.testTag("subtitle_button").semantics { contentDescription = "Subtitles and closed captions" },
             ) {
                 val selected = playback.subtitles.tracks.firstOrNull { it.selected }
