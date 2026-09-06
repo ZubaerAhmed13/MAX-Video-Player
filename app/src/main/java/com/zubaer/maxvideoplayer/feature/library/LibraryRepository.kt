@@ -17,7 +17,11 @@ import com.zubaer.maxvideoplayer.core.media.SafTreeScanner
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.core.model.SourceAvailability
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import java.security.MessageDigest
 
@@ -27,7 +31,34 @@ class LibraryRepository(
     private val safTreeScanner: SafTreeScanner,
     private val historyRepository: PlaybackHistoryRepository,
 ) {
-    fun media(): Flow<List<AppMedia>> = database.mediaIndexDao().observeAll().map { rows -> rows.map { row -> row.toAppMedia() } }
+    /**
+     * Stream the Room-backed media index in deterministic bounded chunks instead of asking Room to
+     * materialize every metadata row in one query. Partial snapshots are emitted as chunks arrive,
+     * allowing the lazy Compose surfaces to become useful before very large libraries finish loading.
+     * Any later Room invalidation causes a fresh chunk walk; normal coroutine cancellation stops the
+     * walk between chunks.
+     */
+    fun media(): Flow<List<AppMedia>> = flow {
+        val dao = database.mediaIndexDao()
+        dao.observeCount().collect { expectedCount ->
+            if (expectedCount <= 0) {
+                emit(emptyList())
+                return@collect
+            }
+
+            val accumulated = ArrayList<AppMedia>(expectedCount)
+            var offset = 0
+            while (offset < expectedCount) {
+                currentCoroutineContext().ensureActive()
+                val rows = dao.page(limit = MEDIA_INDEX_CHUNK_SIZE, offset = offset)
+                if (rows.isEmpty()) break
+                accumulated.addAll(rows.map { row -> row.toAppMedia() })
+                offset += rows.size
+                emit(accumulated.toList())
+            }
+        }
+    }
+
     fun favourites(): Flow<Set<String>> = database.favouriteDao().observeAll().map { rows -> rows.mapTo(linkedSetOf()) { it.stableMediaId } }
     fun playlists(): Flow<List<PlaylistEntity>> = database.playlistDao().observePlaylists()
     fun sources(): Flow<List<LibrarySourceEntity>> = database.librarySourceDao().observeAll()
@@ -282,5 +313,6 @@ class LibraryRepository(
         const val STATUS_AVAILABLE = "AVAILABLE"
         const val STATUS_PERMISSION_LOST = "PERMISSION_LOST"
         const val STATUS_UNAVAILABLE = "UNAVAILABLE"
+        const val MEDIA_INDEX_CHUNK_SIZE = 512
     }
 }
