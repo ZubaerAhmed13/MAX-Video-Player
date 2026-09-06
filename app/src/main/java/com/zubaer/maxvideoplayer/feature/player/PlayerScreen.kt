@@ -499,6 +499,7 @@ private fun PlayerVideoSurface(
     )
 }
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 private fun SubtitleView.applySubtitleStyle(style: SubtitleStyleState) {
     setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * style.textScale.coerceIn(0.5f, 2f))
     setBottomPaddingFraction(style.bottomPaddingFraction.coerceIn(0f, 0.35f))
