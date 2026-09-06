@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.media.AudioManager
+import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -67,6 +68,7 @@ fun PlayerScreen(
 ) {
     val coordinator by viewModel.state.collectAsStateWithLifecycle()
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
+    val currentMedia = viewModel.mediaForPlaybackId(playback.mediaId)
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -78,8 +80,8 @@ fun PlayerScreen(
     LaunchedEffect(playback.playbackEnded) { if (playback.playbackEnded) viewModel.showControls() }
     LaunchedEffect(touchExploration) { viewModel.setAccessibilityMode(touchExploration) }
     LaunchedEffect(coordinator.orientationMode) { onOrientationModeChanged(coordinator.orientationMode) }
-    LaunchedEffect(coordinator.preferences.autoPip, media.stableId) {
-        onPlayerHostStateChanged(media, coordinator.preferences.autoPip)
+    LaunchedEffect(coordinator.preferences.autoPip, currentMedia.stableId) {
+        onPlayerHostStateChanged(currentMedia, coordinator.preferences.autoPip)
     }
 
     DisposableEffect(Unit) {
@@ -122,7 +124,7 @@ fun PlayerScreen(
         val viewConfiguration = LocalViewConfiguration.current
 
         PlayerVideoSurface(
-            media = media,
+            media = currentMedia,
             playbackConnection = playbackConnection,
             coordinator = coordinator,
             viewportSize = viewportSize,
@@ -172,17 +174,18 @@ fun PlayerScreen(
 
                     detectDragGestures(
                         onDragStart = { offset ->
-                            if (surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) return@detectDragGestures
-                            startOffset = offset
-                            accumulated = Offset.Zero
-                            gestureKind = PlayerGestureKind.NONE
-                            seekStartMs = latestPlayback.value.currentPositionMs
-                            seekTargetMs = null
-                            val currentBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
-                            brightnessStart = if (currentBrightness >= 0f) currentBrightness else latestCoordinator.value.brightnessFraction
-                            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-                            volumeStart = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max.toFloat()
-                            viewModel.beginInteraction()
+                            if (!surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) {
+                                startOffset = offset
+                                accumulated = Offset.Zero
+                                gestureKind = PlayerGestureKind.NONE
+                                seekStartMs = latestPlayback.value.currentPositionMs
+                                seekTargetMs = null
+                                val currentBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
+                                brightnessStart = if (currentBrightness >= 0f) currentBrightness else readSystemBrightnessFraction(context)
+                                val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                                volumeStart = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max.toFloat()
+                                viewModel.beginInteraction()
+                            }
                         },
                         onDragCancel = { viewModel.endInteraction() },
                         onDragEnd = {
@@ -297,7 +300,7 @@ fun PlayerScreen(
         PlayerControlsOverlay(
             coordinator = coordinator,
             playback = playback,
-            fallbackTitle = media.title,
+            fallbackTitle = currentMedia.title,
             onBack = onBack,
             onPlayPause = {
                 when {
@@ -320,7 +323,7 @@ fun PlayerScreen(
             onRotate = viewModel::rotateDisplay,
             onLock = viewModel::lockControls,
             onUnlock = viewModel::unlockControls,
-            onPip = { onEnterPip(media) },
+            onPip = { onEnterPip(currentMedia) },
             onFullscreen = {
                 val next = !coordinator.fullscreen
                 viewModel.setFullscreen(next)
@@ -331,7 +334,7 @@ fun PlayerScreen(
         PlayerDialogs(
             coordinator = coordinator,
             playback = playback,
-            media = media,
+            media = currentMedia,
             onDismissMenu = viewModel::closeMenu,
             onSpeed = viewModel::setPlaybackSpeed,
             onRepeatMode = playbackConnection::setRepeatMode,
@@ -432,6 +435,11 @@ private fun PlaybackErrorOverlay(
 
 private fun surfaceInteractionBlocked(state: PlayerCoordinatorState, touchExploration: Boolean): Boolean =
     touchExploration || state.controlsLocked || state.activeMenu != PlayerMenu.NONE || state.tutorialVisible || state.resumePositionMs != null || state.preparing
+
+private fun readSystemBrightnessFraction(context: Context): Float = runCatching {
+    Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+        .coerceIn(1, 255) / 255f
+}.getOrDefault(0.5f)
 
 private fun setWindowBrightness(activity: Activity, value: Float) {
     val attrs = activity.window.attributes
