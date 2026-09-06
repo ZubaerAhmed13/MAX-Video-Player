@@ -2,15 +2,23 @@ package com.zubaer.maxvideoplayer.playback.session
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
+import com.zubaer.maxvideoplayer.core.model.SubtitlePlaybackState
+import com.zubaer.maxvideoplayer.core.model.SubtitleTrackInfo
+import com.zubaer.maxvideoplayer.feature.subtitle.ExternalSubtitleAttachment
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleFileDescriptor
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,7 +31,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executor
 
-class PlaybackConnection(context: Context) {
+class PlaybackConnection(
+    context: Context,
+    private val subtitleRepository: SubtitleRepository = SubtitleRepository(context.applicationContext),
+) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val directExecutor = Executor { it.run() }
@@ -34,6 +45,7 @@ class PlaybackConnection(context: Context) {
     private var controller: MediaController? = null
     private var tickerJob: Job? = null
     private var connectRequested = false
+    private var pendingExternalSelectionMediaId: String? = null
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) = publish(player)
@@ -69,6 +81,7 @@ class PlaybackConnection(context: Context) {
         controllerFuture = null
         controller = null
         connectRequested = false
+        pendingExternalSelectionMediaId = null
         _state.value = PlaybackUiState()
     }
 
@@ -97,14 +110,17 @@ class PlaybackConnection(context: Context) {
         it.prepare()
         it.play()
     }
+
     fun seekTo(positionMs: Long) = withController { player ->
         val duration = player.duration.takeIf { it > 0L }
         val safe = if (duration != null) positionMs.coerceIn(0L, duration) else positionMs.coerceAtLeast(0L)
         player.seekTo(safe)
     }
+
     fun seekToNext() = withController { if (it.hasNextMediaItem()) it.seekToNextMediaItem() }
     fun seekToPrevious() = withController { if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem() }
     fun setPlaybackSpeed(speed: Float) = withController { it.setPlaybackSpeed(speed.coerceIn(0.25f, 4f)) }
+
     fun setRepeatMode(mode: RepeatMode) = withController {
         it.repeatMode = when (mode) {
             RepeatMode.OFF -> Player.REPEAT_MODE_OFF
@@ -112,7 +128,53 @@ class PlaybackConnection(context: Context) {
             RepeatMode.ALL -> Player.REPEAT_MODE_ALL
         }
     }
+
     fun setShuffleEnabled(enabled: Boolean) = withController { it.shuffleModeEnabled = enabled }
+
+    fun setSubtitlesEnabled(enabled: Boolean) = withController { player ->
+        if (!player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return@withController
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !enabled)
+            .build()
+        publish(player)
+    }
+
+    fun selectSubtitleAuto() = withController { player ->
+        if (!player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return@withController
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .build()
+        publish(player)
+    }
+
+    fun selectSubtitleTrack(trackKey: String) = withController { player ->
+        selectSubtitleTrackInternal(player, trackKey)
+    }
+
+    fun attachExternalSubtitle(descriptor: SubtitleFileDescriptor) = withController { player ->
+        val mediaId = player.currentMediaItem?.mediaId ?: return@withController
+        val attachment = subtitleRepository.saveExternalAttachment(mediaId, descriptor)
+        pendingExternalSelectionMediaId = mediaId
+        replaceCurrentItemSubtitleConfiguration(player, attachment)
+    }
+
+    fun clearExternalSubtitle() = withController { player ->
+        val mediaId = player.currentMediaItem?.mediaId ?: return@withController
+        subtitleRepository.clearExternalAttachment(mediaId)
+        pendingExternalSelectionMediaId = null
+        if (player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) {
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .build()
+        }
+        replaceCurrentItemSubtitleConfiguration(player, null)
+    }
+
     fun playerOrNull(): Player? = controller
 
     private fun withController(block: (MediaController) -> Unit) {
@@ -132,9 +194,19 @@ class PlaybackConnection(context: Context) {
 
     private fun publish(player: Player) {
         val duration = player.duration.takeIf { it > 0L } ?: 0L
+        val subtitleState = buildSubtitleState(player)
+        val mediaId = player.currentMediaItem?.mediaId
+        if (pendingExternalSelectionMediaId == mediaId) {
+            val external = subtitleState.tracks.firstOrNull { it.external }
+            if (external != null) {
+                pendingExternalSelectionMediaId = null
+                selectSubtitleTrackInternal(player, external.key)
+                return
+            }
+        }
         _state.value = PlaybackUiState(
             connected = true,
-            mediaId = player.currentMediaItem?.mediaId,
+            mediaId = mediaId,
             title = player.mediaMetadata.title?.toString().orEmpty(),
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
@@ -153,14 +225,116 @@ class PlaybackConnection(context: Context) {
                 else -> RepeatMode.OFF
             },
             shuffleEnabled = player.shuffleModeEnabled,
+            subtitles = subtitleState,
             error = player.playerError?.let(PlaybackErrorMapper::map),
         )
     }
 
-    private fun AppMedia.toMedia3Item(): MediaItem = MediaItem.Builder()
-        .setMediaId(stableId)
-        .setUri(uri)
-        .setMimeType(mimeType)
-        .setMediaMetadata(MediaMetadata.Builder().setTitle(title).build())
-        .build()
+    private fun buildSubtitleState(player: Player): SubtitlePlaybackState {
+        val disabled = C.TRACK_TYPE_TEXT in player.trackSelectionParameters.disabledTrackTypes
+        if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS)) {
+            return SubtitlePlaybackState(enabled = !disabled)
+        }
+        val tracks = mutableListOf<SubtitleTrackInfo>()
+        player.currentTracks.groups.forEachIndexed { groupIndex, group ->
+            if (group.type != C.TRACK_TYPE_TEXT) return@forEachIndexed
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                val key = trackKey(groupIndex, trackIndex)
+                tracks += SubtitleTrackInfo(
+                    key = key,
+                    label = format.label?.toString()
+                        ?: format.language?.uppercase()
+                        ?: "Subtitle ${tracks.size + 1}",
+                    language = format.language,
+                    mimeType = format.sampleMimeType,
+                    selected = group.isTrackSelected(trackIndex),
+                    supported = group.isTrackSupported(trackIndex),
+                    external = format.id?.startsWith(EXTERNAL_SUBTITLE_ID_PREFIX) == true,
+                )
+            }
+        }
+        val mediaId = player.currentMediaItem?.mediaId
+        val attachment = mediaId?.let(subtitleRepository::externalAttachmentFor)
+        return SubtitlePlaybackState(
+            enabled = !disabled,
+            tracks = tracks,
+            selectedTrackKey = tracks.firstOrNull { it.selected }?.key,
+            externalAttached = attachment != null,
+            externalLabel = attachment?.label,
+        )
+    }
+
+    private fun selectSubtitleTrackInternal(player: Player, trackKey: String) {
+        if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS) ||
+            !player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
+        ) return
+        val parsed = parseTrackKey(trackKey) ?: return
+        val group = player.currentTracks.groups.getOrNull(parsed.first) ?: return
+        if (group.type != C.TRACK_TYPE_TEXT || parsed.second !in 0 until group.length) return
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, parsed.second))
+            .build()
+        publish(player)
+    }
+
+    private fun replaceCurrentItemSubtitleConfiguration(
+        player: MediaController,
+        attachment: ExternalSubtitleAttachment?,
+    ) {
+        if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) return
+        val current = player.currentMediaItem ?: return
+        val index = player.currentMediaItemIndex
+        if (index < 0) return
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val playWhenReady = player.playWhenReady
+        val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
+            .filterNot { it.id?.startsWith(EXTERNAL_SUBTITLE_ID_PREFIX) == true }
+        val updatedConfigurations = if (attachment == null) existing else existing + attachment.toMedia3Configuration()
+        val updated = current.buildUpon().setSubtitleConfigurations(updatedConfigurations).build()
+        player.replaceMediaItem(index, updated)
+        player.seekTo(index, position)
+        player.prepare()
+        player.playWhenReady = playWhenReady
+    }
+
+    private fun AppMedia.toMedia3Item(): MediaItem {
+        val attachment = subtitleRepository.externalAttachmentFor(stableId)
+        return MediaItem.Builder()
+            .setMediaId(stableId)
+            .setUri(uri)
+            .setMimeType(mimeType)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(title).build())
+            .apply {
+                if (attachment != null) setSubtitleConfigurations(listOf(attachment.toMedia3Configuration()))
+            }
+            .build()
+    }
+
+    private fun ExternalSubtitleAttachment.toMedia3Configuration(): MediaItem.SubtitleConfiguration =
+        MediaItem.SubtitleConfiguration.Builder(Uri.parse(uri))
+            .setId("$EXTERNAL_SUBTITLE_ID_PREFIX${stableSuffix(mediaId)}")
+            .setLabel(label)
+            .setLanguage(language)
+            .setMimeType(mimeType)
+            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT or C.SELECTION_FLAG_AUTOSELECT)
+            .build()
+
+    private fun trackKey(groupIndex: Int, trackIndex: Int): String = "g${groupIndex}t${trackIndex}"
+
+    private fun parseTrackKey(key: String): Pair<Int, Int>? {
+        val match = TRACK_KEY.matchEntire(key) ?: return null
+        return match.groupValues[1].toIntOrNull()?.let { group ->
+            match.groupValues[2].toIntOrNull()?.let { track -> group to track }
+        }
+    }
+
+    private fun stableSuffix(mediaId: String): String = mediaId.hashCode().toUInt().toString(16)
+
+    private companion object {
+        const val EXTERNAL_SUBTITLE_ID_PREFIX = "max.external."
+        val TRACK_KEY = Regex("g(\\d+)t(\\d+)")
+    }
 }
