@@ -21,14 +21,16 @@ fun MaxApp(
     container: AppContainer,
     externalMedia: AppMedia?,
     onExternalConsumed: () -> Unit,
-    persistUriPermission: (Uri) -> Unit,
+    persistUriPermission: (Uri) -> Boolean,
     onEnterPip: () -> Unit,
     onFullscreenChanged: (Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val navigationViewModel: AppNavigationViewModel = viewModel()
-    val selectedMedia by navigationViewModel.selectedMedia.collectAsStateWithLifecycle()
-    val libraryViewModel: LibraryViewModel = viewModel(factory = simpleFactory { LibraryViewModel(container.mediaStoreRepository) })
+    val launch by navigationViewModel.playbackLaunch.collectAsStateWithLifecycle()
+    val libraryViewModel: LibraryViewModel = viewModel(
+        factory = simpleFactory { LibraryViewModel(container.libraryRepository, container.mediaFileActionRepository) }
+    )
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(externalMedia?.stableId) {
@@ -39,10 +41,12 @@ fun MaxApp(
     }
 
     MaxTheme {
-        val media = selectedMedia
-        if (media == null) {
+        val playbackLaunch = launch
+        if (playbackLaunch == null) {
             LibraryScreen(
                 state = libraryState,
+                events = libraryViewModel.events,
+                thumbnailRepository = container.thumbnailRepository,
                 onRefresh = libraryViewModel::refresh,
                 onOpenDocument = { uri ->
                     persistUriPermission(uri)
@@ -50,13 +54,59 @@ fun MaxApp(
                         navigationViewModel.select(container.metadataExtractor.fromUri(uri, MediaSourceType.SAF))
                     }
                 },
-                onPlay = navigationViewModel::select,
+                onAddFolder = { uri -> libraryViewModel.addFolder(uri, persistUriPermission(uri)) },
+                onPlay = { request -> navigationViewModel.selectQueue(request.queue, request.startIndex) },
                 onOpenNetworkUrl = { url -> navigationViewModel.select(container.metadataExtractor.fromNetworkUrl(url)) },
+                onSection = libraryViewModel::setSection,
+                onQuery = libraryViewModel::setQuery,
+                onSort = libraryViewModel::setSort,
+                onFolderSort = libraryViewModel::setFolderSort,
+                onToggleSortDirection = libraryViewModel::toggleSortDirection,
+                onFilter = libraryViewModel::setFilter,
+                onViewMode = libraryViewModel::setViewMode,
+                onOpenFolder = libraryViewModel::openFolder,
+                onCloseFolder = libraryViewModel::closeFolder,
+                onOpenPlaylist = libraryViewModel::openPlaylist,
+                onClosePlaylist = libraryViewModel::closePlaylist,
+                onToggleFavourite = libraryViewModel::toggleFavourite,
+                onSetFavourite = libraryViewModel::setFavourite,
+                onCreatePlaylist = libraryViewModel::createPlaylist,
+                onRenamePlaylist = libraryViewModel::renamePlaylist,
+                onDeletePlaylist = libraryViewModel::deletePlaylist,
+                onAddToPlaylist = libraryViewModel::addToPlaylist,
+                onAddManyToPlaylist = libraryViewModel::addManyToPlaylist,
+                onRemoveFromPlaylist = libraryViewModel::removeFromPlaylist,
+                onMovePlaylistItem = libraryViewModel::movePlaylistItem,
+                onExcludeFolder = libraryViewModel::excludeFolder,
+                onRestoreFolder = libraryViewModel::restoreFolder,
+                onRemoveSource = libraryViewModel::removeSource,
+                onDeleteHistory = libraryViewModel::deleteHistory,
+                onClearHistory = libraryViewModel::clearHistory,
+                onRequestDelete = libraryViewModel::requestDelete,
+                onRequestRename = libraryViewModel::requestRename,
+                onFileActionApproval = libraryViewModel::completeConfirmedFileAction,
+                onRelinkSelected = { original, uri ->
+                    persistUriPermission(uri)
+                    scope.launch {
+                        val replacement = container.metadataExtractor.fromUri(uri, MediaSourceType.SAF)
+                        libraryViewModel.relinkMedia(original, replacement)
+                    }
+                },
+                playbackRequest = libraryViewModel::playbackRequest,
             )
         } else {
+            val media = playbackLaunch.media
             val playerViewModel: PlayerViewModel = viewModel(
-                key = "player:${media.stableId}",
-                factory = simpleFactory { PlayerViewModel(media, container.historyRepository, container.playbackConnection) },
+                key = "player:${media.stableId}:${playbackLaunch.queue.size}",
+                factory = simpleFactory {
+                    PlayerViewModel(
+                        media = media,
+                        historyRepository = container.historyRepository,
+                        playbackConnection = container.playbackConnection,
+                        queue = playbackLaunch.queue,
+                        startIndex = playbackLaunch.startIndex,
+                    )
+                },
             )
             PlayerScreen(
                 media = media,

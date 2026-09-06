@@ -4,20 +4,57 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [MediaHistoryEntity::class, PlaybackPreferenceEntity::class],
-    version = 1,
+    entities = [
+        MediaHistoryEntity::class,
+        PlaybackPreferenceEntity::class,
+        FavouriteEntity::class,
+        PlaylistEntity::class,
+        PlaylistItemEntity::class,
+        LibrarySourceEntity::class,
+        ExcludedFolderEntity::class,
+        MediaIndexEntity::class,
+        LibraryPreferenceEntity::class,
+    ],
+    version = 2,
     exportSchema = true,
 )
 abstract class MaxDatabase : RoomDatabase() {
     abstract fun mediaHistoryDao(): MediaHistoryDao
     abstract fun playbackPreferenceDao(): PlaybackPreferenceDao
+    abstract fun favouriteDao(): FavouriteDao
+    abstract fun playlistDao(): PlaylistDao
+    abstract fun librarySourceDao(): LibrarySourceDao
+    abstract fun excludedFolderDao(): ExcludedFolderDao
+    abstract fun mediaIndexDao(): MediaIndexDao
+    abstract fun libraryPreferenceDao(): LibraryPreferenceDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `favourites` (`stableMediaId` TEXT NOT NULL, `addedAtMs` INTEGER NOT NULL, PRIMARY KEY(`stableMediaId`))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `playlists` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_playlists_name` ON `playlists` (`name`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `playlist_items` (`playlistId` INTEGER NOT NULL, `stableMediaId` TEXT NOT NULL, `orderIndex` INTEGER NOT NULL, `addedAtMs` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `stableMediaId`), FOREIGN KEY(`playlistId`) REFERENCES `playlists`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_playlist_items_playlistId` ON `playlist_items` (`playlistId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_playlist_items_playlistId_orderIndex` ON `playlist_items` (`playlistId`, `orderIndex`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `library_sources` (`id` TEXT NOT NULL, `uri` TEXT NOT NULL, `displayName` TEXT NOT NULL, `sourceType` TEXT NOT NULL, `status` TEXT NOT NULL, `permissionPersisted` INTEGER NOT NULL, `addedAtMs` INTEGER NOT NULL, `lastScanAtMs` INTEGER, PRIMARY KEY(`id`))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `excluded_folders` (`folderKey` TEXT NOT NULL, `displayName` TEXT NOT NULL, `excludedAtMs` INTEGER NOT NULL, PRIMARY KEY(`folderKey`))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `media_index` (`stableMediaId` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `uri` TEXT NOT NULL, `title` TEXT NOT NULL, `fileName` TEXT, `mimeType` TEXT, `durationMs` INTEGER, `sizeBytes` INTEGER, `width` INTEGER, `height` INTEGER, `dateAddedMs` INTEGER, `dateModifiedMs` INTEGER, `relativePath` TEXT, `folderKey` TEXT, `folderName` TEXT, `sourceType` TEXT NOT NULL, `availability` TEXT NOT NULL, PRIMARY KEY(`stableMediaId`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_media_index_sourceId` ON `media_index` (`sourceId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_media_index_folderKey` ON `media_index` (`folderKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_media_index_title` ON `media_index` (`title`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_media_index_dateModifiedMs` ON `media_index` (`dateModifiedMs`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `library_preferences` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))")
+            }
+        }
+
         fun create(context: Context): MaxDatabase =
             Room.databaseBuilder(context, MaxDatabase::class.java, "max-video-player.db")
-                // Never use destructive migration fallback in production architecture.
+                .addMigrations(MIGRATION_1_2)
                 .build()
     }
 }

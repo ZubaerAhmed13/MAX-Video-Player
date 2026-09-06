@@ -59,8 +59,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun persistUriPermission(uri: Uri) {
-        runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+    private fun persistUriPermission(uri: Uri): Boolean {
+        val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        val readWrite = read or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        return runCatching {
+            contentResolver.takePersistableUriPermission(uri, readWrite)
+            true
+        }.getOrElse {
+            runCatching {
+                contentResolver.takePersistableUriPermission(uri, read)
+                true
+            }.getOrDefault(false)
+        }
     }
 
     private fun enterPip() {

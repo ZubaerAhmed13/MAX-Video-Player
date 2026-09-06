@@ -1,45 +1,90 @@
-# MAX Video Player — Parity Matrix
+# MAX Video Player — Parity Matrix through Step 2
 
 Status vocabulary: `PASS`, `PARTIAL`, `FAIL`, `NOT VERIFIED`, `NOT IMPLEMENTED`, `NOT APPLICABLE`.
 
-Step-1 automated evidence is anchored to code SHA `ebf58eb0a95ac6e59429417d990caac212ace58e` and Android CI run `34032102391`. `PASS` below means the Step-1 implementation/automated evidence is sufficient for that row; it does not silently imply hardware certification.
+A `PASS` requires implementation, integration, a real functional flow, error handling, and automated evidence where feasible. Physical-device requirements are never inferred from emulator/software evidence.
 
-| Area | Capability | Step 1 status | Evidence / note |
+## Step-2 professional media library
+
+| Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
-| Player | Local playback architecture | PASS | API-35 real H.264 media test passes through PlaybackConnection -> MediaController -> MediaSessionService -> ExoPlayer |
-| Player | Seeking | PASS | Real service/controller media test verifies seek to requested region |
-| Player | Pause/resume transport | PASS | Real service/controller test verifies play and pause; resume-policy UX remains separately modeled |
-| Player | Background playback | PARTIAL | MediaSessionService owns player; physical/background lifecycle continuation still needs representative-device verification |
-| Player | Notification controls | PARTIAL | Media3 session/service integration implemented; runtime notification interaction not independently certified |
-| Player | Lock-screen controls | PARTIAL | MediaSession integration implemented; physical lock-screen interaction not independently certified |
-| Player | PiP | PARTIAL | Real PiP entry preserving service-owned player implemented; device-specific verification pending |
-| Player | Rotation persistence | PASS | API-35 instrumentation recreates MainActivity without crashing the foundation UI; player ownership remains outside Activity |
-| Decoder | Auto | PARTIAL | Media3 automatic selection works for certified H.264 emulator fixture; broader codec/device matrix pending |
-| Decoder | Hardware | PARTIAL | MediaCodec/Media3 path implemented; manufacturer/device-specific hardware matrix pending |
-| Decoder | Enhanced Hardware | PARTIAL | Shares hardware internals in Step 1; intentionally not misrepresented as an independent engine |
-| Decoder | Software | NOT IMPLEMENTED | Planned later step; no placebo implementation |
-| Media | MediaStore | PARTIAL | Query/UI/runtime permission path implemented; representative-device/provider verification pending |
-| Media | SAF | PARTIAL | OpenDocument/persistable grant/metadata path implemented; representative picker/provider verification pending |
-| Media | Large files | NOT VERIFIED | Long-safe/reference architecture and >Int.MAX_VALUE persistence evidence exist; real 3 GB+ media not physically certified |
-| Media | 4K | NOT VERIFIED | Capability-aware profiling exists; no physical 3840×2160 playback certification |
-| Audio | Multi-track foundation | PARTIAL | Media3 track architecture available; dedicated track UX belongs to later work |
-| Audio | Audio focus | PARTIAL | Real foreground-eligible Android-15 playback passes with Media3 audio focus enabled; competing-app/focus-loss matrix not physically certified |
-| Audio | Bluetooth controls | PARTIAL | MediaSession/media-button foundation implemented; physical Bluetooth hardware test pending |
-| Audio | Noisy-route handling | PARTIAL | `setHandleAudioBecomingNoisy(true)` implemented; physical wired/Bluetooth route test pending |
-| Subtitles | Embedded subtitle foundation | PARTIAL | Media3 can expose embedded text tracks; professional UI/styling not Step 1 |
-| Subtitles | External subtitles | NOT IMPLEMENTED | Later subtitle step |
-| Subtitles | Advanced styling | NOT IMPLEMENTED | Later subtitle step |
-| Library | Media scan | PARTIAL | MediaStore query implemented; representative-device scanning verification pending |
-| Library | Resume | PARTIAL | Room + resume policy/dialog implemented; complete end-to-end resume UX certification remains later |
-| Library | History persistence | PASS | Room API-35 instrumentation verifies insert/update/read including a 3.5 GB-sized Long value |
-| Library | Playlists | NOT IMPLEMENTED | Queue model exists; playlist management UI later |
-| Device | Runtime capability mapping | PASS | API-35 instrumentation verifies capability mapping without inventing support |
-| Network | HTTPS | PARTIAL | Real Media3 URI path implemented; live network stream matrix pending |
-| Network | HLS | PARTIAL | Media3 HLS module included; runtime stream test pending |
-| Network | DASH | PARTIAL | Media3 DASH module included; runtime stream test pending |
-| Network | RTSP | PARTIAL | Media3 RTSP module included; runtime stream test pending |
-| Network | SMB | NOT IMPLEMENTED | Later step |
-| Network | Cloud | NOT IMPLEMENTED | Later step |
-| Network | Cast | NOT IMPLEMENTED | Later step |
+| Library | Videos | PASS | MediaStore/SAF-indexed videos feed persistent library state and lazy list/grid rendering |
+| Library | Folders | PASS | Source/provider-aware keys, folder browser/detail, counts/sizes, exclusion/restore, selectable folder sorting |
+| Library | Search | PASS | Debounced normalized title/filename/folder search plus IME Search, Clear, no-results and Android-back behavior; 10,000-item JVM test + API-35 UI test |
+| Library | Sorting | PASS | Video: name, added/modified, duration, size, resolution, last played; folder: name, count, modified, size; asc/desc persistence |
+| Library | Filtering | PASS | watched, unwatched, in-progress, favourites, resolution groups, duration ranges |
+| Library | Continue Watching | PASS | Step-1 ResumePolicy/history reused; trivial/completed excluded; progress bar, percentage, time remaining |
+| Library | Recently Played | PASS | Derived from persistent history ordered by last played |
+| Library | Full History | PASS | Persistent history, replay/resume source, single-item remove, confirmed clear-history distinct from file delete |
+| Library | Favourites | PASS | Room-backed stable-ID relation; add/remove/list + persistence coverage |
+| Library | Playlists | PASS | Room-backed create/rename/delete/add/remove/open; unavailable-item handling |
+| Library | Playlist reorder | PASS | Transactional collision-safe reorder; persistence/order tests |
+| Library | All/visible queue | PASS | Selected media starts real queue preserving visible ordering |
+| Library | Folder queue | PASS | Folder selection builds queue in current folder ordering |
+| Library | Playlist queue | PASS | Ordered playlist queue starts at selected item; previous/next planner tests |
+| Library | List view | PASS | LazyColumn, stable IDs |
+| Library | Grid view | PASS | Adaptive LazyVerticalGrid, stable IDs, persisted view preference |
+| Library | Multi-selection | PASS | Stable-ID selection with batch favourite, unfavourite and add-to-playlist plus cancel flow |
+| Library | Media details | PASS | Dedicated dialog exposes available filename/location/URI/duration/resolution/size/MIME/codecs/frame rate/dates/progress and other deep fields |
+| Storage | MediaStore | PASS | Efficient projection, stable provider identities, off-main scan, debounced observer refresh |
+| Storage | SAF file | PASS | Step-1 OpenDocument path retained; persistable read permission where supported |
+| Storage | SAF folder | PASS | OpenDocumentTree addition and provider-aware recursive scanning |
+| Storage | Persisted tree permission | PASS | Permission/source status persisted; permission loss becomes recoverable source state |
+| Storage | Excluded folders | PASS | Persistent exclude/restore management |
+| Storage | Missing source | PASS | Unavailable rows/source states are represented rather than crashing or being faked available |
+| Storage | Relink | PASS | `Locate original` picker + plausibility validator + stable-ID-preserving repository update; validator tests |
+| Files | Delete | PASS | Explicit app confirmation, Android/provider-aware MediaStore/SAF flow, system confirmation support, relational cleanup tests |
+| Files | Rename | PASS | MediaStore/SAF provider-aware flow, system/write confirmation handling, truthful unsupported state, instrumented repository coverage |
+| Media | Thumbnails | PASS | Bounded/cancellable 16 MiB memory cache, bounded requests, invalidation/placeholder; JVM policy + instrumented failure/cancellation coverage |
+| Media | Metadata | PASS | Fast MediaStore metadata plus optional deep extractor; details surface deep fields when available without deep-scanning every index row |
+| Performance | Large library | PASS | 10,000-entry deterministic derivation tests, lazy Compose, off-main work, 512-row deterministic cancellable Room chunks with progressive snapshots |
+| Performance | No main-thread scanning | PASS | MediaStore/SAF I/O, thumbnails and large derived-list work stay off UI thread |
+| Database | v1 → v2 migration | PASS | Explicit MIGRATION_1_2, no destructive fallback, Android migration test protects Step-1 history/resume/Long values |
+| Database | Collections/sources/index/preferences | PASS | Relational Room v2 entities/DAOs with database instrumentation |
+| Privacy | Local metadata/history | PASS | No Step-2 upload path for filenames, history, thumbnails, playlists or inventory |
 
-Physical 3 GB+, 4K/HDR, Bluetooth/headset-route, manufacturer-specific codec behavior, and broad multi-device compatibility remain explicit certification work; none is converted to PASS by inference.
+## Step-1 foundations preserved during Step 2
+
+| Area | Capability | Status | Evidence / boundary |
+|---|---|---|---|
+| Player | Service-owned playback architecture | PASS | Playback remains `PlaybackConnection -> MediaController -> MediaSessionService -> MediaSession -> PlaybackEngine -> Media3` |
+| Player | Local playback / play / pause / seek | PASS | Existing Step-1 local playback integration test retained in final API-35 suite |
+| Player | Previous / next queue foundation | PASS | Existing session queue architecture retained and consumed by Step-2 queues |
+| Player | Playback speed | PASS | Step-1 implementation retained |
+| Player | PiP foundation | PARTIAL | Architecture retained; physical/device-specific certification remains later |
+| Player | Audio focus / noisy-route handling | PARTIAL | Media3 implementation retained; representative physical hardware routing certification deferred |
+| Media | Large-file-safe types | PASS | Long-safe sizes/durations/positions; tests include multi-GB metadata values |
+| Decoder | Software decoder | NOT IMPLEMENTED | Correctly remains later Step-6 work; no fake decoder added |
+| Subtitles | Professional external subtitle engine | NOT IMPLEMENTED | Correctly remains later Step-4 work |
+| Audio | Equalizer / boost / advanced DSP | NOT IMPLEMENTED | Correctly remains later Step-5 work |
+
+The two Step-1 rows marked PARTIAL above are physical/later-step certification boundaries, not missing Step-2 library requirements.
+
+## Automated Step-2 certification
+
+Authoritative implementation gate:
+
+- CI run `34052267617` (#68)
+- SHA `a901f41007643c90cc37a7e0467caa0c3af9bd2f`
+- debug build + JVM tests — PASS
+- release compilation — PASS
+- lint — PASS
+- API-35 instrumentation — PASS
+
+## Physical certification deferred to Step 10
+
+The following remain **NOT VERIFIED — DEFERRED TO STEP 10** and do not block the Step-2 software/emulator result:
+
+- real 3 GB+ / 5 GB+ / 10 GB+ playback
+- real 3840×2160 4K and HDR playback
+- real SD-card and USB/OTG behavior
+- OEM/manufacturer-specific MediaStore/document-provider behavior
+- physical Bluetooth/headset behavior
+- battery, thermal and long-run physical testing
+- broad phone/tablet device matrix
+
+## Step-2 overall matrix result
+
+**PASS — software/emulator Step-2 requirements are implemented and the authoritative automated gate is green.**
+
+Later-step capabilities and Step-10 physical certification remain explicitly outside this result. Step 3 has not been started.

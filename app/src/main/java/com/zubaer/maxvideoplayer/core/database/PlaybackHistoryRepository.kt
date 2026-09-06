@@ -1,6 +1,7 @@
 package com.zubaer.maxvideoplayer.core.database
 
 import com.zubaer.maxvideoplayer.core.model.AppMedia
+import com.zubaer.maxvideoplayer.core.model.ResumeAction
 import com.zubaer.maxvideoplayer.core.model.ResumeDecision
 import com.zubaer.maxvideoplayer.core.model.ResumePolicy
 import kotlinx.coroutines.flow.Flow
@@ -9,6 +10,22 @@ class PlaybackHistoryRepository(private val dao: MediaHistoryDao) {
     suspend fun get(stableId: String): MediaHistoryEntity? = dao.get(stableId)
 
     fun recent(limit: Int = 50): Flow<List<MediaHistoryEntity>> = dao.recent(limit)
+
+    fun all(): Flow<List<MediaHistoryEntity>> = dao.all()
+
+    suspend fun delete(stableId: String) = dao.delete(stableId)
+
+    suspend fun clear() = dao.clear()
+
+    suspend fun updateSource(stableId: String, media: AppMedia) = dao.updateSource(
+        stableId = stableId,
+        uri = media.uri,
+        title = media.title,
+        mimeType = media.mimeType,
+        sizeBytes = media.sizeBytes,
+        width = media.width,
+        height = media.height,
+    )
 
     suspend fun record(media: AppMedia, positionMs: Long, durationMs: Long, completed: Boolean) {
         dao.upsert(
@@ -57,6 +74,6 @@ class PlaybackHistoryRepository(private val dao: MediaHistoryDao) {
     }
 
     fun resumeDecision(entity: MediaHistoryEntity?): ResumeDecision =
-        if (entity == null || entity.completed) ResumeDecision(com.zubaer.maxvideoplayer.core.model.ResumeAction.START_OVER, 0L)
+        if (entity == null || entity.completed) ResumeDecision(ResumeAction.START_OVER, 0L)
         else ResumePolicy.decide(entity.lastPositionMs, entity.durationMs)
 }
