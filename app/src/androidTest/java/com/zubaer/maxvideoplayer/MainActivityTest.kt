@@ -1,12 +1,11 @@
 package com.zubaer.maxvideoplayer
 
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasAnyDescendant
-import androidx.compose.ui.test.hasScrollAction
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -27,23 +26,41 @@ class MainActivityTest {
     }
 
     @Test fun primarySectionsNavigateWithoutDependingOnSeededMedia() {
-        selectSection(index = 1, tag = "section_folders", anchorTag = "section_videos")
+        selectSection(index = 1, tag = "section_folders")
         rule.onNodeWithTag("folder_list").assertIsDisplayed()
 
-        selectSection(index = 4, tag = "section_favourites", anchorTag = "section_folders")
+        selectSection(index = 4, tag = "section_favourites")
         rule.onNodeWithTag("library_search_input").assertIsDisplayed()
 
-        selectSection(index = 6, tag = "section_history", anchorTag = "section_favourites")
+        selectSection(index = 6, tag = "section_history")
         rule.onNodeWithTag("library_search_input").assertIsDisplayed()
     }
 
     @Test fun playlistCreateFlowUsesPersistentProfessionalSurface() {
-        selectSection(index = 5, tag = "section_playlists", anchorTag = "section_videos")
+        selectSection(index = 5, tag = "section_playlists")
         rule.onNodeWithTag("playlist_list").assertIsDisplayed()
         rule.onNodeWithTag("new_playlist_input").performTextInput("Instrumentation Playlist")
         rule.onNodeWithTag("create_playlist_button").performClick()
         rule.waitForIdle()
         rule.onNodeWithTag("playlist_list").assertIsDisplayed()
+    }
+
+    @Test fun searchSupportsImeClearAndBackNavigation() {
+        val search = rule.onNodeWithTag("library_search_input")
+        search.performTextInput("definitely missing")
+        search.performImeAction()
+        rule.waitForIdle()
+        rule.onNodeWithTag("clear_search_button").assertIsDisplayed().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("clear_search_button").assertDoesNotExist()
+
+        search.performTextInput("another query")
+        rule.waitForIdle()
+        rule.onNodeWithTag("clear_search_button").assertIsDisplayed()
+        rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("clear_search_button").assertDoesNotExist()
+        rule.onNodeWithTag("library_search_input").assertIsDisplayed()
     }
 
     @Test fun activityRecreationDoesNotCrashFoundationUi() {
@@ -53,9 +70,8 @@ class MainActivityTest {
         rule.onNodeWithTag("library_search_input").assertIsDisplayed()
     }
 
-    private fun selectSection(index: Int, tag: String, anchorTag: String) {
-        rule.onNode(hasScrollAction() and hasAnyDescendant(hasTestTag(anchorTag)))
-            .performScrollToIndex(index)
+    private fun selectSection(index: Int, tag: String) {
+        rule.onNodeWithTag("library_section_row").performScrollToIndex(index)
         rule.waitForIdle()
         rule.onNodeWithTag(tag).assertIsDisplayed().performClick()
         rule.waitForIdle()
