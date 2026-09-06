@@ -73,8 +73,25 @@ fun PlayerScreen(
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val accessibilityManager = remember(context) { context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager }
-    val touchExploration = accessibilityManager.isEnabled && accessibilityManager.isTouchExplorationEnabled
+    var touchExploration by remember(accessibilityManager) {
+        mutableStateOf(accessibilityManager.isEnabled && accessibilityManager.isTouchExplorationEnabled)
+    }
     val originalBrightness = remember(activity) { activity?.window?.attributes?.screenBrightness ?: -1f }
+
+    DisposableEffect(accessibilityManager) {
+        val accessibilityListener = AccessibilityManager.AccessibilityStateChangeListener { enabled ->
+            touchExploration = enabled && accessibilityManager.isTouchExplorationEnabled
+        }
+        val touchListener = AccessibilityManager.TouchExplorationStateChangeListener { enabled ->
+            touchExploration = accessibilityManager.isEnabled && enabled
+        }
+        accessibilityManager.addAccessibilityStateChangeListener(accessibilityListener)
+        accessibilityManager.addTouchExplorationStateChangeListener(touchListener)
+        onDispose {
+            accessibilityManager.removeAccessibilityStateChangeListener(accessibilityListener)
+            accessibilityManager.removeTouchExplorationStateChangeListener(touchListener)
+        }
+    }
 
     LaunchedEffect(playback.isPlaying) { viewModel.onPlaybackPlayingChanged(playback.isPlaying) }
     LaunchedEffect(playback.playbackEnded) { if (playback.playbackEnded) viewModel.showControls() }
@@ -95,6 +112,7 @@ fun PlayerScreen(
 
     BackHandler {
         when {
+            coordinator.resumePositionMs != null -> onBack()
             coordinator.tutorialVisible -> viewModel.dismissTutorial()
             coordinator.activeMenu != PlayerMenu.NONE -> viewModel.closeMenu()
             coordinator.controlsLocked -> viewModel.unlockControls()
