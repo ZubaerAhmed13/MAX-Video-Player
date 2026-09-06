@@ -66,7 +66,7 @@ class PlayerInteractionPolicyTest {
     @Test
     fun pipRatioUsesRotationAndAndroidSafeBounds() {
         assertEquals(16 to 9, PlayerInteractionPolicy.pipRatio(1920, 1080, 0))
-        assertEquals(1080 to 1920, PlayerInteractionPolicy.pipRatio(1920, 1080, 90))
+        assertEquals(9 to 16, PlayerInteractionPolicy.pipRatio(1920, 1080, 90))
         assertEquals(239 to 100, PlayerInteractionPolicy.pipRatio(10_000, 100, 0))
         assertEquals(100 to 239, PlayerInteractionPolicy.pipRatio(100, 10_000, 0))
     }
