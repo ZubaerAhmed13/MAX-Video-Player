@@ -70,6 +70,7 @@ data class PlayerPreferencesState(
     val autoHideMillis: Long = 3_000L,
     val orientationMode: OrientationMode = OrientationMode.AUTO,
     val defaultResizeMode: ResizeMode = ResizeMode.FIT,
+    val customAspectRatio: Float = 16f / 9f,
     val rememberPlaybackSpeed: Boolean = false,
     val rememberedPlaybackSpeed: Float = 1f,
     val autoPip: Boolean = false,
