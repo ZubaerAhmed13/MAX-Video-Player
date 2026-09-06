@@ -31,7 +31,8 @@ class MediaMetadataExtractor(private val context: Context) {
         val size = querySize(uri)
 
         runCatching {
-            MediaMetadataRetriever().use { retriever ->
+            val retriever = MediaMetadataRetriever()
+            try {
                 retriever.setDataSource(context, uri)
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() }?.let { title = it }
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)?.let { mime = it }
@@ -39,11 +40,15 @@ class MediaMetadataExtractor(private val context: Context) {
                 width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
                 height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
                 rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull()
+            } finally {
+                // release() is available on the Step-1 minSdk; do not rely on newer AutoCloseable APIs.
+                retriever.release()
             }
         }
 
         runCatching {
-            MediaExtractor().use { extractor ->
+            val extractor = MediaExtractor()
+            try {
                 extractor.setDataSource(context, uri, null)
                 for (index in 0 until extractor.trackCount) {
                     val format = extractor.getTrackFormat(index)
@@ -65,6 +70,8 @@ class MediaMetadataExtractor(private val context: Context) {
                         }
                     }
                 }
+            } finally {
+                extractor.release()
             }
         }
 
