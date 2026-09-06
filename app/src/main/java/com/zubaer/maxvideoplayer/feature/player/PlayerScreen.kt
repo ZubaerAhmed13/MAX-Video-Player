@@ -7,6 +7,8 @@ import android.media.AudioManager
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -49,9 +51,16 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.PlaybackError
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleDialog
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleEdgeStyle
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleFormatPolicy
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleStyleState
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
@@ -60,6 +69,7 @@ fun PlayerScreen(
     media: AppMedia,
     viewModel: PlayerViewModel,
     playbackConnection: PlaybackConnection,
+    subtitleRepository: SubtitleRepository,
     onBack: () -> Unit,
     onEnterPip: (AppMedia) -> Unit,
     onFullscreenChanged: (Boolean) -> Unit,
@@ -68,15 +78,33 @@ fun PlayerScreen(
 ) {
     val coordinator by viewModel.state.collectAsStateWithLifecycle()
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
+    val subtitleStyle by subtitleRepository.style.collectAsStateWithLifecycle()
     val currentMedia = viewModel.mediaForPlaybackId(playback.mediaId)
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val accessibilityManager = remember(context) { context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager }
+    var subtitleDialogVisible by remember { mutableStateOf(false) }
+    var subtitleLoadError by remember { mutableStateOf<String?>(null) }
     var touchExploration by remember(accessibilityManager) {
         mutableStateOf(accessibilityManager.isEnabled && accessibilityManager.isTouchExplorationEnabled)
     }
     val originalBrightness = remember(activity) { activity?.window?.attributes?.screenBrightness ?: -1f }
+
+    val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            subtitleRepository.persistReadPermission(uri)
+            val descriptor = subtitleRepository.describe(uri)
+            when {
+                descriptor == null -> subtitleLoadError = "This file is not a supported subtitle format. Use SRT, WebVTT, SSA/ASS or TTML/DFXP."
+                !subtitleRepository.canOpen(uri) -> subtitleLoadError = "The subtitle file could not be opened. Check the provider permission and try again."
+                else -> {
+                    playbackConnection.attachExternalSubtitle(descriptor)
+                    subtitleLoadError = null
+                }
+            }
+        }
+    }
 
     DisposableEffect(accessibilityManager) {
         val accessibilityListener = AccessibilityManager.AccessibilityStateChangeListener { enabled ->
@@ -112,6 +140,8 @@ fun PlayerScreen(
 
     BackHandler {
         when {
+            subtitleLoadError != null -> subtitleLoadError = null
+            subtitleDialogVisible -> subtitleDialogVisible = false
             coordinator.resumePositionMs != null -> onBack()
             coordinator.tutorialVisible -> viewModel.dismissTutorial()
             coordinator.activeMenu != PlayerMenu.NONE -> viewModel.closeMenu()
@@ -145,6 +175,7 @@ fun PlayerScreen(
             media = currentMedia,
             playbackConnection = playbackConnection,
             coordinator = coordinator,
+            subtitleStyle = subtitleStyle,
             viewportSize = viewportSize,
             modifier = Modifier
                 .fillMaxSize()
@@ -156,13 +187,14 @@ fun PlayerScreen(
                     coordinator.tutorialVisible,
                     coordinator.resumePositionMs,
                     coordinator.preparing,
+                    subtitleDialogVisible,
                     touchExploration,
                 ) {
-                    if (surfaceInteractionBlocked(coordinator, touchExploration)) return@pointerInput
+                    if (subtitleDialogVisible || surfaceInteractionBlocked(coordinator, touchExploration)) return@pointerInput
                     detectTapGestures(
                         onTap = { viewModel.onSurfaceTap() },
                         onDoubleTap = { offset ->
-                            if (surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) return@detectTapGestures
+                            if (subtitleDialogVisible || surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) return@detectTapGestures
                             val zone = PlayerInteractionPolicy.doubleTapZone(offset.x, size.width.toFloat())
                             val current = latestPlayback.value
                             viewModel.doubleTap(zone, current.currentPositionMs, current.durationMs)
@@ -179,9 +211,10 @@ fun PlayerScreen(
                     coordinator.preferences.brightnessGestureEnabled,
                     coordinator.preferences.volumeGestureEnabled,
                     coordinator.preferences.gestureSensitivity,
+                    subtitleDialogVisible,
                     touchExploration,
                 ) {
-                    if (surfaceInteractionBlocked(coordinator, touchExploration)) return@pointerInput
+                    if (subtitleDialogVisible || surfaceInteractionBlocked(coordinator, touchExploration)) return@pointerInput
                     var startOffset = Offset.Zero
                     var accumulated = Offset.Zero
                     var gestureKind = PlayerGestureKind.NONE
@@ -192,7 +225,7 @@ fun PlayerScreen(
 
                     detectDragGestures(
                         onDragStart = { offset ->
-                            if (!surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) {
+                            if (!subtitleDialogVisible && !surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) {
                                 startOffset = offset
                                 accumulated = Offset.Zero
                                 gestureKind = PlayerGestureKind.NONE
@@ -208,7 +241,7 @@ fun PlayerScreen(
                         onDragCancel = { viewModel.endInteraction() },
                         onDragEnd = {
                             val target = seekTargetMs
-                            if (gestureKind == PlayerGestureKind.SEEK && target != null && !surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) {
+                            if (gestureKind == PlayerGestureKind.SEEK && target != null && !subtitleDialogVisible && !surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) {
                                 viewModel.commitSeek(target)
                             } else {
                                 viewModel.endInteraction()
@@ -216,7 +249,7 @@ fun PlayerScreen(
                         },
                         onDrag = { change, dragAmount ->
                             val currentCoordinator = latestCoordinator.value
-                            if (surfaceInteractionBlocked(currentCoordinator, touchExploration) || currentCoordinator.gestureKind == PlayerGestureKind.ZOOM) {
+                            if (subtitleDialogVisible || surfaceInteractionBlocked(currentCoordinator, touchExploration) || currentCoordinator.gestureKind == PlayerGestureKind.ZOOM) {
                                 return@detectDragGestures
                             }
                             accumulated += dragAmount
@@ -277,15 +310,16 @@ fun PlayerScreen(
                     coordinator.resumePositionMs,
                     coordinator.preparing,
                     coordinator.preferences.pinchZoomEnabled,
+                    subtitleDialogVisible,
                     touchExploration,
                 ) {
-                    if (surfaceInteractionBlocked(coordinator, touchExploration) || !coordinator.preferences.pinchZoomEnabled) return@pointerInput
+                    if (subtitleDialogVisible || surfaceInteractionBlocked(coordinator, touchExploration) || !coordinator.preferences.pinchZoomEnabled) return@pointerInput
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
                         var transforming = false
                         do {
                             val event = awaitPointerEvent()
-                            if (surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) break
+                            if (subtitleDialogVisible || surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) break
                             val pressedCount = event.changes.count { it.pressed }
                             if (pressedCount >= 2) {
                                 transforming = true
@@ -338,6 +372,10 @@ fun PlayerScreen(
             onInteractionStart = { viewModel.beginInteraction(PlayerGestureKind.SEEK) },
             onInteractionEnd = viewModel::endInteraction,
             onOpenMenu = viewModel::openMenu,
+            onSubtitles = {
+                viewModel.showControls()
+                subtitleDialogVisible = true
+            },
             onRotate = viewModel::rotateDisplay,
             onLock = viewModel::lockControls,
             onUnlock = viewModel::unlockControls,
@@ -374,6 +412,36 @@ fun PlayerScreen(
             onShowTutorial = viewModel::showTutorial,
             onDismissTutorial = viewModel::dismissTutorial,
         )
+
+        if (subtitleDialogVisible) {
+            SubtitleDialog(
+                playback = playback,
+                style = subtitleStyle,
+                onDismiss = { subtitleDialogVisible = false },
+                onEnabled = playbackConnection::setSubtitlesEnabled,
+                onAuto = playbackConnection::selectSubtitleAuto,
+                onTrack = playbackConnection::selectSubtitleTrack,
+                onLoadExternal = { subtitlePicker.launch(SubtitleFormatPolicy.supportedPickerMimeTypes()) },
+                onRemoveExternal = playbackConnection::clearExternalSubtitle,
+                onTextScale = subtitleRepository::setTextScale,
+                onBottomPadding = subtitleRepository::setBottomPaddingFraction,
+                onEdgeStyle = subtitleRepository::setEdgeStyle,
+                onForegroundColor = subtitleRepository::setForegroundColor,
+                onBackgroundColor = subtitleRepository::setBackgroundColor,
+                onApplyEmbeddedStyles = subtitleRepository::setApplyEmbeddedStyles,
+                onApplyEmbeddedFontSizes = subtitleRepository::setApplyEmbeddedFontSizes,
+                onResetStyle = subtitleRepository::resetStyle,
+            )
+        }
+
+        subtitleLoadError?.let { message ->
+            AlertDialog(
+                onDismissRequest = { subtitleLoadError = null },
+                title = { Text("Subtitle file") },
+                text = { Text(message) },
+                confirmButton = { Button(onClick = { subtitleLoadError = null }) { Text("OK") } },
+            )
+        }
     }
 }
 
@@ -383,6 +451,7 @@ private fun PlayerVideoSurface(
     media: AppMedia,
     playbackConnection: PlaybackConnection,
     coordinator: PlayerCoordinatorState,
+    subtitleStyle: SubtitleStyleState,
     viewportSize: IntSize,
     modifier: Modifier = Modifier,
 ) {
@@ -402,6 +471,7 @@ private fun PlayerVideoSurface(
                 ResizeMode.CROP -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
             }
+            playerView.subtitleView?.applySubtitleStyle(subtitleStyle)
             val transform = PlayerInteractionPolicy.transform(
                 resizeMode = coordinator.resizeMode,
                 customAspectRatio = coordinator.customAspectRatio,
@@ -426,6 +496,29 @@ private fun PlayerVideoSurface(
             }
         },
         modifier = modifier,
+    )
+}
+
+private fun SubtitleView.applySubtitleStyle(style: SubtitleStyleState) {
+    setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * style.textScale.coerceIn(0.5f, 2f))
+    setBottomPaddingFraction(style.bottomPaddingFraction.coerceIn(0f, 0.35f))
+    setApplyEmbeddedStyles(style.applyEmbeddedStyles)
+    setApplyEmbeddedFontSizes(style.applyEmbeddedFontSizes)
+    setStyle(
+        CaptionStyleCompat(
+            style.foregroundColor,
+            style.backgroundColor,
+            style.windowColor,
+            when (style.edgeStyle) {
+                SubtitleEdgeStyle.NONE -> CaptionStyleCompat.EDGE_TYPE_NONE
+                SubtitleEdgeStyle.OUTLINE -> CaptionStyleCompat.EDGE_TYPE_OUTLINE
+                SubtitleEdgeStyle.DROP_SHADOW -> CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
+                SubtitleEdgeStyle.RAISED -> CaptionStyleCompat.EDGE_TYPE_RAISED
+                SubtitleEdgeStyle.DEPRESSED -> CaptionStyleCompat.EDGE_TYPE_DEPRESSED
+            },
+            style.edgeColor,
+            null,
+        ),
     )
 }
 
