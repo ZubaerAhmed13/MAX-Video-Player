@@ -20,6 +20,7 @@ class PlayerPreferences(context: Context) {
     fun setAutoHideMillis(value: Long) = update(KEY_AUTO_HIDE, value.coerceIn(2_000L, 8_000L))
     fun setOrientationMode(value: OrientationMode) = update(KEY_ORIENTATION, value.name)
     fun setDefaultResizeMode(value: ResizeMode) = update(KEY_RESIZE, value.name)
+    fun setCustomAspectRatio(value: Float) = update(KEY_CUSTOM_ASPECT, PlayerPreferenceCodec.customAspectRatio(value))
     fun setRememberPlaybackSpeed(value: Boolean) = update(KEY_REMEMBER_SPEED, value)
     fun setRememberedPlaybackSpeed(value: Float) = update(KEY_SPEED, value.coerceIn(0.25f, 4f))
     fun setAutoPip(value: Boolean) = update(KEY_AUTO_PIP, value)
@@ -49,6 +50,7 @@ class PlayerPreferences(context: Context) {
         autoHideMillis = prefs.getLong(KEY_AUTO_HIDE, 3_000L).coerceIn(2_000L, 8_000L),
         orientationMode = PlayerPreferenceCodec.orientationMode(prefs.getString(KEY_ORIENTATION, null)),
         defaultResizeMode = PlayerPreferenceCodec.resizeMode(prefs.getString(KEY_RESIZE, null)),
+        customAspectRatio = PlayerPreferenceCodec.customAspectRatio(prefs.getFloat(KEY_CUSTOM_ASPECT, 16f / 9f)),
         rememberPlaybackSpeed = prefs.getBoolean(KEY_REMEMBER_SPEED, false),
         rememberedPlaybackSpeed = prefs.getFloat(KEY_SPEED, 1f).coerceIn(0.25f, 4f),
         autoPip = prefs.getBoolean(KEY_AUTO_PIP, false),
@@ -66,6 +68,7 @@ class PlayerPreferences(context: Context) {
         private const val KEY_AUTO_HIDE = "auto_hide_ms"
         private const val KEY_ORIENTATION = "orientation_mode"
         private const val KEY_RESIZE = "resize_mode"
+        private const val KEY_CUSTOM_ASPECT = "custom_aspect_ratio"
         private const val KEY_REMEMBER_SPEED = "remember_speed"
         private const val KEY_SPEED = "remembered_speed"
         private const val KEY_AUTO_PIP = "auto_pip"
