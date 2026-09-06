@@ -3,6 +3,9 @@ package com.zubaer.maxvideoplayer
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -18,6 +21,26 @@ class MainActivityTest {
         // Step 2 has a substantially taller professional library. Preserve the Step-1
         // network-entry control without coupling the regression test to above-the-fold placement.
         rule.onNodeWithTag("network_url_input").assertExists()
+    }
+
+    @Test fun primarySectionsNavigateToRealLibrarySurfaces() {
+        rule.onNodeWithTag("section_folders").performScrollTo().performClick()
+        rule.onNodeWithTag("folder_list").assertIsDisplayed()
+
+        rule.onNodeWithTag("section_favourites").performScrollTo().performClick()
+        rule.onNodeWithTag("library_list").assertExists()
+
+        rule.onNodeWithTag("section_history").performScrollTo().performClick()
+        rule.onNodeWithTag("library_list").assertExists()
+    }
+
+    @Test fun playlistCreateFlowUsesPersistentProfessionalSurface() {
+        rule.onNodeWithTag("section_playlists").performScrollTo().performClick()
+        rule.onNodeWithTag("playlist_list").assertIsDisplayed()
+        rule.onNodeWithTag("new_playlist_input").performTextInput("Instrumentation Playlist")
+        rule.onNodeWithTag("create_playlist_button").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("playlist_list").assertIsDisplayed()
     }
 
     @Test fun activityRecreationDoesNotCrashFoundationUi() {
