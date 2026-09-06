@@ -46,6 +46,49 @@ class LibraryQueryEngineTest {
         }
     }
 
+    @Test fun professionalFiltersCoverProgressResolutionDurationAndFavourites() {
+        val short720 = media("short720", "Short HD", 300_000L, 1L, 1L, width = 1280, height = 720)
+        val long1080 = media("long1080", "Long FHD", 4_000_000L, 1L, 2L, width = 1920, height = 1080)
+        val uhd = media("uhd", "4K", 7_200_000L, 1L, 3L, width = 3840, height = 2160)
+        val history = mapOf(
+            "short720" to history("short720", 1L, completed = true),
+            "long1080" to history("long1080", 2L, position = 45_000L, duration = 120_000L),
+        )
+        val all = listOf(short720, long1080, uhd)
+
+        assertEquals(listOf("short720"), ids(all, LibraryFilter.WATCHED, history, emptySet()))
+        assertEquals(listOf("uhd"), ids(all, LibraryFilter.UNWATCHED, history, emptySet()))
+        assertEquals(listOf("long1080"), ids(all, LibraryFilter.IN_PROGRESS, history, emptySet()))
+        assertEquals(listOf("uhd"), ids(all, LibraryFilter.FAVOURITES, history, setOf("uhd")))
+        assertEquals(setOf("short720", "long1080", "uhd"), ids(all, LibraryFilter.RESOLUTION_720P_PLUS, history, emptySet()).toSet())
+        assertEquals(setOf("long1080", "uhd"), ids(all, LibraryFilter.RESOLUTION_1080P_PLUS, history, emptySet()).toSet())
+        assertEquals(listOf("uhd"), ids(all, LibraryFilter.RESOLUTION_2160P, history, emptySet()))
+        assertEquals(listOf("short720"), ids(all, LibraryFilter.UNDER_10_MINUTES, history, emptySet()))
+        assertEquals(setOf("long1080", "uhd"), ids(all, LibraryFilter.OVER_60_MINUTES, history, emptySet()).toSet())
+    }
+
+    @Test fun folderSortingKeepsSameNamedFoldersDistinctAndSupportsEveryMode() {
+        val moviesInternal = FolderItem("mediastore:bucket:1", "Movies", listOf(media("a", "A", 1L, 10L, 10L)), 10L, 10L)
+        val moviesSaf = FolderItem(
+            "saf:source:document-7",
+            "Movies",
+            listOf(media("b", "B", 1L, 20L, 20L), media("c", "C", 1L, 30L, 30L)),
+            50L,
+            30L,
+        )
+        val downloads = FolderItem("mediastore:bucket:3", "Downloads", listOf(media("d", "D", 1L, 5L, 5L)), 5L, 5L)
+        val folders = listOf(moviesInternal, moviesSaf, downloads)
+
+        FolderSort.entries.forEach { sort ->
+            val asc = LibraryFolderEngine.sort(folders, sort, SortDirection.ASCENDING)
+            val desc = LibraryFolderEngine.sort(folders, sort, SortDirection.DESCENDING)
+            assertEquals(3, asc.size)
+            assertEquals(asc.map { it.key }.reversed(), desc.map { it.key })
+        }
+        assertEquals(2, folders.count { it.name == "Movies" })
+        assertTrue(folders.map { it.key }.distinct().size == folders.size)
+    }
+
     @Test fun continueWatchingUsesExistingResumePolicy() {
         val early = history("early", 1L, position = 1_000L, duration = 120_000L)
         val progress = history("progress", 2L, position = 45_000L, duration = 120_000L)
@@ -71,6 +114,21 @@ class LibraryQueryEngineTest {
         )
         assertEquals(listOf("first", "missing"), result.map { it.stableId })
     }
+
+    private fun ids(
+        media: List<AppMedia>,
+        filter: LibraryFilter,
+        history: Map<String, MediaHistoryEntity>,
+        favourites: Set<String>,
+    ) = LibraryQueryEngine.apply(
+        input = media,
+        query = "",
+        sort = VideoSort.NAME,
+        direction = SortDirection.ASCENDING,
+        filter = filter,
+        history = history,
+        favouriteIds = favourites,
+    ).map { it.stableId }
 
     private fun media(
         id: String,
