@@ -1,7 +1,8 @@
 package com.zubaer.maxvideoplayer
 
-import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -52,14 +53,14 @@ class MainActivityTest {
         rule.waitForIdle()
         rule.onNodeWithTag("clear_search_button").assertIsDisplayed().performClick()
         rule.waitForIdle()
-        rule.onNodeWithTag("clear_search_button").assertDoesNotExist()
+        rule.onAllNodes(hasTestTag("clear_search_button")).assertCountEquals(0)
 
         search.performTextInput("another query")
         rule.waitForIdle()
         rule.onNodeWithTag("clear_search_button").assertIsDisplayed()
         rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         rule.waitForIdle()
-        rule.onNodeWithTag("clear_search_button").assertDoesNotExist()
+        rule.onAllNodes(hasTestTag("clear_search_button")).assertCountEquals(0)
         rule.onNodeWithTag("library_search_input").assertIsDisplayed()
     }
 
