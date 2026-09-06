@@ -1,5 +1,6 @@
 package com.zubaer.maxvideoplayer.feature.player
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -94,11 +95,15 @@ private fun SpeedDialog(current: Float, onDismiss: () -> Unit, onSpeed: (Float) 
                     valueRange = 0.25f..4f,
                     steps = 74,
                 )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    listOf(0.5f, 1f, 1.5f, 2f).forEach { preset ->
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { preset ->
                         TextButton(onClick = { speed = preset; onSpeed(preset) }) { Text("${preset}×") }
                     }
                 }
+                Text("Fine adjustment is available in 0.05× steps from 0.25× to 4.0×.")
             }
         },
         confirmButton = { Button(onClick = { onSpeed(speed); onDismiss() }) { Text("Apply") } },
@@ -119,7 +124,10 @@ private fun PlaybackModeDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Repeat")
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     RepeatMode.entries.forEach { mode ->
                         TextButton(onClick = { onRepeatMode(mode) }) {
                             Text(if (playback.repeatMode == mode) "✓ ${mode.name.lowercase()}" else mode.name.lowercase())
@@ -143,8 +151,12 @@ private fun DisplayDialog(
     onResetZoom: () -> Unit,
     onRotate: () -> Unit,
 ) {
-    var customW by remember { mutableStateOf("16") }
-    var customH by remember { mutableStateOf("9") }
+    var customW by remember(state.customAspectRatio, state.resizeMode) {
+        mutableStateOf(if (state.resizeMode == ResizeMode.CUSTOM) state.customAspectRatio.toString() else "16")
+    }
+    var customH by remember(state.customAspectRatio, state.resizeMode) {
+        mutableStateOf(if (state.resizeMode == ResizeMode.CUSTOM) "1" else "9")
+    }
     var customError by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -167,12 +179,12 @@ private fun DisplayDialog(
                     }
                 }
                 HorizontalDivider()
-                Text("Custom aspect")
+                Text("Custom aspect${if (state.resizeMode == ResizeMode.CUSTOM) " — active ${"%.3f".format(state.customAspectRatio)}:1" else ""}")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(customW, { customW = it }, label = { Text("W") }, modifier = Modifier.weight(1f), singleLine = true)
                     OutlinedTextField(customH, { customH = it }, label = { Text("H") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
-                if (customError) Text("Use positive values, for example 16:9")
+                if (customError) Text("Use positive values producing a ratio between 0.2:1 and 5:1, for example 16:9.")
                 Button(onClick = {
                     customError = !onCustomAspect(customW.toFloatOrNull() ?: 0f, customH.toFloatOrNull() ?: 0f)
                 }) { Text("Apply custom ratio") }
@@ -226,21 +238,41 @@ private fun SettingsDialog(
     onAutoPip: (Boolean) -> Unit,
     onShowTutorial: () -> Unit,
 ) {
+    var customDoubleTapSeconds by remember(preferences.doubleTapSeekSeconds) {
+        mutableFloatStateOf(preferences.doubleTapSeekSeconds.coerceIn(5, 60).toFloat())
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Player controls") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Double-tap seek")
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     listOf(5, 10, 15, 30).forEach { seconds ->
-                        TextButton(onClick = { onDoubleTapSeconds(seconds) }) {
+                        TextButton(onClick = {
+                            customDoubleTapSeconds = seconds.toFloat()
+                            onDoubleTapSeconds(seconds)
+                        }) {
                             Text(if (preferences.doubleTapSeekSeconds == seconds) "✓ ${seconds}s" else "${seconds}s")
                         }
                     }
                 }
+                Text("Custom seek: ${customDoubleTapSeconds.roundToInt()}s")
+                Slider(
+                    value = customDoubleTapSeconds,
+                    onValueChange = { customDoubleTapSeconds = it.roundToInt().toFloat() },
+                    onValueChangeFinished = { onDoubleTapSeconds(customDoubleTapSeconds.roundToInt()) },
+                    valueRange = 5f..60f,
+                    steps = 54,
+                )
                 Text("Gesture sensitivity")
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     GestureSensitivity.entries.forEach { value ->
                         TextButton(onClick = { onSensitivity(value) }) {
                             Text(if (preferences.gestureSensitivity == value) "✓ ${value.name.lowercase()}" else value.name.lowercase())
@@ -254,7 +286,10 @@ private fun SettingsDialog(
                 SettingSwitch("Remember playback speed", preferences.rememberPlaybackSpeed, onRememberSpeed)
                 SettingSwitch("Automatic PiP when leaving player", preferences.autoPip, onAutoPip)
                 Text("Control auto-hide")
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     listOf(2_000L, 3_000L, 5_000L).forEach { ms ->
                         TextButton(onClick = { onAutoHideMillis(ms) }) {
                             Text(if (preferences.autoHideMillis == ms) "✓ ${ms / 1_000}s" else "${ms / 1_000}s")
