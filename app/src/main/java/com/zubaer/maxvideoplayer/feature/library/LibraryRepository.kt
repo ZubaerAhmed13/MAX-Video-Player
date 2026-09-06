@@ -17,6 +17,7 @@ import com.zubaer.maxvideoplayer.core.media.SafTreeScanner
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.core.model.SourceAvailability
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -72,10 +73,13 @@ class LibraryRepository(
     }
 
     suspend fun refreshMediaStore() {
+        val dao = database.mediaIndexDao()
+        val existing = dao.bySource(MediaStoreRepository.SOURCE_ID)
         val scanned = mediaStoreRepository.videos()
+        val reconciled = LibraryIndexReconciler.preserveKnownStableIds(scanned, existing)
         database.withTransaction {
-            database.mediaIndexDao().markSourceUnavailable(MediaStoreRepository.SOURCE_ID)
-            if (scanned.isNotEmpty()) database.mediaIndexDao().upsertAll(scanned.map { media -> media.toIndexEntity() })
+            dao.markSourceUnavailable(MediaStoreRepository.SOURCE_ID)
+            if (reconciled.isNotEmpty()) dao.upsertAll(reconciled.map { media -> media.toIndexEntity() })
         }
     }
 
@@ -103,18 +107,23 @@ class LibraryRepository(
         val uri = Uri.parse(source.uri)
         val scanned = try {
             safTreeScanner.scan(uri, source.id, source.displayName)
-        } catch (security: SecurityException) {
-            database.librarySourceDao().upsert(source.copy(status = STATUS_PERMISSION_LOST))
-            database.mediaIndexDao().markSourceUnavailable(source.id)
+        } catch (failure: Exception) {
+            if (failure is CancellationException) throw failure
+            val disposition = SafScanFailurePolicy.classify(failure)
+            database.withTransaction {
+                database.librarySourceDao().upsert(source.copy(status = disposition.sourceStatus))
+                database.mediaIndexDao().markSourceUnavailable(source.id)
+            }
+            if (disposition.rethrow) throw failure
             return
-        } catch (failure: Throwable) {
-            database.librarySourceDao().upsert(source.copy(status = STATUS_UNAVAILABLE))
-            throw failure
         }
 
+        val dao = database.mediaIndexDao()
+        val existing = dao.bySource(source.id)
+        val reconciled = LibraryIndexReconciler.preserveKnownStableIds(scanned, existing)
         database.withTransaction {
-            database.mediaIndexDao().markSourceUnavailable(source.id)
-            if (scanned.isNotEmpty()) database.mediaIndexDao().upsertAll(scanned.map { media -> media.toIndexEntity() })
+            dao.markSourceUnavailable(source.id)
+            if (reconciled.isNotEmpty()) dao.upsertAll(reconciled.map { media -> media.toIndexEntity() })
             database.librarySourceDao().upsert(source.copy(status = STATUS_AVAILABLE, lastScanAtMs = System.currentTimeMillis()))
         }
     }
