@@ -20,7 +20,7 @@ class PlayerPreferences(context: Context) {
     fun setAutoHideMillis(value: Long) = update(KEY_AUTO_HIDE, value.coerceIn(2_000L, 8_000L))
     fun setOrientationMode(value: OrientationMode) = update(KEY_ORIENTATION, value.name)
     fun setDefaultResizeMode(value: ResizeMode) = update(KEY_RESIZE, value.name)
-    fun setCustomAspectRatio(value: Float) = update(KEY_CUSTOM_ASPECT, PlayerPreferenceCodec.customAspectRatio(value))
+    fun setCustomAspectRatio(value: Float) = update(KEY_CUSTOM_ASPECT, safeAspectRatio(value))
     fun setRememberPlaybackSpeed(value: Boolean) = update(KEY_REMEMBER_SPEED, value)
     fun setRememberedPlaybackSpeed(value: Float) = update(KEY_SPEED, value.coerceIn(0.25f, 4f))
     fun setAutoPip(value: Boolean) = update(KEY_AUTO_PIP, value)
@@ -50,12 +50,15 @@ class PlayerPreferences(context: Context) {
         autoHideMillis = prefs.getLong(KEY_AUTO_HIDE, 3_000L).coerceIn(2_000L, 8_000L),
         orientationMode = PlayerPreferenceCodec.orientationMode(prefs.getString(KEY_ORIENTATION, null)),
         defaultResizeMode = PlayerPreferenceCodec.resizeMode(prefs.getString(KEY_RESIZE, null)),
-        customAspectRatio = PlayerPreferenceCodec.customAspectRatio(prefs.getFloat(KEY_CUSTOM_ASPECT, 16f / 9f)),
+        customAspectRatio = safeAspectRatio(prefs.getFloat(KEY_CUSTOM_ASPECT, 16f / 9f)),
         rememberPlaybackSpeed = prefs.getBoolean(KEY_REMEMBER_SPEED, false),
         rememberedPlaybackSpeed = prefs.getFloat(KEY_SPEED, 1f).coerceIn(0.25f, 4f),
         autoPip = prefs.getBoolean(KEY_AUTO_PIP, false),
         tutorialSeen = prefs.getBoolean(KEY_TUTORIAL_SEEN, false),
     )
+
+    private fun safeAspectRatio(value: Float): Float =
+        value.takeIf { it.isFinite() && it in 0.2f..5f } ?: (16f / 9f)
 
     companion object {
         private const val NAME = "player_interaction_preferences_v1"
