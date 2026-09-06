@@ -40,6 +40,7 @@ class PlayerViewModel(
                 _state.value = previous.copy(
                     preferences = pref,
                     resizeMode = if (firstPreferenceLoad) pref.defaultResizeMode else previous.resizeMode,
+                    customAspectRatio = if (firstPreferenceLoad) pref.customAspectRatio else previous.customAspectRatio,
                     orientationMode = if (firstPreferenceLoad) pref.orientationMode else previous.orientationMode,
                     tutorialVisible = previous.tutorialVisible || (!tutorialChecked && !pref.tutorialSeen),
                 )
@@ -91,6 +92,7 @@ class PlayerViewModel(
             _state.value = current.copy(unlockVisible = true)
             return
         }
+        if (surfaceInteractionBlocked(current)) return
         _state.value = current.copy(controlsVisible = !current.controlsVisible)
         scheduleAutoHideIfNeeded()
     }
@@ -102,7 +104,7 @@ class PlayerViewModel(
     }
 
     fun beginInteraction(kind: PlayerGestureKind = PlayerGestureKind.NONE) {
-        if (_state.value.controlsLocked) return
+        if (surfaceInteractionBlocked(_state.value)) return
         autoHideJob?.cancel()
         _state.value = _state.value.copy(
             interactionInProgress = true,
@@ -112,7 +114,7 @@ class PlayerViewModel(
     }
 
     fun updateGestureKind(kind: PlayerGestureKind) {
-        if (_state.value.controlsLocked) return
+        if (surfaceInteractionBlocked(_state.value)) return
         _state.value = _state.value.copy(interactionInProgress = true, gestureKind = kind)
     }
 
@@ -123,7 +125,7 @@ class PlayerViewModel(
     }
 
     fun updateSeekGesture(fromMs: Long, targetMs: Long) {
-        if (_state.value.controlsLocked) return
+        if (surfaceInteractionBlocked(_state.value)) return
         _state.value = _state.value.copy(
             interactionInProgress = true,
             gestureKind = PlayerGestureKind.SEEK,
@@ -133,13 +135,17 @@ class PlayerViewModel(
     }
 
     fun commitSeek(targetMs: Long) {
+        if (surfaceInteractionBlocked(_state.value)) {
+            endInteraction()
+            return
+        }
         playbackConnection.seekTo(targetMs)
         _state.value = _state.value.copy(seekTargetMs = null)
         endInteraction()
     }
 
     fun doubleTap(zone: DoubleTapZone, currentPositionMs: Long, durationMs: Long) {
-        if (_state.value.controlsLocked) return
+        if (surfaceInteractionBlocked(_state.value)) return
         if (zone == DoubleTapZone.CENTER) {
             if (_state.value.isPlaying) playbackConnection.pause() else playbackConnection.play()
             showControls()
@@ -156,7 +162,7 @@ class PlayerViewModel(
     }
 
     fun updateBrightness(fraction: Float) {
-        if (_state.value.controlsLocked) return
+        if (surfaceInteractionBlocked(_state.value)) return
         val safe = fraction.coerceIn(0.01f, 1f)
         _state.value = _state.value.copy(
             brightnessFraction = safe,
@@ -167,7 +173,7 @@ class PlayerViewModel(
     }
 
     fun updateVolume(fraction: Float) {
-        if (_state.value.controlsLocked) return
+        if (surfaceInteractionBlocked(_state.value)) return
         val safe = fraction.coerceIn(0f, 1f)
         _state.value = _state.value.copy(
             volumeFraction = safe,
@@ -178,7 +184,7 @@ class PlayerViewModel(
     }
 
     fun applyTransformForViewport(zoomMultiplier: Float, panDx: Float, panDy: Float, viewportWidthPx: Float, viewportHeightPx: Float) {
-        if (_state.value.controlsLocked || !_state.value.preferences.pinchZoomEnabled) return
+        if (surfaceInteractionBlocked(_state.value) || !_state.value.preferences.pinchZoomEnabled) return
         autoHideJob?.cancel()
         val current = _state.value
         val nextZoom = PlayerInteractionPolicy.zoom(current.zoom, zoomMultiplier)
@@ -208,6 +214,7 @@ class PlayerViewModel(
     fun setCustomAspect(width: Float, height: Float): Boolean {
         val ratio = PlayerInteractionPolicy.validAspectRatio(width, height) ?: return false
         _state.value = _state.value.copy(customAspectRatio = ratio, resizeMode = ResizeMode.CUSTOM, zoom = 1f, panX = 0f, panY = 0f)
+        preferences.setCustomAspectRatio(ratio)
         preferences.setDefaultResizeMode(ResizeMode.CUSTOM)
         return true
     }
@@ -249,7 +256,7 @@ class PlayerViewModel(
     fun openMenu(menu: PlayerMenu) {
         if (_state.value.controlsLocked) return
         autoHideJob?.cancel()
-        _state.value = _state.value.copy(activeMenu = menu, controlsVisible = true)
+        _state.value = _state.value.copy(activeMenu = menu, controlsVisible = true, interactionInProgress = false, gestureKind = PlayerGestureKind.NONE)
     }
 
     fun closeMenu() {
@@ -280,12 +287,16 @@ class PlayerViewModel(
     fun dismissTutorial() {
         preferences.setTutorialSeen(true)
         _state.value = _state.value.copy(tutorialVisible = false)
+        scheduleAutoHideIfNeeded()
     }
 
     fun showTutorial() {
-        _state.value = _state.value.copy(tutorialVisible = true)
-        openMenu(PlayerMenu.NONE)
+        autoHideJob?.cancel()
+        _state.value = _state.value.copy(tutorialVisible = true, activeMenu = PlayerMenu.NONE, interactionInProgress = false, gestureKind = PlayerGestureKind.NONE)
     }
+
+    private fun surfaceInteractionBlocked(state: PlayerCoordinatorState): Boolean =
+        state.controlsLocked || state.activeMenu != PlayerMenu.NONE || state.tutorialVisible || state.resumePositionMs != null || state.preparing
 
     private fun showHud(hud: PlayerHudState) {
         hudHideJob?.cancel()
