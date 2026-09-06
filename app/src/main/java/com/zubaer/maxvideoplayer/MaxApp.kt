@@ -1,13 +1,14 @@
 package com.zubaer.maxvideoplayer
 
-import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
@@ -16,6 +17,7 @@ import com.zubaer.maxvideoplayer.feature.library.LibraryViewModel
 import com.zubaer.maxvideoplayer.feature.player.PlayerScreen
 import com.zubaer.maxvideoplayer.feature.player.PlayerViewModel
 import com.zubaer.maxvideoplayer.ui.MaxTheme
+import kotlinx.coroutines.launch
 
 @Composable
 fun MaxApp(
@@ -27,7 +29,9 @@ fun MaxApp(
     onFullscreenChanged: (Boolean) -> Unit,
 ) {
     var selectedMedia by remember { mutableStateOf<AppMedia?>(null) }
+    val scope = rememberCoroutineScope()
     val libraryViewModel: LibraryViewModel = viewModel(factory = simpleFactory { LibraryViewModel(container.mediaStoreRepository) })
+    val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(externalMedia?.stableId) {
         externalMedia?.let {
@@ -39,15 +43,13 @@ fun MaxApp(
     MaxTheme {
         val media = selectedMedia
         if (media == null) {
-            val libraryState by libraryViewModel.state.collectAsStateWithLifecycleCompat()
             LibraryScreen(
                 state = libraryState,
                 onRefresh = libraryViewModel::refresh,
                 onOpenDocument = { uri ->
                     persistUriPermission(uri)
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                        val item = container.metadataExtractor.fromUri(uri, MediaSourceType.SAF)
-                        selectedMedia = item
+                    scope.launch {
+                        selectedMedia = container.metadataExtractor.fromUri(uri, MediaSourceType.SAF)
                     }
                 },
                 onPlay = { selectedMedia = it },
@@ -69,10 +71,6 @@ fun MaxApp(
         }
     }
 }
-
-@Composable
-private fun <T> kotlinx.coroutines.flow.StateFlow<T>.collectAsStateWithLifecycleCompat(): androidx.compose.runtime.State<T> =
-    androidx.lifecycle.compose.collectAsStateWithLifecycle()
 
 private fun <T : androidx.lifecycle.ViewModel> simpleFactory(factory: () -> T): androidx.lifecycle.ViewModelProvider.Factory =
     object : androidx.lifecycle.ViewModelProvider.Factory {
