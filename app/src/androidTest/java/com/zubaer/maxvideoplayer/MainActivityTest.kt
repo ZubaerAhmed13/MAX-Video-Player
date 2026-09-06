@@ -23,15 +23,15 @@ class MainActivityTest {
         rule.onNodeWithTag("network_url_input").assertExists()
     }
 
-    @Test fun primarySectionsNavigateToRealLibrarySurfaces() {
+    @Test fun primarySectionsNavigateWithoutDependingOnSeededMedia() {
         rule.onNodeWithTag("section_folders").performScrollTo().performClick()
         rule.onNodeWithTag("folder_list").assertIsDisplayed()
 
         rule.onNodeWithTag("section_favourites").performScrollTo().performClick()
-        rule.onNodeWithTag("library_list").assertExists()
+        rule.onNodeWithTag("library_search_input").assertIsDisplayed()
 
         rule.onNodeWithTag("section_history").performScrollTo().performClick()
-        rule.onNodeWithTag("library_list").assertExists()
+        rule.onNodeWithTag("library_search_input").assertIsDisplayed()
     }
 
     @Test fun playlistCreateFlowUsesPersistentProfessionalSurface() {
