@@ -6,11 +6,15 @@ MX Player Pro is used only as a functionality, workflow, interaction, and featur
 
 ## Current development status
 
-**Step 2 of 10 — Professional Media Library: SOFTWARE/EMULATOR PASS**
+**Step 3 of 10 — Professional Player Experience: SOFTWARE/EMULATOR PASS**
 
-Step-2 implementation branch: `step-2-professional-media-library`
+Step-3 implementation branch: `step-3-professional-player-ui`
 
-Step 1 remains the playback/lifecycle/storage foundation. Step 2 extends it with a persistent, storage-aware, queue-aware professional video library while preserving service-owned MediaSession playback. Physical 3 GB+, 4K/HDR, SD-card/USB/OEM MediaStore, Bluetooth, battery, thermal, and broad hardware certification remain **NOT VERIFIED — DEFERRED TO STEP 10** by project policy.
+Final Step-3 implementation SHA before certification documentation: `13411414c29464aaddfe9b5475eed03b16ddb4c2`.
+
+Step 1 remains the playback/lifecycle/storage foundation and Step 2 remains the professional media-library foundation. Step 3 adds the professional touch-first player experience while preserving service-owned MediaSession playback, Room, MediaStore, SAF, queues, history/resume, and large-media safeguards.
+
+Seek-frame preview is intentionally reported **PARTIAL — architecture/foundation only** rather than displaying fake thumbnails. Physical 3 GB+, 4K/HDR, OEM gesture/fullscreen behavior, real Bluetooth/headset routing, physical cutouts/foldables/external displays, battery, thermal, and broad hardware certification remain **NOT VERIFIED — DEFERRED TO STEP 10** by project policy.
 
 ## Platform baseline
 
@@ -30,38 +34,49 @@ Step 1 remains the playback/lifecycle/storage foundation. Step 2 extends it with
 
 This is a fully native Android application. It does not use WebView, Capacitor, Cordova, React Native, Flutter, or TWA as its application architecture.
 
-## Step-2 professional library
+## Step-3 professional player experience
 
-Implemented and automated-test-backed software flows include:
+Implemented and automated-test-backed software/emulator behavior includes:
 
-- Videos, Folders, Continue Watching, Recent, History, Favourites, and Playlists sections
-- lazy list and adaptive grid views with stable IDs and persisted preference
-- professional search across title, filename, and folder, with normalization, 180 ms derived-query debounce, IME Search, explicit Clear, no-results state, and Android-back-to-clear behavior
-- video sorting by name, date added, date modified, duration, size, resolution, and last played, both directions
-- folder sorting by name, video count, last modified, and total size
-- filters for watched/unwatched/in-progress/favourites, resolution groups, and duration ranges
-- MediaStore discovery with a bounded projection and debounced change observation
-- user-approved SAF folder sources via `ACTION_OPEN_DOCUMENT_TREE`, persisted permissions/status, exclusions, and provider-aware traversal
-- stable source/folder identities that do not depend only on display names
-- Room v2 media index/cache, favourites, playlists, sources, exclusions, and library preferences
-- explicit `MIGRATION_1_2`, with no destructive migration fallback
-- deterministic, cancellable Room media-index loading in 512-row chunks with progressive snapshots
-- Continue Watching progress bar, percentage, and time remaining using the existing Step-1 resume/history authority
-- Recent and full History with single-item removal and confirmed clear-history flow
-- favourites as stable-ID relationships rather than duplicated media rows
-- playlist create/rename/delete/add/remove/reorder and real ordered playback queues
-- folder/current-visible-list queues and selected-item start index
-- professional multi-selection with batch favourite/unfavourite/add-to-playlist actions
-- rich media details using available URI, source, MIME, duration, resolution, size, rotation, frame rate, codecs, audio properties, dates, and playback progress
-- Android-policy-compliant MediaStore/SAF rename and delete, including provider/system confirmation and truthful unsupported states
-- unavailable-source `Locate original` relink with plausibility validation while preserving stable IDs and user relationships
-- bounded/cancellable thumbnail loading with a 16 MiB LRU memory cache, request-size policy, invalidation, and placeholder failure path
-- 10,000-entry deterministic search/sort/filter tests and Long-safe multi-GB metadata tests
+- original professional top/bottom control overlays with title, queue position, seek/time display, previous/play-pause/next and player actions
+- one authoritative control-visibility/auto-hide state machine that respects playback, interaction, menus, tutorial, lock and accessibility state
+- Long-safe seek math, seek-bar scrubbing with local target preview and final exact seek on release, horizontal swipe seeking and seek HUD
+- configurable double-tap zones: left/back, center/play-pause, right/forward, with persisted 5–60 second seek distance
+- real left-side window-brightness gesture with safe clamping, system/default initialization and restoration when leaving the player
+- real right-side `AudioManager` media-volume gesture using each device/emulator's actual maximum volume rather than assuming a fixed step count
+- touch slop, direction locking, gesture ownership and modal/resume/tutorial/preparing-state conflict blocking
+- two-finger pinch zoom from 1× to 5×, two-finger pan, rendered-transform-aware bounds and explicit reset
+- resize/display modes: Fit, Fill, Crop, Original/100%, 16:9, 4:3, 18:9, 21:9 and validated/persisted custom aspect ratio
+- display-only 90° rotation plus Auto/Sensor, Portrait, Landscape, Reverse Portrait, Reverse Landscape and Lock Current orientation modes
+- fullscreen/immersive mode using modern system-bar APIs on supported Android versions with safe restoration/fallback
+- genuine touchscreen lock that suppresses normal player interactions and exposes only the explicit unlock path while service/system media controls remain independent
+- playback speed from 0.25× to 4.0× with common presets and 0.05× fine adjustment, plus optional remembered speed
+- MediaSession-owned previous/next queue navigation, repeat and shuffle; current player metadata/display/PiP follows the active queue item
+- dynamic PiP ratio derived from current media dimensions and rotation, reduced to a valid rational, clamped to Android-safe bounds, with 16:9 fallback and opt-in automatic PiP
+- buffering UI, recovery-oriented playback error UI, media-information dialog and playback-ended replay/next path
+- persistent Step-3 interaction preferences with stable enum names, safe clamping and restart/repository-recreation coverage
+- first-run/or-menu original gesture tutorial
+- accessibility semantics/content descriptions, live TalkBack/touch-exploration awareness, standard clickable controls and scroll-safe/narrow/large-text-friendly option surfaces
+- SurfaceView-based Media3 rendering with geometric display transforms only; Step 3 adds no color filter, full-frame bitmap pipeline, source rewrite or re-encode
+
+## Step-2 professional library — preserved
+
+Step 3 preserves the Step-2 professional library, including:
+
+- Videos, Folders, Continue Watching, Recent, History, Favourites, and Playlists
+- lazy list/adaptive grid views, professional search, sorting and filtering
+- MediaStore plus user-approved SAF folder sources and persisted permissions
+- Room v2 media index/cache, favourites, playlists, sources, exclusions and preferences with explicit `MIGRATION_1_2`
+- deterministic 512-row index loading with progressive snapshots
+- playlist/folder/visible-list queues with selected-item start index
+- rename/delete/relink flows with stable-ID relationship preservation
+- bounded/cancellable thumbnail loading with a 16 MiB LRU memory cache and API-26/API-28 legacy regression coverage
+- 10,000-entry deterministic search/sort/filter coverage and Long-safe multi-GB metadata tests
 
 ## Playback ownership — preserved from Step 1
 
 ```text
-Compose UI
+Compose Player / Library UI
    ↓
 PlaybackConnection
    ↓
@@ -76,60 +91,66 @@ PlaybackEngine
 Media3 / ExoPlayer
 ```
 
-Step 2 does not create an Activity-owned player. Library playback requests construct lightweight queues and pass them into the existing service/session path.
+Step 3 does not create an Activity-owned ExoPlayer. Queue navigation, speed, repeat, shuffle, PiP continuity, notification/headset/Bluetooth media control architecture and background playback remain anchored to the same service/session owner.
 
-## Storage and persistence model
+## Step-3 player state and interaction ownership
 
-MediaStore and SAF are source truth; Room `media_index` is a recoverable metadata index/cache. Missing or permission-lost sources remain represented as unavailable/recoverable state instead of being silently treated as valid. User relationships and history live separately from the media index.
+`PlayerViewModel` owns immutable coordinator state for control visibility, lock, gesture ownership, HUD, seek target, zoom/pan, resize/custom aspect, rotation, orientation, fullscreen, tutorial/accessibility mode and Step-3 preferences. `PlaybackConnection` separately exposes service-owned playback state. `PlayerInteractionPolicy` contains deterministic pure math/policy for seek, double-tap, brightness, volume, zoom/pan, transforms and PiP ratio.
 
-The app does **not** request `MANAGE_EXTERNAL_STORAGE` merely for convenience. If broad media permission is denied, SAF Open File and Add Folder remain usable.
+Surface gestures are disabled while a player menu, tutorial, resume dialog or preparation state owns input. TalkBack touch exploration also disables potentially conflicting surface gestures while keeping standard clickable controls available.
 
-Room database version 2 retains Step-1 history/playback preferences and adds favourites, playlists/items, library sources, excluded folders, media index rows, and library preferences. `MIGRATION_1_2` is explicit and migration-tested.
+## Storage, large-library and large-media policy
 
-## Large-library and large-media policy
+MediaStore and SAF remain source truth; Room `media_index` remains a recoverable metadata index/cache. The app does not request `MANAGE_EXTERNAL_STORAGE` merely for convenience.
 
-Fast discovery avoids opening every video for deep metadata. MediaStore/SAF I/O, thumbnail work, and derived search/sort/filter/grouping run away from the UI thread. Room index reads are deterministic and bounded at 512 rows per query and emit progressive snapshots. Compose renders through lazy containers with stable keys.
+Normal playback and library operations stay URI/reference based. File sizes, durations, positions and seek targets remain `Long`-safe. Step 3 does not duplicate media, load whole videos into RAM, generate full-video frame sequences, or add an artificial media-size/resolution limit.
 
-The ViewModel ultimately holds lightweight O(n) metadata for the current library rather than using Paging 3, but the database no longer requires one giant index query. Correctness is exercised with 10,000 synthetic entries without brittle wall-clock timing assertions.
+## Seek-preview boundary
 
-File sizes, durations, and positions remain `Long`-safe. Normal library operations do not duplicate multi-GB media or load whole videos into RAM. Real 3 GB+/4K/removable-storage behavior remains Step-10 physical certification.
+`SeekPreviewProvider` defines the architecture boundary for a future bounded, asynchronous, cancellable frame-preview implementation. Step 3 does **not** claim rendered seek thumbnails because a safe frame-extraction engine was not introduced here.
 
-## Thumbnail policy
-
-`ThumbnailRepository` owns thumbnail work. Requests are dimension-bounded, off-main-thread, cancellable, and cached in a bounded 16 MiB LRU memory cache. Unsupported/missing sources return a placeholder path rather than crashing or blocking playback. The current cache is intentionally memory-only; there is no unbounded bitmap cache.
+Status: **PARTIAL — architecture/foundation only**.
 
 ## Automated build and verification
 
-Authoritative Step-2 implementation gate:
+Authoritative Step-3 implementation gate:
 
-- GitHub Actions run: `34052267617` (#68)
-- implementation SHA: `a901f41007643c90cc37a7e0467caa0c3af9bd2f`
+- GitHub Actions workflow: `Android CI`
+- run: `34058821634` (#103)
+- implementation SHA: `13411414c29464aaddfe9b5475eed03b16ddb4c2`
 - debug build + JVM tests: **PASS**
 - release compilation: **PASS**
 - lint: **PASS**
-- API-35 instrumentation: **PASS**
+- API-35 full instrumentation / Compose / real playback host integration: **PASS**
+- API-26 legacy-thumbnail regression: **PASS**
+- API-28 legacy-thumbnail regression: **PASS**
 
-CI commands:
+Core CI commands:
 
 ```bash
 gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
 gradle --no-daemon :app:assembleRelease
 gradle --no-daemon :app:lintDebug
 gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
+gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.zubaer.maxvideoplayer.feature.library.ThumbnailRepositoryInstrumentedTest
 ```
+
+The final documentation head must pass the same pull-request CI before Step 3 is merged to `main`.
 
 ## Documentation
 
-- `ARCHITECTURE.md` — Step-1 playback ownership plus Step-2 discovery/index/queue/file-action architecture
-- `DEPENDENCIES.md` — dependency register and Step-2 dependency decisions
-- `PARITY_MATRIX.md` — evidence-backed capability matrix
+- `ARCHITECTURE.md` — Step-1 playback ownership, Step-2 library architecture and Step-3 player interaction/display architecture
+- `DEPENDENCIES.md` — dependency register
+- `PARITY_MATRIX.md` — evidence-backed capability matrix through Step 3
 - `LARGE_MEDIA_AUDIT.md` — large-media/integer safety boundary
 - `STEP_1_COMPLETION_REPORT.md` — Step-1 certification record
-- `STEP_2_COMPLETION_REPORT.md` — Step-2 A–W certification record
+- `STEP_2_COMPLETION_REPORT.md` — Step-2 certification record
+- `STEP_3_COMPLETION_REPORT.md` — Step-3 A–Z software/emulator certification record
 
 ## Roadmap boundary
 
-Step 2 intentionally does **not** implement the final advanced gesture system, professional external subtitle engine, audio DSP/equalizer, real software-decoder routing, later network/cloud/cast features, or final physical-device certification. Those remain later steps. **Step 3 has not been started by this Step-2 completion work.**
+Step 3 intentionally does **not** implement the Step-4 professional subtitle engine, Step-5 audio DSP/equalizer stack, Step-6 software decoder/FFmpeg routing, later network/cloud/cast work, or Step-10 physical-device certification. Step 4 must not begin as part of Step-3 completion.
 
 ## Contribution principle
 

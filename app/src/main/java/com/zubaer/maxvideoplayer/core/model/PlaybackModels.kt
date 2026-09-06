@@ -30,7 +30,7 @@ object DecoderModeCatalog {
         DecoderModeAvailability(DecoderMode.AUTO, ImplementationStatus.IMPLEMENTED, "Media3 selects the supported decoder path."),
         DecoderModeAvailability(DecoderMode.HARDWARE, ImplementationStatus.IMPLEMENTED, "Media3/MediaCodec hardware path where supported by the device."),
         DecoderModeAvailability(DecoderMode.ENHANCED_HARDWARE, ImplementationStatus.SHARED_IMPLEMENTATION, "Step 1 shares the MediaCodec path; independent routing belongs to Step 6."),
-        DecoderModeAvailability(DecoderMode.SOFTWARE, ImplementationStatus.PLANNED, "Architecture reserved; no fake software decoder is exposed in Step 1."),
+        DecoderModeAvailability(DecoderMode.SOFTWARE, ImplementationStatus.PLANNED, "Architecture reserved; no fake software decoder is exposed before Step 6."),
     )
 }
 
@@ -59,5 +59,9 @@ data class PlaybackUiState(
     val playbackSpeed: Float = 1f,
     val hasNext: Boolean = false,
     val hasPrevious: Boolean = false,
+    val currentMediaItemIndex: Int = 0,
+    val mediaItemCount: Int = 0,
+    val repeatMode: RepeatMode = RepeatMode.OFF,
+    val shuffleEnabled: Boolean = false,
     val error: PlaybackError? = null,
 )
