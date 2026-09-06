@@ -48,10 +48,15 @@ class MediaFileActionRepository(private val resolver: ContentResolver) {
                 }
                 MediaSourceType.NETWORK -> Result.Unsupported("Network media is not a local file")
             }
-        } catch (recoverable: RecoverableSecurityException) {
-            Result.ConfirmationRequired(recoverable.userAction.actionIntent.intentSender, retryAfterApproval = true)
         } catch (security: SecurityException) {
-            Result.Unsupported("Permission is required to delete this media")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && security is RecoverableSecurityException) {
+                Result.ConfirmationRequired(
+                    security.userAction.actionIntent.intentSender,
+                    retryAfterApproval = true,
+                )
+            } else {
+                Result.Unsupported("Permission is required to delete this media")
+            }
         } catch (failure: Throwable) {
             Result.Failed(failure.message ?: "Delete failed")
         }
@@ -75,24 +80,31 @@ class MediaFileActionRepository(private val resolver: ContentResolver) {
                 MediaSourceType.MEDIA_STORE -> renameMediaStore(uri, clean)
                 MediaSourceType.NETWORK -> Result.Unsupported("Network media cannot be renamed")
             }
-        } catch (recoverable: RecoverableSecurityException) {
-            Result.ConfirmationRequired(recoverable.userAction.actionIntent.intentSender, retryAfterApproval = true)
         } catch (security: SecurityException) {
-            if (Build.VERSION.SDK_INT >= 30 && media.sourceType == MediaSourceType.MEDIA_STORE) {
-                runCatching {
-                    MediaStore.createWriteRequest(resolver, listOf(uri)).intentSender
-                }.fold(
-                    onSuccess = { Result.ConfirmationRequired(it, retryAfterApproval = true) },
-                    onFailure = { Result.Unsupported("Permission is required to rename this media") },
-                )
-            } else Result.Unsupported("Permission is required to rename this media")
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && security is RecoverableSecurityException -> {
+                    Result.ConfirmationRequired(
+                        security.userAction.actionIntent.intentSender,
+                        retryAfterApproval = true,
+                    )
+                }
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && media.sourceType == MediaSourceType.MEDIA_STORE -> {
+                    runCatching {
+                        MediaStore.createWriteRequest(resolver, listOf(uri)).intentSender
+                    }.fold(
+                        onSuccess = { Result.ConfirmationRequired(it, retryAfterApproval = true) },
+                        onFailure = { Result.Unsupported("Permission is required to rename this media") },
+                    )
+                }
+                else -> Result.Unsupported("Permission is required to rename this media")
+            }
         } catch (failure: Throwable) {
             Result.Failed(failure.message ?: "Rename failed")
         }
     }
 
     private fun deleteMediaStore(uri: Uri): Result {
-        if (Build.VERSION.SDK_INT >= 30) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             return Result.ConfirmationRequired(
                 intentSender = MediaStore.createDeleteRequest(resolver, listOf(uri)).intentSender,
                 retryAfterApproval = false,
