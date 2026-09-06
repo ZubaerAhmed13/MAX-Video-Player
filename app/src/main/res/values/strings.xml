@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MAX Video Player</string>
+    <string name="open_file">Open video file</string>
+    <string name="media_permission_rationale">Allow video access to show your local library. You can always use Open video file without granting library access.</string>
+</resources>

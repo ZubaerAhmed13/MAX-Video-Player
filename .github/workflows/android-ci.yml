@@ -1,0 +1,77 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main, step-1-professional-foundation ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Debug build and unit tests
+        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
+      - name: Release compilation
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Lint
+        run: gradle --no-daemon :app:lintDebug
+
+  instrumentation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install compile SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "/dev/kvm is not available on this runner; emulator runner will use its supported fallback."
+          fi
+      - name: Run API 35 instrumentation tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
+      - name: Upload instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumentation-reports
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            app/build/reports/androidTests/connected/**
+            app/build/outputs/androidTest-results/connected/**
