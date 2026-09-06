@@ -2,7 +2,6 @@ package com.zubaer.maxvideoplayer
 
 import android.app.PictureInPictureParams
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -18,6 +17,7 @@ import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerInteractionPolicy
+import com.zubaer.maxvideoplayer.feature.player.PlayerOrientationPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -86,13 +86,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun enterPip(media: AppMedia) {
+    internal fun enterPip(media: AppMedia) {
         if (Build.VERSION.SDK_INT < 26 || isInPictureInPictureMode) return
         val (width, height) = PlayerInteractionPolicy.pipRatio(media.width, media.height, media.rotationDegrees)
-        val params = PictureInPictureParams.Builder()
+        val builder = PictureInPictureParams.Builder()
             .setAspectRatio(Rational(width, height))
-            .build()
-        enterPictureInPictureMode(params)
+        if (Build.VERSION.SDK_INT >= 31) builder.setSeamlessResizeEnabled(true)
+        enterPictureInPictureMode(builder.build())
     }
 
     private fun setPlayerHostState(media: AppMedia?, autoPip: Boolean) {
@@ -100,18 +100,11 @@ class MainActivity : ComponentActivity() {
         autoPipEnabled = media != null && autoPip
     }
 
-    private fun setOrientationMode(mode: OrientationMode) {
-        requestedOrientation = when (mode) {
-            OrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            OrientationMode.REVERSE_PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
-            OrientationMode.REVERSE_LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
-            OrientationMode.LOCK_CURRENT -> ActivityInfo.SCREEN_ORIENTATION_LOCKED
-        }
+    internal fun setOrientationMode(mode: OrientationMode) {
+        requestedOrientation = PlayerOrientationPolicy.requestedOrientation(mode)
     }
 
-    private fun setFullscreen(enabled: Boolean) {
+    internal fun setFullscreen(enabled: Boolean) {
         if (Build.VERSION.SDK_INT >= 30) {
             window.insetsController?.let { controller ->
                 if (enabled) {
