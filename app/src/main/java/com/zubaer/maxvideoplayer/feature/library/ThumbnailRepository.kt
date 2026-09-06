@@ -20,15 +20,14 @@ class ThumbnailRepository(context: Context) {
     }
 
     suspend fun load(media: AppMedia, width: Int, height: Int): Bitmap? = withContext(Dispatchers.IO) {
-        val boundedWidth = width.coerceIn(64, 640)
-        val boundedHeight = height.coerceIn(36, 480)
-        val key = "${media.stableId}:$boundedWidth:$boundedHeight"
+        val bounded = ThumbnailRequestPolicy.bound(width, height)
+        val key = ThumbnailRequestPolicy.cacheKey(media.stableId, bounded.width, bounded.height)
         cache.get(key)?.let { return@withContext it }
         coroutineContext.ensureActive()
         if (Build.VERSION.SDK_INT < 29) return@withContext null
         val uri = runCatching { Uri.parse(media.uri) }.getOrNull() ?: return@withContext null
         if (uri.scheme != "content") return@withContext null
-        val bitmap = runCatching { resolver.loadThumbnail(uri, Size(boundedWidth, boundedHeight), null) }.getOrNull()
+        val bitmap = runCatching { resolver.loadThumbnail(uri, Size(bounded.width, bounded.height), null) }.getOrNull()
         coroutineContext.ensureActive()
         if (bitmap != null) cache.put(key, bitmap)
         bitmap
