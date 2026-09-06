@@ -116,6 +116,7 @@ fun MaxApp(
                 media = media,
                 viewModel = playerViewModel,
                 playbackConnection = container.playbackConnection,
+                subtitleRepository = container.subtitleRepository,
                 onBack = navigationViewModel::clearSelection,
                 onEnterPip = onEnterPip,
                 onFullscreenChanged = onFullscreenChanged,
