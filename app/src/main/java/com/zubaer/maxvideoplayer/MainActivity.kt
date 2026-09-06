@@ -11,6 +11,8 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
@@ -26,7 +28,7 @@ class MainActivity : ComponentActivity() {
         container.playbackConnection.connect()
         handleViewIntent(intent)
         setContent {
-            val pending = externalMedia.collectAsState().value
+            val pending by externalMedia.collectAsStateWithLifecycle()
             MaxApp(
                 container = container,
                 externalMedia = pending,
@@ -49,24 +51,21 @@ class MainActivity : ComponentActivity() {
         val uri = intent.data ?: return
         lifecycleScope.launch {
             val source = if (uri.scheme == "http" || uri.scheme == "https" || uri.scheme == "rtsp") MediaSourceType.NETWORK else MediaSourceType.SAF
-            val media = if (source == MediaSourceType.NETWORK) container.metadataExtractor.fromNetworkUrl(uri.toString())
-            else container.metadataExtractor.fromUri(uri, source)
-            externalMedia.value = media
+            externalMedia.value = if (source == MediaSourceType.NETWORK) {
+                container.metadataExtractor.fromNetworkUrl(uri.toString())
+            } else {
+                container.metadataExtractor.fromUri(uri, source)
+            }
         }
     }
 
     private fun persistUriPermission(uri: Uri) {
-        runCatching {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
+        runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
 
     private fun enterPip() {
         if (Build.VERSION.SDK_INT < 26) return
-        val params = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(16, 9))
-            .build()
-        enterPictureInPictureMode(params)
+        enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())
     }
 
     private fun setFullscreen(enabled: Boolean) {
@@ -76,14 +75,14 @@ class MainActivity : ComponentActivity() {
                 if (enabled) {
                     controller.hide(WindowInsets.Type.systemBars())
                     controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                } else {
-                    controller.show(WindowInsets.Type.systemBars())
-                }
+                } else controller.show(WindowInsets.Type.systemBars())
             }
         } else {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = if (enabled) {
-                android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             } else 0
         }
     }
