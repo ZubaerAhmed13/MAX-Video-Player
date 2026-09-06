@@ -9,6 +9,7 @@ import com.zubaer.maxvideoplayer.core.media.MediaStoreRepository
 import com.zubaer.maxvideoplayer.core.media.SafTreeScanner
 import com.zubaer.maxvideoplayer.core.media.UriAvailabilityChecker
 import com.zubaer.maxvideoplayer.feature.library.LibraryRepository
+import com.zubaer.maxvideoplayer.feature.library.MediaFileActionRepository
 import com.zubaer.maxvideoplayer.feature.library.ThumbnailRepository
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 
@@ -23,5 +24,6 @@ class AppContainer(context: Context) {
     val playbackConnection: PlaybackConnection by lazy { PlaybackConnection(appContext) }
     val safTreeScanner: SafTreeScanner by lazy { SafTreeScanner(appContext.contentResolver) }
     val libraryRepository: LibraryRepository by lazy { LibraryRepository(database, mediaStoreRepository, safTreeScanner, historyRepository) }
+    val mediaFileActionRepository: MediaFileActionRepository by lazy { MediaFileActionRepository(appContext.contentResolver) }
     val thumbnailRepository: ThumbnailRepository by lazy { ThumbnailRepository(appContext) }
 }
