@@ -18,6 +18,14 @@ data class AppMedia(
     val colorStandard: Int? = null,
     val colorRange: Int? = null,
     val colorTransfer: Int? = null,
+    val fileName: String? = null,
+    val dateAddedMs: Long? = null,
+    val dateModifiedMs: Long? = null,
+    val relativePath: String? = null,
+    val folderKey: String? = null,
+    val folderName: String? = null,
+    val sourceId: String? = null,
+    val availability: SourceAvailability = SourceAvailability.AVAILABLE,
     val sourceType: MediaSourceType,
 )
 
@@ -31,6 +39,8 @@ enum class SourceAvailability {
     AVAILABLE,
     MISSING,
     PERMISSION_LOST,
+    REMOVED_STORAGE,
+    UNAVAILABLE,
     CHANGED,
     UNSUPPORTED,
     CORRUPTED,
