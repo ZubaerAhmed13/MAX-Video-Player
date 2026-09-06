@@ -17,6 +17,8 @@ interface MediaHistoryDao {
     @Query("SELECT * FROM media_history ORDER BY lastPlayedAtMs DESC") fun all(): Flow<List<MediaHistoryEntity>>
     @Query("DELETE FROM media_history WHERE stableMediaId = :stableId") suspend fun delete(stableId: String)
     @Query("DELETE FROM media_history") suspend fun clear()
+    @Query("UPDATE media_history SET uri = :uri, title = :title, mimeType = :mimeType, sizeBytes = :sizeBytes, width = :width, height = :height WHERE stableMediaId = :stableId")
+    suspend fun updateSource(stableId: String, uri: String, title: String, mimeType: String?, sizeBytes: Long?, width: Int?, height: Int?)
 }
 
 @Dao
@@ -45,6 +47,7 @@ interface PlaylistDao {
     @Query("SELECT COUNT(*) FROM playlist_items WHERE playlistId = :playlistId") suspend fun itemCount(playlistId: Long): Int
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertItem(entity: PlaylistItemEntity): Long
     @Query("DELETE FROM playlist_items WHERE playlistId = :playlistId AND stableMediaId = :stableMediaId") suspend fun deleteItem(playlistId: Long, stableMediaId: String)
+    @Query("DELETE FROM playlist_items WHERE stableMediaId = :stableMediaId") suspend fun deleteMediaEverywhere(stableMediaId: String)
     @Query("UPDATE playlist_items SET orderIndex = :orderIndex WHERE playlistId = :playlistId AND stableMediaId = :stableMediaId") suspend fun updateOrder(playlistId: Long, stableMediaId: String, orderIndex: Int)
 }
 
@@ -74,6 +77,7 @@ interface MediaIndexDao {
     @Upsert suspend fun upsertAll(items: List<MediaIndexEntity>)
     @Query("UPDATE media_index SET availability = 'UNAVAILABLE' WHERE sourceId = :sourceId") suspend fun markSourceUnavailable(sourceId: String)
     @Query("DELETE FROM media_index WHERE sourceId = :sourceId") suspend fun deleteSource(sourceId: String)
+    @Query("DELETE FROM media_index WHERE stableMediaId = :stableMediaId") suspend fun delete(stableMediaId: String)
 }
 
 @Dao
