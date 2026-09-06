@@ -24,6 +24,8 @@ class PlayerViewModel(
     private val media: AppMedia,
     private val historyRepository: PlaybackHistoryRepository,
     private val playbackConnection: PlaybackConnection,
+    private val queue: List<AppMedia> = listOf(media),
+    private val startIndex: Int = 0,
 ) : ViewModel() {
     private val _state = MutableStateFlow(PlayerCoordinatorState())
     val state: StateFlow<PlayerCoordinatorState> = _state.asStateFlow()
@@ -55,7 +57,15 @@ class PlayerViewModel(
     private suspend fun loadAt(positionMs: Long) {
         playbackConnection.connect()
         playbackConnection.state.filter { it.connected }.first()
-        playbackConnection.load(media, positionMs, playWhenReady = true)
+        val safeQueue = queue.ifEmpty { listOf(media) }
+        val effectiveIndex = safeQueue.indexOfFirst { it.stableId == media.stableId }
+            .takeIf { it >= 0 }
+            ?: startIndex.coerceIn(safeQueue.indices)
+        if (safeQueue.size == 1) {
+            playbackConnection.load(media, positionMs, playWhenReady = true)
+        } else {
+            playbackConnection.setQueue(safeQueue, effectiveIndex, positionMs, playWhenReady = true)
+        }
         _state.value = PlayerCoordinatorState(preparing = false)
     }
 }
