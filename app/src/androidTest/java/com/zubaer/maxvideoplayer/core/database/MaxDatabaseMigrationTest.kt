@@ -21,7 +21,7 @@ class MaxDatabaseMigrationTest {
             db.execSQL("CREATE TABLE IF NOT EXISTS playback_preferences (`key` TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL)")
             db.execSQL(
                 "INSERT INTO media_history(stableMediaId,uri,title,mimeType,sizeBytes,width,height,lastPositionMs,durationMs,lastPlayedAtMs,completed) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                arrayOf("legacy-id", "content://legacy/video", "Legacy Video", "video/mp4", 5_500_000_000L, 3840, 2160, 88_000L, 180_000L, 1234L, 0),
+                arrayOf<Any?>("legacy-id", "content://legacy/video", "Legacy Video", "video/mp4", 5_500_000_000L, 3840, 2160, 88_000L, 180_000L, 1234L, 0),
             )
             db.version = 1
         }
