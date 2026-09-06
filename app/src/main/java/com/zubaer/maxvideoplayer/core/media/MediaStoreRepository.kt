@@ -2,16 +2,23 @@ package com.zubaer.maxvideoplayer.core.media
 
 import android.content.ContentUris
 import android.content.Context
+import android.database.ContentObserver
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 
 class MediaStoreRepository(private val context: Context) {
     companion object {
         const val SOURCE_ID = "mediastore:videos"
+        private const val CHANGE_DEBOUNCE_MS = 750L
     }
 
     suspend fun videos(): List<AppMedia> = withContext(Dispatchers.IO) {
@@ -99,6 +106,31 @@ class MediaStoreRepository(private val context: Context) {
             }
         }
         result
+    }
+
+    /**
+     * Coalesces MediaStore event storms at the observer boundary. A burst of writes therefore results in
+     * one refresh signal after the collection has been quiet for CHANGE_DEBOUNCE_MS.
+     */
+    fun changes(): Flow<Unit> = callbackFlow {
+        val resolver = context.contentResolver
+        val handler = Handler(Looper.getMainLooper())
+        val emitChange = Runnable { trySend(Unit) }
+        val observer = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                handler.removeCallbacks(emitChange)
+                handler.postDelayed(emitChange, CHANGE_DEBOUNCE_MS)
+            }
+        }
+        runCatching {
+            resolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer)
+        }.onFailure {
+            close(it)
+        }
+        awaitClose {
+            handler.removeCallbacks(emitChange)
+            runCatching { resolver.unregisterContentObserver(observer) }
+        }
     }
 
     private fun android.database.Cursor.longOrNull(index: Int): Long? = if (index < 0 || isNull(index)) null else getLong(index)

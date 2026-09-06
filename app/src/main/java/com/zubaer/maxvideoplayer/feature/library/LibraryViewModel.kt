@@ -10,10 +10,14 @@ import com.zubaer.maxvideoplayer.core.database.PlaylistEntity
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.core.model.SourceAvailability
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
@@ -26,6 +30,9 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
     private var sources: List<LibrarySourceEntity> = emptyList()
     private var excludedFolders: List<ExcludedFolderEntity> = emptyList()
     private var selectedPlaylistMedia: List<AppMedia> = emptyList()
+    private var appliedQuery = ""
+    private var queryDebounceJob: Job? = null
+    private var recomputeJob: Job? = null
 
     init {
         viewModelScope.launch { repository.media().collect { indexedMedia = it; recompute() } }
@@ -34,6 +41,12 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
         viewModelScope.launch { repository.playlists().collect { playlists = it; recompute() } }
         viewModelScope.launch { repository.sources().collect { sources = it; recompute() } }
         viewModelScope.launch { repository.excludedFolders().collect { excludedFolders = it; recompute() } }
+        viewModelScope.launch {
+            repository.mediaStoreChanges().collect {
+                runCatching { repository.refreshMediaStore() }
+                    .onFailure { failure -> _state.value = _state.value.copy(error = failure.message ?: "Media library refresh failed") }
+            }
+        }
         viewModelScope.launch { restorePreferences() }
     }
 
@@ -46,7 +59,16 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
         recompute()
     }
 
-    fun setQuery(query: String) { _state.value = _state.value.copy(query = query); recompute() }
+    fun setQuery(query: String) {
+        _state.value = _state.value.copy(query = query)
+        queryDebounceJob?.cancel()
+        queryDebounceJob = viewModelScope.launch {
+            delay(180L)
+            appliedQuery = query
+            recompute()
+        }
+    }
+
     fun setSort(sort: VideoSort) { _state.value = _state.value.copy(sort = sort); persist(PREF_SORT, sort.name); recompute() }
 
     fun toggleSortDirection() {
@@ -100,12 +122,63 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
         viewModelScope.launch { selectedPlaylistMedia = repository.playlistMedia(playlistId); recompute() }
     }
 
+    /** Large collection grouping/search/sort runs on Dispatchers.Default, never on the Compose/UI thread. */
     private fun recompute() {
-        val state = _state.value
+        val stateSnapshot = _state.value
+        val mediaSnapshot = indexedMedia
+        val historySnapshot = historyRows
+        val favouriteSnapshot = favouriteIds
+        val playlistsSnapshot = playlists
+        val sourcesSnapshot = sources
+        val exclusionsSnapshot = excludedFolders
+        val playlistMediaSnapshot = selectedPlaylistMedia
+        val querySnapshot = appliedQuery
+
+        recomputeJob?.cancel()
+        recomputeJob = viewModelScope.launch {
+            val derived = withContext(Dispatchers.Default) {
+                deriveState(
+                    stateSnapshot = stateSnapshot,
+                    indexedMedia = mediaSnapshot,
+                    historyRows = historySnapshot,
+                    favouriteIds = favouriteSnapshot,
+                    playlists = playlistsSnapshot,
+                    sources = sourcesSnapshot,
+                    excludedFolders = exclusionsSnapshot,
+                    selectedPlaylistMedia = playlistMediaSnapshot,
+                    query = querySnapshot,
+                )
+            }
+            val latest = _state.value
+            _state.value = latest.copy(
+                media = derived.media,
+                folders = derived.folders,
+                selectedPlaylistMedia = derived.selectedPlaylistMedia,
+                history = derived.history,
+                favouriteIds = derived.favouriteIds,
+                playlists = derived.playlists,
+                sources = derived.sources,
+                excludedFolders = derived.excludedFolders,
+            )
+        }
+    }
+
+    private fun deriveState(
+        stateSnapshot: LibraryUiState,
+        indexedMedia: List<AppMedia>,
+        historyRows: List<MediaHistoryEntity>,
+        favouriteIds: Set<String>,
+        playlists: List<PlaylistEntity>,
+        sources: List<LibrarySourceEntity>,
+        excludedFolders: List<ExcludedFolderEntity>,
+        selectedPlaylistMedia: List<AppMedia>,
+        query: String,
+    ): LibraryUiState {
         val excludedKeys = excludedFolders.mapTo(hashSetOf()) { it.folderKey }
         val historyById = historyRows.associateBy { it.stableMediaId }
         val availableOrKnown = indexedMedia.filter { it.folderKey !in excludedKeys }
         val folders = availableOrKnown
+            .asSequence()
             .filter { it.availability == SourceAvailability.AVAILABLE }
             .groupBy { it.folderKey ?: "root:${it.sourceId ?: it.sourceType.name}" }
             .map { (key, media) ->
@@ -119,15 +192,15 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
             }
             .sortedBy { it.name.lowercase() }
 
-        val base = when (state.section) {
+        val base = when (stateSnapshot.section) {
             LibrarySection.VIDEOS -> availableOrKnown
-            LibrarySection.FOLDERS -> state.selectedFolderKey?.let { key -> folders.firstOrNull { it.key == key }?.videos }.orEmpty()
+            LibrarySection.FOLDERS -> stateSnapshot.selectedFolderKey?.let { key -> folders.firstOrNull { it.key == key }?.videos }.orEmpty()
             LibrarySection.CONTINUE_WATCHING -> historyRows.filter(LibraryQueryEngine::isContinueWatching).mapNotNull { row ->
                 availableOrKnown.firstOrNull { it.stableId == row.stableMediaId && it.availability == SourceAvailability.AVAILABLE }
             }
             LibrarySection.RECENT -> historyRows.take(30).mapNotNull { row -> availableOrKnown.firstOrNull { it.stableId == row.stableMediaId } }
             LibrarySection.FAVOURITES -> availableOrKnown.filter { it.stableId in favouriteIds }
-            LibrarySection.PLAYLISTS -> if (state.selectedPlaylistId != null) selectedPlaylistMedia else emptyList()
+            LibrarySection.PLAYLISTS -> if (stateSnapshot.selectedPlaylistId != null) selectedPlaylistMedia else emptyList()
             LibrarySection.HISTORY -> historyRows.map { row ->
                 availableOrKnown.firstOrNull { it.stableId == row.stableMediaId } ?: AppMedia(
                     stableId = row.stableMediaId,
@@ -144,21 +217,21 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
             }
         }
 
-        val historyOrdered = state.section in setOf(LibrarySection.CONTINUE_WATCHING, LibrarySection.RECENT, LibrarySection.HISTORY)
-        val playlistOrdered = state.section == LibrarySection.PLAYLISTS && state.selectedPlaylistId != null
+        val historyOrdered = stateSnapshot.section in setOf(LibrarySection.CONTINUE_WATCHING, LibrarySection.RECENT, LibrarySection.HISTORY)
+        val playlistOrdered = stateSnapshot.section == LibrarySection.PLAYLISTS && stateSnapshot.selectedPlaylistId != null
         val filtered = LibraryQueryEngine.apply(
             input = base,
-            query = state.query,
-            sort = if (historyOrdered) VideoSort.LAST_PLAYED else state.sort,
-            direction = if (historyOrdered) SortDirection.DESCENDING else state.sortDirection,
-            filter = state.filter,
+            query = query,
+            sort = if (historyOrdered) VideoSort.LAST_PLAYED else stateSnapshot.sort,
+            direction = if (historyOrdered) SortDirection.DESCENDING else stateSnapshot.sortDirection,
+            filter = stateSnapshot.filter,
             history = historyById,
             favouriteIds = favouriteIds,
-            includeUnavailable = state.section in setOf(LibrarySection.HISTORY, LibrarySection.PLAYLISTS),
+            includeUnavailable = stateSnapshot.section in setOf(LibrarySection.HISTORY, LibrarySection.PLAYLISTS),
             preserveInputOrder = playlistOrdered,
         )
 
-        _state.value = state.copy(
+        return stateSnapshot.copy(
             media = filtered,
             folders = folders,
             selectedPlaylistMedia = selectedPlaylistMedia,

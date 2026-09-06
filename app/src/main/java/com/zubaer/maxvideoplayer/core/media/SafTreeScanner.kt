@@ -62,10 +62,10 @@ class SafTreeScanner(private val resolver: ContentResolver) {
         result
     }
 
-    fun displayName(treeUri: Uri): String {
-        val documentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return "Folder"
-        val documentUri = runCatching { DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId) }.getOrNull() ?: return "Folder"
-        return resolver.query(
+    suspend fun displayName(treeUri: Uri): String = withContext(Dispatchers.IO) {
+        val documentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return@withContext "Folder"
+        val documentUri = runCatching { DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId) }.getOrNull() ?: return@withContext "Folder"
+        resolver.query(
             documentUri,
             arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
             null,

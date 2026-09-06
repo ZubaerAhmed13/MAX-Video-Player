@@ -33,6 +33,7 @@ class LibraryRepository(
     fun sources(): Flow<List<LibrarySourceEntity>> = database.librarySourceDao().observeAll()
     fun excludedFolders(): Flow<List<ExcludedFolderEntity>> = database.excludedFolderDao().observeAll()
     fun history(): Flow<List<MediaHistoryEntity>> = historyRepository.all()
+    fun mediaStoreChanges(): Flow<Unit> = mediaStoreRepository.changes()
 
     suspend fun refreshAll() {
         refreshMediaStore()
@@ -83,12 +84,7 @@ class LibraryRepository(
         database.withTransaction {
             database.mediaIndexDao().markSourceUnavailable(source.id)
             if (scanned.isNotEmpty()) database.mediaIndexDao().upsertAll(scanned.map { media -> media.toIndexEntity() })
-            database.librarySourceDao().upsert(
-                source.copy(
-                    status = STATUS_AVAILABLE,
-                    lastScanAtMs = System.currentTimeMillis(),
-                )
-            )
+            database.librarySourceDao().upsert(source.copy(status = STATUS_AVAILABLE, lastScanAtMs = System.currentTimeMillis()))
         }
     }
 
@@ -134,9 +130,7 @@ class LibraryRepository(
                 val inserted = database.playlistDao().insertItem(PlaylistItemEntity(playlistId, stableId, order, now))
                 if (inserted != -1L) order++
             }
-            database.playlistDao().getPlaylist(playlistId)?.let {
-                database.playlistDao().updatePlaylist(it.copy(updatedAtMs = now))
-            }
+            database.playlistDao().getPlaylist(playlistId)?.let { database.playlistDao().updatePlaylist(it.copy(updatedAtMs = now)) }
         }
     }
 
@@ -158,9 +152,7 @@ class LibraryRepository(
             current.add(to, moved)
             current.forEachIndexed { index, item -> database.playlistDao().updateOrder(playlistId, item.stableMediaId, -(index + 1)) }
             current.forEachIndexed { index, item -> database.playlistDao().updateOrder(playlistId, item.stableMediaId, index) }
-            database.playlistDao().getPlaylist(playlistId)?.let {
-                database.playlistDao().updatePlaylist(it.copy(updatedAtMs = System.currentTimeMillis()))
-            }
+            database.playlistDao().getPlaylist(playlistId)?.let { database.playlistDao().updatePlaylist(it.copy(updatedAtMs = System.currentTimeMillis())) }
         }
     }
 
@@ -173,7 +165,6 @@ class LibraryRepository(
 
     suspend fun deleteHistory(stableMediaId: String) = historyRepository.delete(stableMediaId)
     suspend fun clearHistory() = historyRepository.clear()
-
     suspend fun getPreference(key: String): String? = database.libraryPreferenceDao().get(key)?.value
     suspend fun setPreference(key: String, value: String) = database.libraryPreferenceDao().upsert(LibraryPreferenceEntity(key, value))
 
