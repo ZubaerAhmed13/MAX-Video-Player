@@ -130,12 +130,19 @@ fun PlayerScreen(
                 .fillMaxSize()
                 .onSizeChanged { viewportSize = it }
                 .testTag("video_surface")
-                .pointerInput(coordinator.controlsLocked, touchExploration) {
-                    if (touchExploration) return@pointerInput
+                .pointerInput(
+                    coordinator.controlsLocked,
+                    coordinator.activeMenu,
+                    coordinator.tutorialVisible,
+                    coordinator.resumePositionMs,
+                    coordinator.preparing,
+                    touchExploration,
+                ) {
+                    if (surfaceInteractionBlocked(coordinator, touchExploration)) return@pointerInput
                     detectTapGestures(
                         onTap = { viewModel.onSurfaceTap() },
                         onDoubleTap = { offset ->
-                            if (latestCoordinator.value.controlsLocked) return@detectTapGestures
+                            if (surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) return@detectTapGestures
                             val zone = PlayerInteractionPolicy.doubleTapZone(offset.x, size.width.toFloat())
                             val current = latestPlayback.value
                             viewModel.doubleTap(zone, current.currentPositionMs, current.durationMs)
@@ -144,13 +151,17 @@ fun PlayerScreen(
                 }
                 .pointerInput(
                     coordinator.controlsLocked,
+                    coordinator.activeMenu,
+                    coordinator.tutorialVisible,
+                    coordinator.resumePositionMs,
+                    coordinator.preparing,
                     coordinator.preferences.horizontalSeekEnabled,
                     coordinator.preferences.brightnessGestureEnabled,
                     coordinator.preferences.volumeGestureEnabled,
                     coordinator.preferences.gestureSensitivity,
                     touchExploration,
                 ) {
-                    if (touchExploration || coordinator.controlsLocked) return@pointerInput
+                    if (surfaceInteractionBlocked(coordinator, touchExploration)) return@pointerInput
                     var startOffset = Offset.Zero
                     var accumulated = Offset.Zero
                     var gestureKind = PlayerGestureKind.NONE
@@ -161,6 +172,7 @@ fun PlayerScreen(
 
                     detectDragGestures(
                         onDragStart = { offset ->
+                            if (surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) return@detectDragGestures
                             startOffset = offset
                             accumulated = Offset.Zero
                             gestureKind = PlayerGestureKind.NONE
@@ -175,11 +187,17 @@ fun PlayerScreen(
                         onDragCancel = { viewModel.endInteraction() },
                         onDragEnd = {
                             val target = seekTargetMs
-                            if (gestureKind == PlayerGestureKind.SEEK && target != null) viewModel.commitSeek(target)
-                            else viewModel.endInteraction()
+                            if (gestureKind == PlayerGestureKind.SEEK && target != null && !surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) {
+                                viewModel.commitSeek(target)
+                            } else {
+                                viewModel.endInteraction()
+                            }
                         },
                         onDrag = { change, dragAmount ->
-                            if (latestCoordinator.value.controlsLocked || latestCoordinator.value.gestureKind == PlayerGestureKind.ZOOM) return@detectDragGestures
+                            val currentCoordinator = latestCoordinator.value
+                            if (surfaceInteractionBlocked(currentCoordinator, touchExploration) || currentCoordinator.gestureKind == PlayerGestureKind.ZOOM) {
+                                return@detectDragGestures
+                            }
                             accumulated += dragAmount
                             if (gestureKind == PlayerGestureKind.NONE) {
                                 val width = size.width.toFloat().coerceAtLeast(1f)
@@ -188,9 +206,9 @@ fun PlayerScreen(
                                     dy = accumulated.y,
                                     startXFraction = startOffset.x / width,
                                     touchSlopPx = viewConfiguration.touchSlop,
-                                    horizontalEnabled = latestCoordinator.value.preferences.horizontalSeekEnabled,
-                                    brightnessEnabled = latestCoordinator.value.preferences.brightnessGestureEnabled,
-                                    volumeEnabled = latestCoordinator.value.preferences.volumeGestureEnabled,
+                                    horizontalEnabled = currentCoordinator.preferences.horizontalSeekEnabled,
+                                    brightnessEnabled = currentCoordinator.preferences.brightnessGestureEnabled,
+                                    volumeEnabled = currentCoordinator.preferences.volumeGestureEnabled,
                                 )
                                 if (gestureKind != PlayerGestureKind.NONE) viewModel.updateGestureKind(gestureKind)
                             }
@@ -203,7 +221,7 @@ fun PlayerScreen(
                                         durationMs = current.durationMs,
                                         dragDxPx = accumulated.x,
                                         viewportWidthPx = size.width.toFloat(),
-                                        sensitivity = latestCoordinator.value.preferences.gestureSensitivity,
+                                        sensitivity = currentCoordinator.preferences.gestureSensitivity,
                                     )
                                     seekTargetMs = target
                                     viewModel.updateSeekGesture(seekStartMs, target)
@@ -231,13 +249,22 @@ fun PlayerScreen(
                         },
                     )
                 }
-                .pointerInput(coordinator.controlsLocked, coordinator.preferences.pinchZoomEnabled, touchExploration) {
-                    if (touchExploration || coordinator.controlsLocked || !coordinator.preferences.pinchZoomEnabled) return@pointerInput
+                .pointerInput(
+                    coordinator.controlsLocked,
+                    coordinator.activeMenu,
+                    coordinator.tutorialVisible,
+                    coordinator.resumePositionMs,
+                    coordinator.preparing,
+                    coordinator.preferences.pinchZoomEnabled,
+                    touchExploration,
+                ) {
+                    if (surfaceInteractionBlocked(coordinator, touchExploration) || !coordinator.preferences.pinchZoomEnabled) return@pointerInput
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
                         var transforming = false
                         do {
                             val event = awaitPointerEvent()
+                            if (surfaceInteractionBlocked(latestCoordinator.value, touchExploration)) break
                             val pressedCount = event.changes.count { it.pressed }
                             if (pressedCount >= 2) {
                                 transforming = true
@@ -402,6 +429,9 @@ private fun PlaybackErrorOverlay(
         }
     }
 }
+
+private fun surfaceInteractionBlocked(state: PlayerCoordinatorState, touchExploration: Boolean): Boolean =
+    touchExploration || state.controlsLocked || state.activeMenu != PlayerMenu.NONE || state.tutorialVisible || state.resumePositionMs != null || state.preparing
 
 private fun setWindowBrightness(activity: Activity, value: Float) {
     val attrs = activity.window.attributes
