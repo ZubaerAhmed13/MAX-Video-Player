@@ -10,9 +10,9 @@ MX Player Pro is used only as a functionality, workflow, interaction, and featur
 
 Active development branch: `step-1-professional-foundation`
 
-Step 1 establishes the native playback, lifecycle, persistence, large-media, device-capability, storage, testing, and certification architecture required for later parity work. Step 2 is intentionally out of scope until Step 1 is independently reviewed and approved.
+Step 1 establishes the native playback, lifecycle, persistence, large-media, device-capability, storage, testing, and certification architecture required for later parity work. Step 2 remains intentionally out of scope until Step 1 is reviewed/approved.
 
-Current certification state: **PARTIAL while CI/runtime verification completes**. Physical 3 GB+, 4K, Bluetooth/headphone-route, and manufacturer-specific codec certification remain `NOT VERIFIED` until representative hardware/assets are tested.
+**Step 1 implementation and automated verification gate: PASS.** The authoritative verified production/test code revision is `ebf58eb0a95ac6e59429417d990caac212ace58e`, verified by Android CI run `34032102391`. Physical 3 GB+, 4K/HDR, Bluetooth/headphone-route, manufacturer-specific codec, and broad multi-device certification remain `NOT VERIFIED` until representative hardware/assets are tested.
 
 ## Platform baseline
 
@@ -55,8 +55,8 @@ The current Step-1 implementation includes:
 - device/codec capability profiling using MediaCodecList/MediaCodecInfo
 - capability-aware 720p, 1080p, 1440p, and 2160p checks
 - explicit decoder-mode model without pretending a software decoder exists
-- unit, database instrumentation, and Compose instrumentation tests
-- GitHub Actions build/test/lint workflow
+- unit, database instrumentation, Compose instrumentation, and real-media service-path instrumentation tests
+- GitHub Actions build/test/lint/API-35 instrumentation workflow with KVM acceleration where available
 
 ## Decoder status policy
 
@@ -66,7 +66,7 @@ The architecture models `AUTO`, `HARDWARE`, `ENHANCED_HARDWARE`, and `SOFTWARE`.
 
 Large-media support is a non-negotiable architectural requirement. Normal playback references source URIs directly, does not duplicate multi-GB files just to play them, does not read entire videos into byte arrays, does not load complete media into RAM, uses `Long` for byte sizes/offsets and playback time values, and bounds optional fingerprint reads to small samples.
 
-The architecture targets 3 GB+ media, but a physical 3 GB+ playback result remains `NOT VERIFIED` until such an asset is actually tested.
+The architecture targets 3 GB+ media, and automated integer/persistence tests exercise values above `Int.MAX_VALUE`; however, physical 3 GB+ playback remains `NOT VERIFIED` until such an asset is actually tested.
 
 ## 4K policy
 
@@ -120,13 +120,34 @@ The source tree is logically separated into `core.model`, `core.database`, `core
 
 See `ARCHITECTURE.md` for the detailed ownership and dependency model.
 
+## Automated verification evidence
+
+Authoritative code SHA: `ebf58eb0a95ac6e59429417d990caac212ace58e`  
+Authoritative workflow: Android CI run `34032102391`
+
+Passed gates:
+
+- Debug build + JVM unit tests — **PASS**
+- Release compilation — **PASS**
+- Android lint — **PASS**
+- API-35 instrumentation — **PASS**
+- Instrumentation XML — **6 tests, 0 failures, 0 errors, 0 skipped**
+- SHA-256-verified local H.264 MP4 through `PlaybackConnection -> MediaController -> MediaSessionService -> ExoPlayer` — **PASS**
+- Load, foreground-eligible audio focus, play, advancing position, pause, and seek — **PASS**
+- Room history integration — **PASS**
+- Activity recreation/foundation UI — **PASS**
+- Runtime capability mapping — **PASS**
+
+See `STEP_1_VERIFICATION_SNAPSHOT.md` and `STEP_1_COMPLETION_REPORT.md` for the exact certification boundary.
+
 ## Verification and documentation
 
 - `ARCHITECTURE.md` — architecture, ownership, lifecycle, decoder expansion, storage, and capability design
 - `PARITY_MATRIX.md` — target capability status using PASS/PARTIAL/FAIL/NOT VERIFIED/NOT IMPLEMENTED
 - `LARGE_MEDIA_AUDIT.md` — whole-file-loading and integer/offset safety audit
 - `DEPENDENCIES.md` — Step-1 dependency register and reasons
-- `STEP_1_COMPLETION_REPORT.md` — certification report and executed-gate status
+- `STEP_1_VERIFICATION_SNAPSHOT.md` — exact green code SHA and CI evidence
+- `STEP_1_COMPLETION_REPORT.md` — A–R certification report and executed-gate status
 
 No UI-only stub is allowed to be marked `PASS`.
 
