@@ -17,7 +17,7 @@ Current certification state: **PARTIAL while CI/runtime verification completes**
 ## Platform baseline
 
 - Kotlin
-- Jetpack Compose
+- Jetpack Compose 1.11.x (BOM 2026.06.00)
 - AndroidX
 - Media3 / ExoPlayer
 - MediaSession + MediaSessionService
@@ -25,7 +25,7 @@ Current certification state: **PARTIAL while CI/runtime verification completes**
 - Coroutines + Flow / StateFlow
 - minSdk 23
 - targetSdk 36
-- compileSdk 37
+- compileSdk 36
 - Java 17
 - Android Gradle Plugin 9.4.0
 - Gradle 9.6.0
@@ -60,42 +60,24 @@ The current Step-1 implementation includes:
 
 ## Decoder status policy
 
-The architecture models:
-
-- `AUTO`
-- `HARDWARE`
-- `ENHANCED_HARDWARE`
-- `SOFTWARE`
-
-Step 1 does **not** claim four independent decoder engines. AUTO and hardware playback use Media3/MediaCodec; Enhanced Hardware currently shares the hardware foundation; Software is architecture-only and remains `NOT IMPLEMENTED` until its dedicated later step. No placebo decoder buttons are counted as implementation.
+The architecture models `AUTO`, `HARDWARE`, `ENHANCED_HARDWARE`, and `SOFTWARE`. Step 1 does **not** claim four independent decoder engines. AUTO and hardware playback use Media3/MediaCodec; Enhanced Hardware currently shares the hardware foundation; Software is architecture-only and remains `NOT IMPLEMENTED` until its dedicated later step. No placebo decoder buttons are counted as implementation.
 
 ## Large-media policy
 
-Large-media support is a non-negotiable architectural requirement.
+Large-media support is a non-negotiable architectural requirement. Normal playback references source URIs directly, does not duplicate multi-GB files just to play them, does not read entire videos into byte arrays, does not load complete media into RAM, uses `Long` for byte sizes/offsets and playback time values, and bounds optional fingerprint reads to small samples.
 
-Normal playback:
-
-- references source URIs directly
-- does not duplicate multi-GB files just to play them
-- does not read entire videos into byte arrays
-- does not load complete media into RAM
-- uses `Long` for byte sizes/offsets and playback time values
-- bounds optional fingerprint reads to small samples
-
-The architecture targets 3 GB+ media, but a physical 3 GB+ playback result must remain `NOT VERIFIED` until such an asset is actually tested.
+The architecture targets 3 GB+ media, but a physical 3 GB+ playback result remains `NOT VERIFIED` until such an asset is actually tested.
 
 ## 4K policy
 
-The application does not impose an artificial resolution ceiling. It targets SD through 720p, 1080p, 1440p/2K, and 2160p/4K subject to the device decoder's real capabilities.
-
-It never assumes that a recent Android version automatically means 4K support. Decoder capabilities are queried where Android exposes them. Physical 3840×2160 playback remains `NOT VERIFIED` until tested on appropriate hardware/media.
+The application does not impose an artificial resolution ceiling. It targets SD through 720p, 1080p, 1440p/2K, and 2160p/4K subject to the device decoder's real capabilities. It never assumes that a recent Android version automatically means 4K support. Physical 3840×2160 playback remains `NOT VERIFIED` until tested on appropriate hardware/media.
 
 ## Build
 
 Requirements:
 
 1. JDK 17
-2. Android SDK platform 37
+2. Android SDK platform 36
 3. Android SDK Build Tools 36.0.0 or compatible installed tooling
 4. Gradle 9.6.0 (CI installs this explicitly)
 
@@ -150,17 +132,7 @@ No UI-only stub is allowed to be marked `PASS`.
 
 ## Roadmap boundary
 
-The following dedicated areas remain later steps and must not be mistaken for completed Step-1 functionality:
-
-- full media-library management
-- advanced gestures
-- professional subtitle engine and styling
-- audio DSP/equalizer work
-- real software-decoder routing
-- SMB/WebDAV/FTP network ecosystem
-- cloud integrations and Cast
-- advanced privacy/security features
-- final multi-device/large-media/HDR certification
+The following dedicated areas remain later steps and must not be mistaken for completed Step-1 functionality: full media-library management, advanced gestures, professional subtitle engine/styling, audio DSP, real software-decoder routing, SMB/WebDAV/FTP, cloud/Cast, advanced privacy/security features, and final multi-device/large-media/HDR certification.
 
 ## Contribution principle
 
