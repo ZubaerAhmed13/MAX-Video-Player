@@ -92,7 +92,16 @@ class PlaybackConnection(context: Context) {
 
     fun play() = withController { it.play() }
     fun pause() = withController { it.pause() }
-    fun seekTo(positionMs: Long) = withController { it.seekTo(positionMs.coerceAtLeast(0L)) }
+    fun retry() = withController {
+        if (it.playbackState == Player.STATE_ENDED) it.seekTo(0L)
+        it.prepare()
+        it.play()
+    }
+    fun seekTo(positionMs: Long) = withController { player ->
+        val duration = player.duration.takeIf { it > 0L }
+        val safe = if (duration != null) positionMs.coerceIn(0L, duration) else positionMs.coerceAtLeast(0L)
+        player.seekTo(safe)
+    }
     fun seekToNext() = withController { if (it.hasNextMediaItem()) it.seekToNextMediaItem() }
     fun seekToPrevious() = withController { if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem() }
     fun setPlaybackSpeed(speed: Float) = withController { it.setPlaybackSpeed(speed.coerceIn(0.25f, 4f)) }
@@ -103,6 +112,7 @@ class PlaybackConnection(context: Context) {
             RepeatMode.ALL -> Player.REPEAT_MODE_ALL
         }
     }
+    fun setShuffleEnabled(enabled: Boolean) = withController { it.shuffleModeEnabled = enabled }
     fun playerOrNull(): Player? = controller
 
     private fun withController(block: (MediaController) -> Unit) {
@@ -135,6 +145,14 @@ class PlaybackConnection(context: Context) {
             playbackSpeed = player.playbackParameters.speed,
             hasNext = player.hasNextMediaItem(),
             hasPrevious = player.hasPreviousMediaItem(),
+            currentMediaItemIndex = player.currentMediaItemIndex.coerceAtLeast(0),
+            mediaItemCount = player.mediaItemCount.coerceAtLeast(0),
+            repeatMode = when (player.repeatMode) {
+                Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                else -> RepeatMode.OFF
+            },
+            shuffleEnabled = player.shuffleModeEnabled,
             error = player.playerError?.let(PlaybackErrorMapper::map),
         )
     }

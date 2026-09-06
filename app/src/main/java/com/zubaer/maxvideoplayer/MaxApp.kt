@@ -11,6 +11,7 @@ import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.feature.library.LibraryScreen
 import com.zubaer.maxvideoplayer.feature.library.LibraryViewModel
+import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerScreen
 import com.zubaer.maxvideoplayer.feature.player.PlayerViewModel
 import com.zubaer.maxvideoplayer.ui.MaxTheme
@@ -22,8 +23,10 @@ fun MaxApp(
     externalMedia: AppMedia?,
     onExternalConsumed: () -> Unit,
     persistUriPermission: (Uri) -> Boolean,
-    onEnterPip: () -> Unit,
+    onEnterPip: (AppMedia) -> Unit,
     onFullscreenChanged: (Boolean) -> Unit,
+    onOrientationModeChanged: (OrientationMode) -> Unit,
+    onPlayerHostStateChanged: (AppMedia?, Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val navigationViewModel: AppNavigationViewModel = viewModel()
@@ -103,6 +106,7 @@ fun MaxApp(
                         media = media,
                         historyRepository = container.historyRepository,
                         playbackConnection = container.playbackConnection,
+                        preferences = container.playerPreferences,
                         queue = playbackLaunch.queue,
                         startIndex = playbackLaunch.startIndex,
                     )
@@ -115,6 +119,8 @@ fun MaxApp(
                 onBack = navigationViewModel::clearSelection,
                 onEnterPip = onEnterPip,
                 onFullscreenChanged = onFullscreenChanged,
+                onOrientationModeChanged = onOrientationModeChanged,
+                onPlayerHostStateChanged = onPlayerHostStateChanged,
             )
         }
     }
