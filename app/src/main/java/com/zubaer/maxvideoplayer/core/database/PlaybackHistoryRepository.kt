@@ -17,6 +17,16 @@ class PlaybackHistoryRepository(private val dao: MediaHistoryDao) {
 
     suspend fun clear() = dao.clear()
 
+    suspend fun updateSource(stableId: String, media: AppMedia) = dao.updateSource(
+        stableId = stableId,
+        uri = media.uri,
+        title = media.title,
+        mimeType = media.mimeType,
+        sizeBytes = media.sizeBytes,
+        width = media.width,
+        height = media.height,
+    )
+
     suspend fun record(media: AppMedia, positionMs: Long, durationMs: Long, completed: Boolean) {
         dao.upsert(
             MediaHistoryEntity(
