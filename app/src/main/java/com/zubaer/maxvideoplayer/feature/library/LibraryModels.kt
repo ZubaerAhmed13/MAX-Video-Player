@@ -59,10 +59,12 @@ object LibraryQueryEngine {
         filter: LibraryFilter,
         history: Map<String, MediaHistoryEntity>,
         favouriteIds: Set<String>,
+        includeUnavailable: Boolean = false,
+        preserveInputOrder: Boolean = false,
     ): List<AppMedia> {
         val normalizedQuery = normalize(query)
         val filtered = input.asSequence()
-            .filter { it.availability == SourceAvailability.AVAILABLE }
+            .filter { includeUnavailable || it.availability == SourceAvailability.AVAILABLE }
             .filter { media -> matchesFilter(media, filter, history, favouriteIds) }
             .filter { media ->
                 normalizedQuery.isEmpty() || sequenceOf(media.title, media.fileName, media.folderName)
@@ -72,8 +74,8 @@ object LibraryQueryEngine {
             }
             .toList()
 
-        val comparator = comparator(sort, history)
-        val sorted = filtered.sortedWith(comparator)
+        if (preserveInputOrder) return filtered
+        val sorted = filtered.sortedWith(comparator(sort, history))
         return if (direction == SortDirection.ASCENDING) sorted else sorted.asReversed()
     }
 

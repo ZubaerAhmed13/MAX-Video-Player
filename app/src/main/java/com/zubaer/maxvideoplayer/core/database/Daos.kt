@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 interface MediaHistoryDao {
     @Upsert suspend fun upsert(entity: MediaHistoryEntity)
     @Query("SELECT * FROM media_history WHERE stableMediaId = :stableId LIMIT 1") suspend fun get(stableId: String): MediaHistoryEntity?
+    @Query("SELECT * FROM media_history WHERE stableMediaId = :stableId LIMIT 1") fun getBlockingForMigrationTest(stableId: String): MediaHistoryEntity?
     @Query("SELECT * FROM media_history ORDER BY lastPlayedAtMs DESC LIMIT :limit") fun recent(limit: Int = 50): Flow<List<MediaHistoryEntity>>
     @Query("SELECT * FROM media_history ORDER BY lastPlayedAtMs DESC") fun all(): Flow<List<MediaHistoryEntity>>
     @Query("DELETE FROM media_history WHERE stableMediaId = :stableId") suspend fun delete(stableId: String)

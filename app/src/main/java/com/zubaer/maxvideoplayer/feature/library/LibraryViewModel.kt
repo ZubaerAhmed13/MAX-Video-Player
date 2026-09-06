@@ -38,10 +38,7 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
     }
 
     fun refresh() = launchAction(loading = true) { repository.refreshAll() }
-
-    fun addFolder(uri: Uri, permissionPersisted: Boolean) = launchAction(loading = true) {
-        repository.addSafTree(uri, permissionPersisted)
-    }
+    fun addFolder(uri: Uri, permissionPersisted: Boolean) = launchAction(loading = true) { repository.addSafTree(uri, permissionPersisted) }
 
     fun setSection(section: LibrarySection) {
         _state.value = _state.value.copy(section = section, selectedFolderKey = null, selectedPlaylistId = null, selectedPlaylistMedia = emptyList())
@@ -49,16 +46,8 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
         recompute()
     }
 
-    fun setQuery(query: String) {
-        _state.value = _state.value.copy(query = query)
-        recompute()
-    }
-
-    fun setSort(sort: VideoSort) {
-        _state.value = _state.value.copy(sort = sort)
-        persist(PREF_SORT, sort.name)
-        recompute()
-    }
+    fun setQuery(query: String) { _state.value = _state.value.copy(query = query); recompute() }
+    fun setSort(sort: VideoSort) { _state.value = _state.value.copy(sort = sort); persist(PREF_SORT, sort.name); recompute() }
 
     fun toggleSortDirection() {
         val next = if (_state.value.sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING else SortDirection.ASCENDING
@@ -67,26 +56,10 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
         recompute()
     }
 
-    fun setFilter(filter: LibraryFilter) {
-        _state.value = _state.value.copy(filter = filter)
-        persist(PREF_FILTER, filter.name)
-        recompute()
-    }
-
-    fun setViewMode(mode: LibraryViewMode) {
-        _state.value = _state.value.copy(viewMode = mode)
-        persist(PREF_VIEW_MODE, mode.name)
-    }
-
-    fun openFolder(folderKey: String) {
-        _state.value = _state.value.copy(section = LibrarySection.FOLDERS, selectedFolderKey = folderKey)
-        recompute()
-    }
-
-    fun closeFolder() {
-        _state.value = _state.value.copy(selectedFolderKey = null)
-        recompute()
-    }
+    fun setFilter(filter: LibraryFilter) { _state.value = _state.value.copy(filter = filter); persist(PREF_FILTER, filter.name); recompute() }
+    fun setViewMode(mode: LibraryViewMode) { _state.value = _state.value.copy(viewMode = mode); persist(PREF_VIEW_MODE, mode.name) }
+    fun openFolder(folderKey: String) { _state.value = _state.value.copy(section = LibrarySection.FOLDERS, selectedFolderKey = folderKey); recompute() }
+    fun closeFolder() { _state.value = _state.value.copy(selectedFolderKey = null); recompute() }
 
     fun openPlaylist(playlistId: Long) {
         _state.value = _state.value.copy(section = LibrarySection.PLAYLISTS, selectedPlaylistId = playlistId)
@@ -99,32 +72,18 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
         recompute()
     }
 
-    fun toggleFavourite(media: AppMedia) = launchAction {
-        repository.setFavourite(media.stableId, media.stableId !in favouriteIds)
-    }
-
+    fun toggleFavourite(media: AppMedia) = launchAction { repository.setFavourite(media.stableId, media.stableId !in favouriteIds) }
     fun createPlaylist(name: String) = launchAction { repository.createPlaylist(name) }
     fun renamePlaylist(playlistId: Long, name: String) = launchAction { repository.renamePlaylist(playlistId, name) }
-    fun deletePlaylist(playlistId: Long) = launchAction {
-        repository.deletePlaylist(playlistId)
-        if (_state.value.selectedPlaylistId == playlistId) closePlaylist()
-    }
+    fun deletePlaylist(playlistId: Long) = launchAction { repository.deletePlaylist(playlistId); if (_state.value.selectedPlaylistId == playlistId) closePlaylist() }
 
     fun addToPlaylist(playlistId: Long, media: AppMedia) = launchAction {
         repository.addToPlaylist(playlistId, listOf(media.stableId))
         if (_state.value.selectedPlaylistId == playlistId) reloadPlaylist(playlistId)
     }
 
-    fun removeFromPlaylist(playlistId: Long, media: AppMedia) = launchAction {
-        repository.removeFromPlaylist(playlistId, media.stableId)
-        reloadPlaylist(playlistId)
-    }
-
-    fun movePlaylistItem(playlistId: Long, media: AppMedia, delta: Int) = launchAction {
-        repository.movePlaylistItem(playlistId, media.stableId, delta)
-        reloadPlaylist(playlistId)
-    }
-
+    fun removeFromPlaylist(playlistId: Long, media: AppMedia) = launchAction { repository.removeFromPlaylist(playlistId, media.stableId); reloadPlaylist(playlistId) }
+    fun movePlaylistItem(playlistId: Long, media: AppMedia, delta: Int) = launchAction { repository.movePlaylistItem(playlistId, media.stableId, delta); reloadPlaylist(playlistId) }
     fun excludeFolder(folder: FolderItem) = launchAction { repository.excludeFolder(folder.key, folder.name) }
     fun restoreFolder(folderKey: String) = launchAction { repository.restoreExcludedFolder(folderKey) }
     fun removeSource(sourceId: String) = launchAction { repository.removeSafSource(sourceId) }
@@ -133,23 +92,20 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
 
     fun playbackRequest(media: AppMedia): LibraryPlaybackRequest {
         val visible = _state.value.media.filter { it.availability == SourceAvailability.AVAILABLE }
-        val queue = if (media in visible) visible else listOf(media)
+        val queue = if (visible.any { it.stableId == media.stableId }) visible else listOf(media)
         return LibraryPlaybackRequest(queue = queue, startIndex = queue.indexOfFirst { it.stableId == media.stableId }.coerceAtLeast(0))
     }
 
     private fun reloadPlaylist(playlistId: Long) {
-        viewModelScope.launch {
-            selectedPlaylistMedia = repository.playlistMedia(playlistId)
-            recompute()
-        }
+        viewModelScope.launch { selectedPlaylistMedia = repository.playlistMedia(playlistId); recompute() }
     }
 
     private fun recompute() {
         val state = _state.value
         val excludedKeys = excludedFolders.mapTo(hashSetOf()) { it.folderKey }
         val historyById = historyRows.associateBy { it.stableMediaId }
-        val available = indexedMedia.filter { media -> media.folderKey !in excludedKeys }
-        val folders = available
+        val availableOrKnown = indexedMedia.filter { it.folderKey !in excludedKeys }
+        val folders = availableOrKnown
             .filter { it.availability == SourceAvailability.AVAILABLE }
             .groupBy { it.folderKey ?: "root:${it.sourceId ?: it.sourceType.name}" }
             .map { (key, media) ->
@@ -164,16 +120,16 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
             .sortedBy { it.name.lowercase() }
 
         val base = when (state.section) {
-            LibrarySection.VIDEOS -> available
+            LibrarySection.VIDEOS -> availableOrKnown
             LibrarySection.FOLDERS -> state.selectedFolderKey?.let { key -> folders.firstOrNull { it.key == key }?.videos }.orEmpty()
             LibrarySection.CONTINUE_WATCHING -> historyRows.filter(LibraryQueryEngine::isContinueWatching).mapNotNull { row ->
-                available.firstOrNull { it.stableId == row.stableMediaId && it.availability == SourceAvailability.AVAILABLE }
+                availableOrKnown.firstOrNull { it.stableId == row.stableMediaId && it.availability == SourceAvailability.AVAILABLE }
             }
-            LibrarySection.RECENT -> historyRows.take(30).mapNotNull { row -> available.firstOrNull { it.stableId == row.stableMediaId } }
-            LibrarySection.FAVOURITES -> available.filter { it.stableId in favouriteIds }
+            LibrarySection.RECENT -> historyRows.take(30).mapNotNull { row -> availableOrKnown.firstOrNull { it.stableId == row.stableMediaId } }
+            LibrarySection.FAVOURITES -> availableOrKnown.filter { it.stableId in favouriteIds }
             LibrarySection.PLAYLISTS -> if (state.selectedPlaylistId != null) selectedPlaylistMedia else emptyList()
             LibrarySection.HISTORY -> historyRows.map { row ->
-                available.firstOrNull { it.stableId == row.stableMediaId } ?: AppMedia(
+                availableOrKnown.firstOrNull { it.stableId == row.stableMediaId } ?: AppMedia(
                     stableId = row.stableMediaId,
                     uri = row.uri,
                     title = row.title,
@@ -188,14 +144,18 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
             }
         }
 
+        val historyOrdered = state.section in setOf(LibrarySection.CONTINUE_WATCHING, LibrarySection.RECENT, LibrarySection.HISTORY)
+        val playlistOrdered = state.section == LibrarySection.PLAYLISTS && state.selectedPlaylistId != null
         val filtered = LibraryQueryEngine.apply(
             input = base,
             query = state.query,
-            sort = state.sort,
-            direction = state.sortDirection,
+            sort = if (historyOrdered) VideoSort.LAST_PLAYED else state.sort,
+            direction = if (historyOrdered) SortDirection.DESCENDING else state.sortDirection,
             filter = state.filter,
             history = historyById,
             favouriteIds = favouriteIds,
+            includeUnavailable = state.section in setOf(LibrarySection.HISTORY, LibrarySection.PLAYLISTS),
+            preserveInputOrder = playlistOrdered,
         )
 
         _state.value = state.copy(
@@ -219,15 +179,12 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
         recompute()
     }
 
-    private fun persist(key: String, value: String) {
-        viewModelScope.launch { repository.setPreference(key, value) }
-    }
+    private fun persist(key: String, value: String) { viewModelScope.launch { repository.setPreference(key, value) } }
 
     private fun launchAction(loading: Boolean = false, block: suspend () -> Unit) {
         viewModelScope.launch {
             if (loading) _state.value = _state.value.copy(loading = true, error = null)
-            runCatching { block() }
-                .onFailure { error -> _state.value = _state.value.copy(error = error.message ?: "Library operation failed") }
+            runCatching { block() }.onFailure { error -> _state.value = _state.value.copy(error = error.message ?: "Library operation failed") }
             if (loading) _state.value = _state.value.copy(loading = false)
         }
     }
