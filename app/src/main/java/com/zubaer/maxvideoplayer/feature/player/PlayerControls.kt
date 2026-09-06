@@ -57,12 +57,12 @@ fun PlayerControlsOverlay(
     onInteractionStart: () -> Unit,
     onInteractionEnd: () -> Unit,
     onOpenMenu: (PlayerMenu) -> Unit,
-    onSubtitles: () -> Unit,
     onRotate: () -> Unit,
     onLock: () -> Unit,
     onUnlock: () -> Unit,
     onPip: () -> Unit,
     onFullscreen: () -> Unit,
+    onSubtitles: () -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(
