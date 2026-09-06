@@ -28,7 +28,9 @@ fun MaxApp(
     val scope = rememberCoroutineScope()
     val navigationViewModel: AppNavigationViewModel = viewModel()
     val launch by navigationViewModel.playbackLaunch.collectAsStateWithLifecycle()
-    val libraryViewModel: LibraryViewModel = viewModel(factory = simpleFactory { LibraryViewModel(container.libraryRepository) })
+    val libraryViewModel: LibraryViewModel = viewModel(
+        factory = simpleFactory { LibraryViewModel(container.libraryRepository, container.mediaFileActionRepository) }
+    )
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(externalMedia?.stableId) {
@@ -43,6 +45,7 @@ fun MaxApp(
         if (playbackLaunch == null) {
             LibraryScreen(
                 state = libraryState,
+                events = libraryViewModel.events,
                 thumbnailRepository = container.thumbnailRepository,
                 onRefresh = libraryViewModel::refresh,
                 onOpenDocument = { uri ->
@@ -57,6 +60,7 @@ fun MaxApp(
                 onSection = libraryViewModel::setSection,
                 onQuery = libraryViewModel::setQuery,
                 onSort = libraryViewModel::setSort,
+                onFolderSort = libraryViewModel::setFolderSort,
                 onToggleSortDirection = libraryViewModel::toggleSortDirection,
                 onFilter = libraryViewModel::setFilter,
                 onViewMode = libraryViewModel::setViewMode,
@@ -65,10 +69,12 @@ fun MaxApp(
                 onOpenPlaylist = libraryViewModel::openPlaylist,
                 onClosePlaylist = libraryViewModel::closePlaylist,
                 onToggleFavourite = libraryViewModel::toggleFavourite,
+                onSetFavourite = libraryViewModel::setFavourite,
                 onCreatePlaylist = libraryViewModel::createPlaylist,
                 onRenamePlaylist = libraryViewModel::renamePlaylist,
                 onDeletePlaylist = libraryViewModel::deletePlaylist,
                 onAddToPlaylist = libraryViewModel::addToPlaylist,
+                onAddManyToPlaylist = libraryViewModel::addManyToPlaylist,
                 onRemoveFromPlaylist = libraryViewModel::removeFromPlaylist,
                 onMovePlaylistItem = libraryViewModel::movePlaylistItem,
                 onExcludeFolder = libraryViewModel::excludeFolder,
@@ -76,6 +82,16 @@ fun MaxApp(
                 onRemoveSource = libraryViewModel::removeSource,
                 onDeleteHistory = libraryViewModel::deleteHistory,
                 onClearHistory = libraryViewModel::clearHistory,
+                onRequestDelete = libraryViewModel::requestDelete,
+                onRequestRename = libraryViewModel::requestRename,
+                onFileActionApproval = libraryViewModel::completeConfirmedFileAction,
+                onRelinkSelected = { original, uri ->
+                    persistUriPermission(uri)
+                    scope.launch {
+                        val replacement = container.metadataExtractor.fromUri(uri, MediaSourceType.SAF)
+                        libraryViewModel.relinkMedia(original, replacement)
+                    }
+                },
                 playbackRequest = libraryViewModel::playbackRequest,
             )
         } else {
