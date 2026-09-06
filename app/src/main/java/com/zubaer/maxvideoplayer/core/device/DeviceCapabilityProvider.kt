@@ -65,10 +65,19 @@ class DeviceCapabilityProvider(private val context: Context) {
                 adaptive = caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback)
                 secure = caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback)
                 caps.profileLevels.forEach { profiles += "${it.profile}:${it.level}" }
-                val vc = caps.videoCapabilities
-                listOf("720p" to (1280 to 720), "1080p" to (1920 to 1080), "1440p" to (2560 to 1440), "2160p" to (3840 to 2160)).forEach { (label, size) ->
-                    val supported = runCatching { vc.areSizeAndRateSupported(size.first, size.second, 30.0) }.getOrDefault(false)
-                    resolutions[label] = ResolutionCapability(size.first, size.second, supported)
+                val videoCapabilities = caps.videoCapabilities
+                if (videoCapabilities != null) {
+                    listOf(
+                        "720p" to (1280 to 720),
+                        "1080p" to (1920 to 1080),
+                        "1440p" to (2560 to 1440),
+                        "2160p" to (3840 to 2160),
+                    ).forEach { (label, size) ->
+                        val supported = runCatching {
+                            videoCapabilities.areSizeAndRateSupported(size.first, size.second, 30.0)
+                        }.getOrDefault(false)
+                        resolutions[label] = ResolutionCapability(size.first, size.second, supported)
+                    }
                 }
             }
         }
