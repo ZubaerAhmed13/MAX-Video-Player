@@ -30,18 +30,22 @@ class ThumbnailRepository(context: Context) {
         val uri = runCatching { Uri.parse(media.uri) }.getOrNull() ?: return@withContext null
         if (uri.scheme != ContentResolverScheme.CONTENT) return@withContext null
 
-        val bitmap = when (ThumbnailCompatibilityPolicy.strategy(Build.VERSION.SDK_INT)) {
-            ThumbnailLoadStrategy.CONTENT_RESOLVER -> runCatching {
+        val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching {
                 resolver.loadThumbnail(uri, Size(bounded.width, bounded.height), null)
             }.getOrNull()
+        } else {
+            when (ThumbnailCompatibilityPolicy.strategy(Build.VERSION.SDK_INT)) {
+                ThumbnailLoadStrategy.SCALED_RETRIEVER -> runCatching {
+                    loadRetrieverThumbnail(uri, bounded.width, bounded.height, preferPlatformScaling = true)
+                }.getOrNull()
 
-            ThumbnailLoadStrategy.SCALED_RETRIEVER -> runCatching {
-                loadRetrieverThumbnail(uri, bounded.width, bounded.height, preferPlatformScaling = true)
-            }.getOrNull()
+                ThumbnailLoadStrategy.LEGACY_RETRIEVER -> runCatching {
+                    loadRetrieverThumbnail(uri, bounded.width, bounded.height, preferPlatformScaling = false)
+                }.getOrNull()
 
-            ThumbnailLoadStrategy.LEGACY_RETRIEVER -> runCatching {
-                loadRetrieverThumbnail(uri, bounded.width, bounded.height, preferPlatformScaling = false)
-            }.getOrNull()
+                ThumbnailLoadStrategy.CONTENT_RESOLVER -> null
+            }
         }
 
         coroutineContext.ensureActive()
