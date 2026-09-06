@@ -163,6 +163,43 @@ class LibraryRepository(
         return items.mapNotNull { item -> rows[item.stableMediaId]?.toAppMedia() ?: historyRepository.get(item.stableMediaId)?.toUnavailableMedia() }
     }
 
+    /**
+     * Preserve the app-level stable ID and all user relationships while reconnecting an unavailable
+     * source (or reconciling a provider rename that returned a new content URI).
+     */
+    suspend fun relinkMedia(original: AppMedia, replacement: AppMedia): MediaRelinkValidator.Validation {
+        val validation = MediaRelinkValidator.validate(original, replacement)
+        if (!validation.accepted) return validation
+        val relinked = replacement.copy(
+            stableId = original.stableId,
+            sourceId = replacement.sourceId ?: original.sourceId ?: "relinked",
+            availability = SourceAvailability.AVAILABLE,
+        )
+        database.withTransaction {
+            database.mediaIndexDao().upsertAll(listOf(relinked.toIndexEntity()))
+            database.mediaHistoryDao().updateSource(
+                stableId = original.stableId,
+                uri = relinked.uri,
+                title = relinked.title,
+                mimeType = relinked.mimeType,
+                sizeBytes = relinked.sizeBytes,
+                width = relinked.width,
+                height = relinked.height,
+            )
+        }
+        return validation
+    }
+
+    /** Cleanup is called only after Android/provider deletion has actually succeeded. */
+    suspend fun cleanupDeletedMedia(stableMediaId: String) {
+        database.withTransaction {
+            database.mediaIndexDao().delete(stableMediaId)
+            database.favouriteDao().delete(stableMediaId)
+            database.playlistDao().deleteMediaEverywhere(stableMediaId)
+            database.mediaHistoryDao().delete(stableMediaId)
+        }
+    }
+
     suspend fun deleteHistory(stableMediaId: String) = historyRepository.delete(stableMediaId)
     suspend fun clearHistory() = historyRepository.clear()
     suspend fun getPreference(key: String): String? = database.libraryPreferenceDao().get(key)?.value
