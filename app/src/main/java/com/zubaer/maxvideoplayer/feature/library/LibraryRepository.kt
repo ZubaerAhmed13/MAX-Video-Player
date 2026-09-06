@@ -27,7 +27,7 @@ class LibraryRepository(
     private val safTreeScanner: SafTreeScanner,
     private val historyRepository: PlaybackHistoryRepository,
 ) {
-    fun media(): Flow<List<AppMedia>> = database.mediaIndexDao().observeAll().map { rows -> rows.map(MediaIndexEntity::toAppMedia) }
+    fun media(): Flow<List<AppMedia>> = database.mediaIndexDao().observeAll().map { rows -> rows.map { row -> row.toAppMedia() } }
     fun favourites(): Flow<Set<String>> = database.favouriteDao().observeAll().map { rows -> rows.mapTo(linkedSetOf()) { it.stableMediaId } }
     fun playlists(): Flow<List<PlaylistEntity>> = database.playlistDao().observePlaylists()
     fun sources(): Flow<List<LibrarySourceEntity>> = database.librarySourceDao().observeAll()
@@ -43,7 +43,7 @@ class LibraryRepository(
         val scanned = mediaStoreRepository.videos()
         database.withTransaction {
             database.mediaIndexDao().markSourceUnavailable(MediaStoreRepository.SOURCE_ID)
-            if (scanned.isNotEmpty()) database.mediaIndexDao().upsertAll(scanned.map(AppMedia::toIndexEntity))
+            if (scanned.isNotEmpty()) database.mediaIndexDao().upsertAll(scanned.map { media -> media.toIndexEntity() })
         }
     }
 
@@ -82,7 +82,7 @@ class LibraryRepository(
 
         database.withTransaction {
             database.mediaIndexDao().markSourceUnavailable(source.id)
-            if (scanned.isNotEmpty()) database.mediaIndexDao().upsertAll(scanned.map(AppMedia::toIndexEntity))
+            if (scanned.isNotEmpty()) database.mediaIndexDao().upsertAll(scanned.map { media -> media.toIndexEntity() })
             database.librarySourceDao().upsert(
                 source.copy(
                     status = STATUS_AVAILABLE,
