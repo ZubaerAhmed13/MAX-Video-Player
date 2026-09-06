@@ -48,6 +48,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "/dev/kvm is not available on this runner; emulator runner will use its supported fallback."
+          fi
       - name: Run API 35 instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -55,7 +64,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: gradle --no-daemon :app:connectedDebugAndroidTest
+          script: gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
       - name: Upload instrumentation reports
         if: always()
         uses: actions/upload-artifact@v4
