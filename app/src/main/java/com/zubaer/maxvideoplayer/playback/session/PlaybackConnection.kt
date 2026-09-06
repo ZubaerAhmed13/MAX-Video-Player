@@ -235,12 +235,20 @@ class PlaybackConnection(
         if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS)) {
             return SubtitlePlaybackState(enabled = !disabled)
         }
+        val mediaId = player.currentMediaItem?.mediaId
+        val attachment = mediaId?.let(subtitleRepository::externalAttachmentFor)
         val tracks = mutableListOf<SubtitleTrackInfo>()
         player.currentTracks.groups.forEachIndexed { groupIndex, group ->
             if (group.type != C.TRACK_TYPE_TEXT) return@forEachIndexed
             for (trackIndex in 0 until group.length) {
                 val format = group.getTrackFormat(trackIndex)
                 val key = trackKey(groupIndex, trackIndex)
+                val externalById = format.id?.startsWith(EXTERNAL_SUBTITLE_ID_PREFIX) == true
+                val externalByDescriptor = attachment?.let { candidate ->
+                    format.label?.toString() == candidate.label &&
+                        format.sampleMimeType == candidate.mimeType &&
+                        (candidate.language == null || format.language == candidate.language)
+                } == true
                 tracks += SubtitleTrackInfo(
                     key = key,
                     label = format.label?.toString()
@@ -250,12 +258,10 @@ class PlaybackConnection(
                     mimeType = format.sampleMimeType,
                     selected = group.isTrackSelected(trackIndex),
                     supported = group.isTrackSupported(trackIndex),
-                    external = format.id?.startsWith(EXTERNAL_SUBTITLE_ID_PREFIX) == true,
+                    external = externalById || externalByDescriptor,
                 )
             }
         }
-        val mediaId = player.currentMediaItem?.mediaId
-        val attachment = mediaId?.let(subtitleRepository::externalAttachmentFor)
         return SubtitlePlaybackState(
             enabled = !disabled,
             tracks = tracks,
