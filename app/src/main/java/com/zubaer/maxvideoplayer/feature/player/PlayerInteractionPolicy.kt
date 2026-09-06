@@ -106,11 +106,17 @@ object PlayerInteractionPolicy {
     fun zoom(current: Float, multiplier: Float): Float =
         (current * multiplier).coerceIn(MIN_ZOOM, MAX_ZOOM)
 
-    fun panBounds(viewportWidthPx: Float, viewportHeightPx: Float, zoom: Float): PanBounds {
-        val safeZoom = zoom.coerceAtLeast(1f)
+    fun panBounds(viewportWidthPx: Float, viewportHeightPx: Float, zoom: Float): PanBounds =
+        panBounds(viewportWidthPx, viewportHeightPx, zoom, zoom)
+
+    fun panBounds(viewportWidthPx: Float, viewportHeightPx: Float, scaleX: Float, scaleY: Float): PanBounds {
+        val safeWidth = viewportWidthPx.coerceAtLeast(0f)
+        val safeHeight = viewportHeightPx.coerceAtLeast(0f)
+        val safeScaleX = scaleX.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 1f
+        val safeScaleY = scaleY.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 1f
         return PanBounds(
-            maxX = max(0f, viewportWidthPx * (safeZoom - 1f) / 2f),
-            maxY = max(0f, viewportHeightPx * (safeZoom - 1f) / 2f),
+            maxX = max(0f, safeWidth * (safeScaleX - 1f) / 2f),
+            maxY = max(0f, safeHeight * (safeScaleY - 1f) / 2f),
         )
     }
 
