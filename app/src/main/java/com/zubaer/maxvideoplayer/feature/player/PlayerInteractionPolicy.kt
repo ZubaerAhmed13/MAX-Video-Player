@@ -1,5 +1,6 @@
 package com.zubaer.maxvideoplayer.feature.player
 
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -224,6 +225,7 @@ object PlayerPreferenceCodec {
     fun resizeMode(raw: String?): ResizeMode = enumValueOrDefault(raw, ResizeMode.FIT)
     fun orientationMode(raw: String?): OrientationMode = enumValueOrDefault(raw, OrientationMode.AUTO)
     fun sensitivity(raw: String?): GestureSensitivity = enumValueOrDefault(raw, GestureSensitivity.MEDIUM)
+    fun decoderMode(raw: String?): DecoderMode = enumValueOrDefault(raw, DecoderMode.AUTO)
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(raw: String?, fallback: T): T =
         enumValues<T>().firstOrNull { it.name == raw } ?: fallback
