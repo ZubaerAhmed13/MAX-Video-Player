@@ -295,18 +295,26 @@ class PlaybackConnection(
         player: MediaController,
         attachment: ExternalSubtitleAttachment?,
     ) {
-        if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) return
+        if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) ||
+            !player.isCommandAvailable(Player.COMMAND_GET_TIMELINE)
+        ) return
         val current = player.currentMediaItem ?: return
         val index = player.currentMediaItemIndex
-        if (index < 0) return
+        if (index !in 0 until player.mediaItemCount) return
         val position = player.currentPosition.coerceAtLeast(0L)
         val playWhenReady = player.playWhenReady
         val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
             .filterNot { it.id?.startsWith(EXTERNAL_SUBTITLE_ID_PREFIX) == true }
         val updatedConfigurations = if (attachment == null) existing else existing + attachment.toMedia3Configuration()
         val updated = current.buildUpon().setSubtitleConfigurations(updatedConfigurations).build()
-        player.replaceMediaItem(index, updated)
-        player.seekTo(index, position)
+
+        // Rebuild the existing playlist so DefaultMediaSourceFactory constructs a fresh
+        // media-source graph. A compatible replaceMediaItem() can update the current source
+        // in place, which is insufficient when the source graph must gain or lose the
+        // MergingMediaSource used for side-loaded subtitles.
+        val rebuiltQueue = MutableList(player.mediaItemCount) { queueIndex -> player.getMediaItemAt(queueIndex) }
+        rebuiltQueue[index] = updated
+        player.setMediaItems(rebuiltQueue, index, position)
         player.prepare()
         player.playWhenReady = playWhenReady
     }
