@@ -1,0 +1,241 @@
+package com.zubaer.maxvideoplayer.feature.audio
+
+import android.content.Intent
+import android.media.AudioDeviceInfo
+import android.media.MediaExtractor
+import android.net.Uri
+import android.os.SystemClock
+import androidx.media3.common.C
+import androidx.media3.common.MimeTypes
+import androidx.test.core.app.ActivityScenario
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.zubaer.maxvideoplayer.MainActivity
+import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
+import com.zubaer.maxvideoplayer.core.model.AppMedia
+import com.zubaer.maxvideoplayer.core.model.MediaSourceType
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleFileDescriptor
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleFormat
+import com.zubaer.maxvideoplayer.playback.session.PlaybackService
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+import kotlin.math.abs
+
+/**
+ * Step-5 production-path certification. Fixtures are synthetic redistribution-safe tones/video.
+ * Commands travel through PlaybackConnection -> MediaController -> PlaybackService -> Media3.
+ */
+@RunWith(AndroidJUnit4::class)
+class ProfessionalAudioIntegrationTest {
+
+    @Test
+    fun productionAudioPathSupportsTracksExternalAudioDspSyncAudioOnlyAndSubtitleCoexistence() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val app = context.applicationContext as MaxVideoPlayerApplication
+        val container = app.container
+        val connection = container.playbackConnection
+        val audio = container.audioRepository
+        val controller = container.audioPlaybackController
+
+        val multiAudio = copyAsset(context, "step5_multi_audio.mp4")
+        val externalAudio = copyAsset(context, "step5_external_bn.m4a")
+        val externalSubtitle = copyAsset(context, "step5_external.srt")
+        certifyFixtureStructure(multiAudio)
+
+        val mediaId = "step5-professional-audio-${System.currentTimeMillis()}"
+        val media = AppMedia(
+            stableId = mediaId,
+            uri = Uri.fromFile(multiAudio).toString(),
+            title = "Step 5 synthetic multi-audio fixture",
+            mimeType = "video/mp4",
+            durationMs = 2_000L,
+            sizeBytes = multiAudio.length(),
+            width = 160,
+            height = 90,
+            sourceType = MediaSourceType.SAF,
+        )
+
+        controller.setEqualizerEnabled(false)
+        controller.setPreamp(0f)
+        controller.setBoost(0f)
+        controller.setBalance(0f)
+        controller.setChannelMode(AudioChannelMode.STEREO)
+        controller.setPitch(1f)
+        controller.setBackgroundMode(BackgroundPlaybackMode.CONTINUE_AUDIO)
+        controller.setDisableVideoInBackground(false)
+
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        instrumentation.waitForIdleSync()
+        try {
+            instrumentation.runOnMainSync { connection.connect() }
+            assertTrue("MediaController did not connect", await(10_000L) { connection.state.value.connected })
+            instrumentation.runOnMainSync { connection.load(media, 0L, false) }
+            assertTrue("Synthetic fixture did not load", await(15_000L) {
+                connection.state.value.durationMs > 0L || connection.state.value.error != null
+            })
+            assertTrue("Synthetic fixture playback error: ${connection.state.value.error}", connection.state.value.error == null)
+
+            instrumentation.runOnMainSync { controller.bind() }
+            assertTrue("Embedded multi-audio tracks were not discovered", await(10_000L) {
+                audio.state.value.tracks.count { !it.external && it.supported } >= 2
+            })
+            val embedded = audio.state.value.tracks.filter { !it.external && it.supported }
+            assertTrue("Expected at least two real embedded audio tracks", embedded.size >= 2)
+            assertTrue("Track labels must be human-readable", embedded.all { it.label.isNotBlank() })
+
+            val secondTrack = embedded[1]
+            instrumentation.runOnMainSync { controller.selectTrack(secondTrack.key) }
+            assertTrue("Manual embedded audio selection did not reach Media3", await(5_000L) {
+                audio.state.value.selectionMode == AudioSelectionMode.MANUAL &&
+                    audio.state.value.tracks.any { it.key == secondTrack.key && it.selected }
+            })
+
+            instrumentation.runOnMainSync {
+                controller.setEqualizerEnabled(true)
+                controller.setPreset(EqualizerPreset.VOCAL)
+                controller.setBoost(3f)
+            }
+            assertTrue("Production AudioSink does not report installed DSP", audio.state.value.dspPipelineInstalled)
+            assertTrue("EQ did not reach realtime DSP parameters", audio.realtimeParameters.get().equalizerEnabled)
+            assertTrue("Boost did not reach realtime DSP parameters", audio.realtimeParameters.get().boostDb > 0f)
+
+            instrumentation.runOnMainSync {
+                controller.setAudioDelay(250L)
+                controller.setRouteCompensation(100L)
+            }
+            assertEquals(250L, audio.state.value.audioDelayMs)
+            assertEquals(100L, audio.state.value.routeCompensationMs)
+            assertEquals(350L, audio.state.value.effectiveAudioDelayMs)
+
+            instrumentation.runOnMainSync { controller.setPitch(1.2f) }
+            assertTrue("Pitch did not reach playback parameters", await(3_000L) {
+                connection.playerOrNull()?.playbackParameters?.pitch?.let { abs(it - 1.2f) < 0.01f } == true
+            })
+
+            val subtitleDescriptor = SubtitleFileDescriptor(
+                uri = Uri.fromFile(externalSubtitle).toString(),
+                displayName = externalSubtitle.name,
+                mimeType = MimeTypes.APPLICATION_SUBRIP,
+                format = SubtitleFormat.SRT,
+            )
+            instrumentation.runOnMainSync { connection.attachExternalSubtitle(subtitleDescriptor) }
+            assertTrue("External subtitle association was not persisted", await(5_000L) {
+                container.subtitleRepository.externalAttachmentsFor(mediaId).isNotEmpty()
+            })
+
+            val externalDescriptor = audio.describe(Uri.fromFile(externalAudio))
+            assertNotNull("External AAC fixture was not recognized", externalDescriptor)
+            instrumentation.runOnMainSync { controller.attachExternal(externalDescriptor!!) }
+            assertTrue("External audio association/selection did not persist", await(10_000L) {
+                audio.state.value.selectedExternalId != null && audio.state.value.externalAudio.isNotEmpty()
+            })
+            assertTrue(
+                "External audio replaced Step-4 subtitle association",
+                container.subtitleRepository.externalAttachmentsFor(mediaId).isNotEmpty(),
+            )
+            assertEquals(mediaId, connection.playerOrNull()?.currentMediaItem?.mediaId)
+
+            val positionBefore = connection.playerOrNull()?.currentPosition ?: 0L
+            instrumentation.runOnMainSync { controller.setAudioOnly(true) }
+            assertTrue("Audio-only did not disable the video track", await(3_000L) {
+                connection.playerOrNull()?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_VIDEO) == true
+            })
+            instrumentation.runOnMainSync { controller.setAudioOnly(false) }
+            assertTrue("Video track was not restored", await(3_000L) {
+                connection.playerOrNull()?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_VIDEO) == false
+            })
+            assertEquals(mediaId, connection.playerOrNull()?.currentMediaItem?.mediaId)
+            assertTrue(
+                "Audio-only unexpectedly restarted from zero",
+                (connection.playerOrNull()?.currentPosition ?: 0L) >= (positionBefore - 500L).coerceAtLeast(0L),
+            )
+
+            scenario.recreate()
+            instrumentation.waitForIdleSync()
+            assertTrue("Playback session was lost across Activity recreation", await(5_000L) {
+                connection.state.value.connected && connection.playerOrNull()?.currentMediaItem?.mediaId == mediaId
+            })
+            assertTrue("Audio state was lost across Activity recreation", audio.state.value.equalizerEnabled)
+            assertEquals(250L, audio.state.value.audioDelayMs)
+            assertTrue("External audio association was lost across recreation", audio.state.value.selectedExternalId != null)
+
+            instrumentation.runOnMainSync {
+                controller.setBackgroundMode(BackgroundPlaybackMode.PIP_WHEN_POSSIBLE)
+                controller.setDisableVideoInBackground(true)
+                controller.setRouteCompensation(180L)
+            }
+            val recreatedPreferences = AudioRepository(context)
+            assertEquals(BackgroundPlaybackMode.PIP_WHEN_POSSIBLE, recreatedPreferences.state.value.backgroundMode)
+            assertTrue(recreatedPreferences.state.value.disableVideoInBackground)
+            assertEquals(180L, recreatedPreferences.routeCompensationFor(audio.state.value.currentRoute.type))
+        } finally {
+            instrumentation.runOnMainSync {
+                controller.setAudioOnly(false)
+                controller.setBackgroundVideoDisabled(false)
+                controller.setEqualizerEnabled(false)
+                controller.setBoost(0f)
+                controller.setAudioDelay(0L)
+                controller.setRouteCompensation(0L)
+                controller.setPitch(1f)
+                connection.pause()
+                controller.unbind()
+                connection.disconnect()
+            }
+            scenario.close()
+            context.stopService(Intent(context, PlaybackService::class.java))
+            multiAudio.delete()
+            externalAudio.delete()
+            externalSubtitle.delete()
+        }
+    }
+
+    @Test
+    fun routeClassificationCoversProfessionalOutputFamiliesWithoutPhysicalHardware() {
+        assertEquals(AudioRouteType.SPEAKER, AudioRouteMonitor.routeTypeForDeviceType(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER))
+        assertEquals(AudioRouteType.WIRED_HEADSET, AudioRouteMonitor.routeTypeForDeviceType(AudioDeviceInfo.TYPE_WIRED_HEADSET))
+        assertEquals(AudioRouteType.WIRED_HEADPHONES, AudioRouteMonitor.routeTypeForDeviceType(AudioDeviceInfo.TYPE_WIRED_HEADPHONES))
+        assertEquals(AudioRouteType.BLUETOOTH_A2DP, AudioRouteMonitor.routeTypeForDeviceType(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP))
+        assertEquals(AudioRouteType.USB, AudioRouteMonitor.routeTypeForDeviceType(AudioDeviceInfo.TYPE_USB_DEVICE))
+        assertEquals(AudioRouteType.HDMI, AudioRouteMonitor.routeTypeForDeviceType(AudioDeviceInfo.TYPE_HDMI))
+        assertEquals(AudioRouteType.UNKNOWN, AudioRouteMonitor.routeTypeForDeviceType(Int.MAX_VALUE))
+    }
+
+    private fun certifyFixtureStructure(file: File) {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(file.absolutePath)
+            var videoTracks = 0
+            var audioTracks = 0
+            repeat(extractor.trackCount) { index ->
+                val mime = extractor.getTrackFormat(index).getString(android.media.MediaFormat.KEY_MIME).orEmpty()
+                if (mime.startsWith("video/")) videoTracks++
+                if (mime.startsWith("audio/")) audioTracks++
+            }
+            assertTrue("Synthetic fixture must contain a video track", videoTracks >= 1)
+            assertTrue("Synthetic fixture must contain at least two audio tracks", audioTracks >= 2)
+        } finally {
+            extractor.release()
+        }
+    }
+
+    private fun copyAsset(context: android.content.Context, name: String): File =
+        File(context.cacheDir, "cert-$name").apply {
+            context.assets.open(name).use { input ->
+                outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+
+    private fun await(timeoutMs: Long, condition: () -> Boolean): Boolean {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (condition()) return true
+            Thread.sleep(50L)
+        }
+        return condition()
+    }
+}
