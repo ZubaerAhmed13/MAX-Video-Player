@@ -124,6 +124,11 @@ class SubtitleRepositoryInstrumentedTest {
             assertTrue(restored.any { it.id == english.id })
             assertEquals(bangla.id, recreated.selectedExternalAttachmentId("media-A"))
             assertEquals(750L, recreated.subtitleDelayFor("media-A"))
+
+            // Snapshot writes are intentionally asynchronous. Give any already-enqueued idempotent
+            // reconciliation writes a chance to drain before this test-owned in-memory DB closes,
+            // preventing a test-lifetime close from surfacing as an unrelated later test failure.
+            delay(300L)
         } finally {
             db.close()
         }

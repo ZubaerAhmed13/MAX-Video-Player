@@ -15,6 +15,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
+import com.zubaer.maxvideoplayer.feature.audio.BackgroundPlaybackMode
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerInteractionPolicy
 import com.zubaer.maxvideoplayer.feature.player.PlayerOrientationPolicy
@@ -26,6 +27,9 @@ class MainActivity : ComponentActivity() {
     private val container: AppContainer get() = (application as MaxVideoPlayerApplication).container
     private var currentPipMedia: AppMedia? = null
     private var autoPipEnabled: Boolean = false
+    private var audioBackgroundMode: BackgroundPlaybackMode = BackgroundPlaybackMode.CONTINUE_AUDIO
+    private var disableVideoInBackground: Boolean = false
+    private var backgroundVideoSuppressed: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,8 +46,33 @@ class MainActivity : ComponentActivity() {
                 onFullscreenChanged = ::setFullscreen,
                 onOrientationModeChanged = ::setOrientationMode,
                 onPlayerHostStateChanged = ::setPlayerHostState,
+                onAudioBackgroundPolicyChanged = ::setAudioBackgroundPolicy,
             )
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Foreground entry always clears the lifecycle-only suppression flag. This is safe even
+        // when the user deliberately selected audio-only mode because the controller combines
+        // both policies and keeps user audio-only authoritative.
+        container.audioPlaybackController.setBackgroundVideoDisabled(false)
+        backgroundVideoSuppressed = false
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations && currentPipMedia != null && !isPipActive()) {
+            when (audioBackgroundMode) {
+                BackgroundPlaybackMode.PAUSE -> container.playbackConnection.pause()
+                BackgroundPlaybackMode.CONTINUE_AUDIO -> suppressVideoForBackgroundIfRequested()
+                BackgroundPlaybackMode.PIP_WHEN_POSSIBLE -> {
+                    // onUserLeaveHint requests PiP first. If PiP cannot be entered, preserve the
+                    // service/session and continue audio rather than stopping unexpectedly.
+                    suppressVideoForBackgroundIfRequested()
+                }
+            }
+        }
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -54,10 +83,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (autoPipEnabled && Build.VERSION.SDK_INT >= 26 && !isInPictureInPictureMode) {
-            currentPipMedia?.let(::enterPip)
+        val media = currentPipMedia ?: return
+        val shouldEnterPip = autoPipEnabled || audioBackgroundMode == BackgroundPlaybackMode.PIP_WHEN_POSSIBLE
+        if (shouldEnterPip && Build.VERSION.SDK_INT >= 26 && !isInPictureInPictureMode) {
+            enterPip(media)
+        } else if (audioBackgroundMode == BackgroundPlaybackMode.PAUSE) {
+            container.playbackConnection.pause()
+        } else {
+            suppressVideoForBackgroundIfRequested()
         }
     }
+
+    private fun suppressVideoForBackgroundIfRequested() {
+        if (!disableVideoInBackground || isPipActive()) return
+        container.audioPlaybackController.setBackgroundVideoDisabled(true)
+        backgroundVideoSuppressed = true
+    }
+
+    private fun isPipActive(): Boolean = Build.VERSION.SDK_INT >= 26 && isInPictureInPictureMode
 
     private fun handleViewIntent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
@@ -95,9 +138,14 @@ class MainActivity : ComponentActivity() {
         enterPictureInPictureMode(builder.build())
     }
 
-    private fun setPlayerHostState(media: AppMedia?, autoPip: Boolean) {
+    internal fun setPlayerHostState(media: AppMedia?, autoPip: Boolean) {
         currentPipMedia = media
         autoPipEnabled = media != null && autoPip
+    }
+
+    internal fun setAudioBackgroundPolicy(mode: BackgroundPlaybackMode, disableVideo: Boolean) {
+        audioBackgroundMode = mode
+        disableVideoInBackground = disableVideo
     }
 
     internal fun setOrientationMode(mode: OrientationMode) {

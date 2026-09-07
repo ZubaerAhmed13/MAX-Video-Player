@@ -6,6 +6,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
+import com.zubaer.maxvideoplayer.feature.audio.AudioRouteMonitor
 import com.zubaer.maxvideoplayer.playback.engine.Media3PlaybackEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 class PlaybackService : MediaSessionService() {
     private lateinit var engine: Media3PlaybackEngine
     private lateinit var mediaSession: MediaSession
+    private lateinit var routeMonitor: AudioRouteMonitor
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var persistenceJob: Job? = null
 
@@ -37,15 +39,20 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            if (mediaItem != null) persistCurrent()
+            val container = (application as MaxVideoPlayerApplication).container
+            container.audioRepository.activateMedia(mediaItem?.mediaId)
+            if (mediaItem != null) container.audioRepository.refreshExternalAvailability(mediaItem.mediaId)
+            persistCurrent()
         }
     }
 
     override fun onCreate() {
         super.onCreate()
         val container = (application as MaxVideoPlayerApplication).container
-        engine = Media3PlaybackEngine(this, container.subtitleRepository)
+        engine = Media3PlaybackEngine(this, container.subtitleRepository, container.audioRepository)
         engine.player.addListener(listener)
+        container.audioRepository.activateMedia(engine.player.currentMediaItem?.mediaId)
+        routeMonitor = AudioRouteMonitor(this, container.audioRepository::setRoute).also { it.start() }
         mediaSession = MediaSession.Builder(this, engine.player).build()
     }
 
@@ -59,6 +66,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         persistCurrent()
         persistenceJob?.cancel()
+        if (::routeMonitor.isInitialized) routeMonitor.stop()
         engine.player.removeListener(listener)
         mediaSession.release()
         engine.release()

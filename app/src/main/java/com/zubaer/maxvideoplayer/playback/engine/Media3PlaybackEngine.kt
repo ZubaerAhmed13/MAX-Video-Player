@@ -6,19 +6,42 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
-import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleAwareMediaSourceFactory
+import com.zubaer.maxvideoplayer.feature.audio.AudioRepository
+import com.zubaer.maxvideoplayer.feature.audio.MaxAudioProcessor
+import com.zubaer.maxvideoplayer.feature.audio.ProfessionalMediaSourceFactory
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
-@UnstableApi
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class Media3PlaybackEngine(
     context: Context,
     subtitleRepository: SubtitleRepository,
+    private val audioRepository: AudioRepository,
 ) : PlaybackEngine {
+    val audioProcessor = MaxAudioProcessor(audioRepository)
+    private val appContext = context.applicationContext
+    private val renderersFactory = object : DefaultRenderersFactory(appContext) {
+        override fun buildAudioSink(
+            context: Context,
+            enableFloatOutput: Boolean,
+            enableAudioOutputPlaybackParams: Boolean,
+        ): AudioSink = DefaultAudioSink.Builder(context)
+            // App-owned DSP requires decoded PCM. Device-dependent float/offload paths that can
+            // bypass custom processors are not silently advertised as DSP-active.
+            .setEnableFloatOutput(false)
+            .setEnableAudioOutputPlaybackParameters(false)
+            .setAudioProcessors(arrayOf(audioProcessor))
+            .build()
+    }
+
     private val exoPlayer = ExoPlayer.Builder(
-        context.applicationContext,
-        SubtitleAwareMediaSourceFactory(context.applicationContext, subtitleRepository),
+        appContext,
+        renderersFactory,
+        ProfessionalMediaSourceFactory(appContext, subtitleRepository, audioRepository),
     )
         .build()
         .apply {
@@ -29,6 +52,10 @@ class Media3PlaybackEngine(
             setAudioAttributes(attributes, true)
             setHandleAudioBecomingNoisy(true)
         }
+
+    init {
+        audioRepository.setDspPipelineInstalled(true)
+    }
 
     override val player: Player get() = exoPlayer
 
@@ -61,5 +88,8 @@ class Media3PlaybackEngine(
         }
     }
 
-    override fun release() = exoPlayer.release()
+    override fun release() {
+        exoPlayer.release()
+        audioRepository.setDspPipelineInstalled(false)
+    }
 }

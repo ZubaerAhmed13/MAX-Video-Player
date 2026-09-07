@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [ main, step-1-professional-foundation, step-2-professional-media-library ]
+    branches: [ main, step-1-professional-foundation, step-2-professional-media-library, step-5-professional-audio-engine ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -32,6 +32,16 @@ jobs:
         run: gradle --no-daemon :app:assembleRelease
       - name: Lint
         run: gradle --no-daemon :app:lintDebug
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            app/build/reports/lint-results-debug.*
+            app/build/intermediates/lint_intermediate_text_report/**
 
   instrumentation:
     runs-on: ubuntu-latest
