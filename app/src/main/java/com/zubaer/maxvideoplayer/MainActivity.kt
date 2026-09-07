@@ -53,10 +53,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (backgroundVideoSuppressed) {
-            container.audioPlaybackController.setBackgroundVideoDisabled(false)
-            backgroundVideoSuppressed = false
-        }
+        // Foreground entry always clears the lifecycle-only suppression flag. This is safe even
+        // when the user deliberately selected audio-only mode because the controller combines
+        // both policies and keeps user audio-only authoritative.
+        container.audioPlaybackController.setBackgroundVideoDisabled(false)
+        backgroundVideoSuppressed = false
     }
 
     override fun onStop() {
