@@ -77,8 +77,10 @@ class DecoderSelectionPolicyTest {
 
     @Test
     fun profileAndLevelCompatibilitySelectsMain10CapableDecoder() {
-        val mainOnly = hardwareA.copy(profileLevels = listOf(CodecProfileLevel(profile = 1, level = 120)))
-        val main10 = hardwareB.copy(profileLevels = listOf(CodecProfileLevel(profile = 2, level = 150)))
+        val mainOnly = candidate("HardwareHEVCMain", DecoderBackendType.HARDWARE, 0, "video/hevc")
+            .copy(profileLevels = listOf(CodecProfileLevel(profile = 1, level = 120)))
+        val main10 = candidate("HardwareHEVCMain10", DecoderBackendType.HARDWARE, 1, "video/hevc")
+            .copy(profileLevels = listOf(CodecProfileLevel(profile = 2, level = 150)))
         val requirement = VideoDecoderRequirement(
             mimeType = "video/hevc",
             profile = 2,
@@ -92,7 +94,7 @@ class DecoderSelectionPolicyTest {
             listOf(mainOnly, main10),
             requirement,
         )
-        assertEquals(listOf("HardwareB"), decision.candidates.map { it.name })
+        assertEquals(listOf("HardwareHEVCMain10"), decision.candidates.map { it.name })
     }
 
     @Test
@@ -147,9 +149,10 @@ class DecoderSelectionPolicyTest {
         name: String,
         backend: DecoderBackendType,
         priority: Int,
+        mimeType: String = "video/avc",
     ): DecoderCandidate = DecoderCandidate(
         name = name,
-        mimeType = if (name.contains("HardwareB")) "video/avc" else "video/avc",
+        mimeType = mimeType,
         backend = backend,
         hardwareAccelerated = backend == DecoderBackendType.HARDWARE,
         softwareOnly = backend == DecoderBackendType.SOFTWARE,
