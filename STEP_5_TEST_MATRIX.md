@@ -26,8 +26,9 @@
 | Audio-only | Video track disabled/restored without replacing media item or restarting position | PASS target |
 | Activity recreation | Session/audio state/external audio survive recreation | PASS target |
 | Continue-audio background | Lifecycle integration suppresses video while retaining same session item | PASS target |
-| Foreground restore | Lifecycle integration restores background-suppressed video | PASS target |
-| PiP fallback | Non-PiP stopped state preserves session and suppresses video when configured | PASS target |
+| Foreground restore | Lifecycle integration restores background-suppressed video in the real RESUMED foreground state | PASS target |
+| PiP when possible | API-35 integration enters real Picture-in-Picture, keeps the same MediaSession item, preserves playback intent, and keeps video selected | PASS target |
+| Non-PiP fallback mechanism | Continue-audio stopped-state certification exercises the same video-suppression/session-preservation path used when PiP cannot be entered | PASS target |
 | Pause background policy | Lifecycle integration pauses service-owned player and retains same media item | PASS target |
 | Route classification | Speaker/wired/Bluetooth/USB/HDMI/unknown mapping | PASS target |
 | API 26 regression | Existing legacy thumbnail instrumentation | PASS target |

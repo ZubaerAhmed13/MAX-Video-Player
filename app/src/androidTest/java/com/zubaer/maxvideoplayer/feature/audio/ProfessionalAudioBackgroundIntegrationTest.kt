@@ -2,6 +2,7 @@ package com.zubaer.maxvideoplayer.feature.audio
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.SystemClock
 import androidx.lifecycle.Lifecycle
 import androidx.media3.common.C
@@ -26,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference
 class ProfessionalAudioBackgroundIntegrationTest {
 
     @Test
-    fun backgroundPoliciesPreserveSessionSuppressAndRestoreVideoAndPauseWhenRequested() {
+    fun backgroundPoliciesPreserveSessionSuppressRestorePauseAndEnterPip() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val testContext = instrumentation.context
@@ -65,6 +66,8 @@ class ProfessionalAudioBackgroundIntegrationTest {
                 onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
             })
 
+            // Continue-audio: a genuine stopped/background Activity suppresses video but keeps the
+            // service-owned MediaSession and current item alive.
             scenario.onActivity { activity ->
                 activity.setPlayerHostState(media, autoPip = false)
                 activity.setAudioBackgroundPolicy(BackgroundPlaybackMode.CONTINUE_AUDIO, disableVideo = true)
@@ -82,30 +85,14 @@ class ProfessionalAudioBackgroundIntegrationTest {
                 onMain(instrumentation) { connection.playerOrNull()?.currentMediaItem?.mediaId },
             )
 
-            // ActivityScenario forces STARTED by briefly resuming MainActivity and then covering it
-            // with a floating test Activity. That is not a real foreground state and can legitimately
-            // detach/release the video renderer again. Foreground restoration is therefore certified
-            // at RESUMED, where MainActivity is actually visible and interactive to the user.
             scenario.moveToState(Lifecycle.State.RESUMED)
             assertTrue("Returning foreground did not restore a selected video track", await(5_000L) {
                 onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
             })
 
-            scenario.onActivity { activity ->
-                activity.setAudioBackgroundPolicy(BackgroundPlaybackMode.PIP_WHEN_POSSIBLE, disableVideo = true)
-            }
-            scenario.moveToState(Lifecycle.State.CREATED)
-            assertTrue("PiP fallback did not preserve audio session and suppress video", await(5_000L) {
-                onMain(instrumentation) {
-                    val player = connection.playerOrNull()
-                    player?.currentMediaItem?.mediaId == mediaId && !isVideoTrackSelected(player)
-                }
-            })
-            scenario.moveToState(Lifecycle.State.RESUMED)
-            assertTrue("PiP fallback foreground return did not restore video", await(5_000L) {
-                onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
-            })
-
+            // Pause policy: backgrounding pauses the service-owned player but does not replace the
+            // MediaSession item. This runs before PiP because a real PiP Activity intentionally stays
+            // PAUSED rather than reaching CREATED on modern Android.
             scenario.onActivity { activity ->
                 activity.setAudioBackgroundPolicy(BackgroundPlaybackMode.PAUSE, disableVideo = false)
             }
@@ -122,6 +109,40 @@ class ProfessionalAudioBackgroundIntegrationTest {
                 mediaId,
                 onMain(instrumentation) { connection.playerOrNull()?.currentMediaItem?.mediaId },
             )
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            assertTrue("Video track was not available after returning from pause policy", await(5_000L) {
+                onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
+            })
+
+            // PiP-when-possible: certify the real API-35 PiP path instead of trying to force a
+            // non-PiP CREATED state. The Continue-audio case above already certifies the same
+            // suppress-video fallback used when PiP cannot be entered.
+            if (Build.VERSION.SDK_INT >= 26) {
+                val activityRef = AtomicReference<MainActivity>()
+                scenario.onActivity { activity ->
+                    activityRef.set(activity)
+                    activity.setAudioBackgroundPolicy(BackgroundPlaybackMode.PIP_WHEN_POSSIBLE, disableVideo = true)
+                }
+                instrumentation.runOnMainSync { connection.play() }
+                assertTrue("Playback did not resume before PiP certification", await(3_000L) {
+                    onMain(instrumentation) { connection.playerOrNull()?.playWhenReady == true }
+                })
+                scenario.onActivity { activity -> activity.enterPip(media) }
+                assertTrue("Activity did not enter Picture-in-Picture", await(5_000L) {
+                    onMain(instrumentation) { activityRef.get()?.isInPictureInPictureMode == true }
+                })
+                assertEquals(
+                    "Entering PiP replaced the active Media3 session item",
+                    mediaId,
+                    onMain(instrumentation) { connection.playerOrNull()?.currentMediaItem?.mediaId },
+                )
+                assertTrue("PiP did not preserve playback intent", await(3_000L) {
+                    onMain(instrumentation) { connection.playerOrNull()?.playWhenReady == true }
+                })
+                assertTrue("PiP unexpectedly suppressed the selected video track", await(5_000L) {
+                    onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
+                })
+            }
         } finally {
             instrumentation.runOnMainSync {
                 controller.setBackgroundVideoDisabled(false)
