@@ -10,6 +10,7 @@ import com.zubaer.maxvideoplayer.core.media.SafTreeScanner
 import com.zubaer.maxvideoplayer.core.media.UriAvailabilityChecker
 import com.zubaer.maxvideoplayer.feature.audio.AudioPlaybackController
 import com.zubaer.maxvideoplayer.feature.audio.AudioRepository
+import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.feature.library.LibraryRepository
 import com.zubaer.maxvideoplayer.feature.library.MediaFileActionRepository
 import com.zubaer.maxvideoplayer.feature.library.ThumbnailRepository
@@ -27,11 +28,16 @@ class AppContainer(context: Context) {
     val deviceCapabilityProvider: DeviceCapabilityProvider by lazy { DeviceCapabilityProvider(appContext) }
     val subtitleRepository: SubtitleRepository by lazy { SubtitleRepository(appContext, database) }
     val audioRepository: AudioRepository by lazy { AudioRepository(appContext, database) }
-    val playbackConnection: PlaybackConnection by lazy { PlaybackConnection(appContext, subtitleRepository) }
+    val playerPreferences: PlayerPreferences by lazy { PlayerPreferences(appContext) }
+    val decoderRepository: DecoderRepository by lazy {
+        DecoderRepository(database.decoderMediaStateDao(), playerPreferences)
+    }
+    val playbackConnection: PlaybackConnection by lazy {
+        PlaybackConnection(appContext, subtitleRepository, decoderRepository)
+    }
     val audioPlaybackController: AudioPlaybackController by lazy { AudioPlaybackController(audioRepository, playbackConnection) }
     val safTreeScanner: SafTreeScanner by lazy { SafTreeScanner(appContext.contentResolver) }
     val libraryRepository: LibraryRepository by lazy { LibraryRepository(database, mediaStoreRepository, safTreeScanner, historyRepository) }
     val mediaFileActionRepository: MediaFileActionRepository by lazy { MediaFileActionRepository(appContext.contentResolver) }
     val thumbnailRepository: ThumbnailRepository by lazy { ThumbnailRepository(appContext) }
-    val playerPreferences: PlayerPreferences by lazy { PlayerPreferences(appContext) }
 }
