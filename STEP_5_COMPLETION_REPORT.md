@@ -8,7 +8,7 @@ Step 5 extends the Step-4-certified application while preserving the single serv
 
 ## Merged Step-5 baseline
 
-Step 5 was merged through PR #7.
+Step 5 was originally merged through PR #7.
 
 - merged `main` commit: `bea360164fe69cfc146dc03b55df4da4a0cb153a`
 - post-merge Android CI: #163 / run `34158185652`
@@ -24,11 +24,13 @@ An independent follow-up audit then identified two defects in the repository-com
 1. the canonical root documentation (`README.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md`, `PARITY_MATRIX.md`) still described Step 4;
 2. the DSP unit suite did not yet implement every exact signal test required by the original Step-5 specification.
 
-Both source-level findings are now corrected in PR #8 / branch `step-5-canonical-docs-dsp-certification`.
+Both findings are corrected by PR #8 / branch `step-5-canonical-docs-dsp-certification`.
 
-## Corrective implementation gate
+## Corrective implementation gates
 
-The exact corrective implementation/evidence head `826558fdd9ba5eeec1c772aed6307faef2ecb88c` passed Android CI #165 / run `34159966506`:
+### Exact DSP/canonical-document evidence gate
+
+Corrective implementation/evidence head `826558fdd9ba5eeec1c772aed6307faef2ecb88c` passed Android CI #165 / run `34159966506`:
 
 - debug build + all JVM/unit/DSP tests — **PASS**
 - release compilation — **PASS**
@@ -37,7 +39,32 @@ The exact corrective implementation/evidence head `826558fdd9ba5eeec1c772aed6307
 - API-26 legacy regression — **PASS**
 - API-28 legacy regression — **PASS**
 
-The final documentation commits that record this evidence necessarily move the PR head. Therefore the resulting documentation-complete head must pass the identical matrix once more before PR #8 is merged, followed by post-merge `main` CI.
+### Final corrective implementation gate
+
+Subsequent exact-head certification exposed three timing/lifetime races in test evidence rather than missing product functionality:
+
+- external-audio certification had coupled authoritative Media3 selection to a lagging repository projection;
+- a Step-4 in-memory Room test could close its test-owned database before queued persistence work drained;
+- a Step-3 host test could assert a cached playback position before the authoritative controller seek position had propagated.
+
+These were hardened without weakening the required assertions: external-audio selection is certified from controller-visible Media3 `Tracks`, subtitle persistence drains deterministically before the test database closes, and Step-3 seek continuity is read from the authoritative controller/player position.
+
+The resulting exact corrective implementation head:
+
+- SHA: `4acd3b615d39fbcf6f498a351fb799807f36e199`
+- Android CI: #172
+- run ID: `34161708731`
+
+passed the complete matrix:
+
+- debug build + all JVM/unit/DSP tests — **PASS**
+- release compilation — **PASS**
+- lint — **PASS**
+- API-35 full instrumentation — **PASS**
+- API-26 legacy-thumbnail regression — **PASS**
+- API-28 legacy-thumbnail regression — **PASS**
+
+Because this report records that evidence, this evidence-only documentation commit creates one newer PR head. That exact documentation-complete head must also pass the identical matrix before PR #8 is merged. After merge, the resulting `main` commit must pass the same CI matrix before Step 5 is declared repository-complete.
 
 ## Delivered product capabilities
 
@@ -70,17 +97,17 @@ The final documentation commits that record this evidence necessarily move the P
 
 ## Review finding: external-audio actual selection
 
-**CLOSED.** API-35 instrumentation requires both a durable selected association and an actually selected merged external Media3 audio track. It also asserts embedded audio is no longer selected after explicit external-audio selection.
+**CLOSED AND VERIFIED.** API-35 instrumentation requires a durable selected association and an actually selected merged external Media3 audio track. Embedded audio deselection is also verified from Media3 track state rather than inferred from UI state.
 
 ## Review finding: background behavior integration
 
-**CLOSED.** Dedicated API-35 lifecycle instrumentation verifies Continue-audio session retention/video suppression, foreground video restoration, Pause policy, actual Picture-in-Picture behavior and stable MediaSession/current-media identity.
+**CLOSED AND VERIFIED.** Dedicated API-35 lifecycle instrumentation verifies Continue-audio session retention/video suppression, foreground video restoration, Pause policy, actual Picture-in-Picture behavior and stable MediaSession/current-media identity.
 
 ## Review finding: canonical project documentation
 
-**CLOSED IN SOURCE; FINAL-HEAD CI/MERGE PENDING.**
+**CLOSED IN SOURCE AND VERIFIED; FINAL DOCUMENTATION-HEAD/MERGE GATES REMAIN.**
 
-Canonical files are now genuinely through Step 5:
+Canonical files genuinely cover Step 5:
 
 - `README.md`
 - `ARCHITECTURE.md`
@@ -91,7 +118,7 @@ The Step-specific files remain supporting evidence rather than substitutes for t
 
 ## Review finding: exact DSP certification matrix
 
-**CLOSED IN SOURCE AND PASSED CI #165; FINAL DOCUMENTATION-HEAD CI/MERGE PENDING.**
+**CLOSED IN SOURCE AND VERIFIED; FINAL DOCUMENTATION-HEAD/MERGE GATES REMAIN.**
 
 The expanded JVM DSP suite directly verifies:
 
@@ -139,8 +166,10 @@ Those remain:
 
 PR #8 may merge only when:
 
-1. the exact documentation-complete PR head passes debug/JVM/DSP tests, release compilation, lint, API-35, API-26 and API-28;
-2. PR #8 is merged without dropping the corrective changes;
+1. the exact evidence-recording documentation-complete PR head passes debug/JVM/DSP tests, release compilation, lint, API-35, API-26 and API-28;
+2. PR #8 is merged without dropping any corrective changes;
 3. `main` runs the same CI on the resulting merge commit and is fully green.
+
+Only after all three conditions are satisfied may the corrective audit be considered repository-closed and Step 5 be called complete.
 
 No Step-6 work may be substituted for these Step-5 corrections.
