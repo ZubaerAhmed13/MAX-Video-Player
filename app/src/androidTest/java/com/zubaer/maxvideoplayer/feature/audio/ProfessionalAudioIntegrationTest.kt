@@ -42,6 +42,7 @@ class ProfessionalAudioIntegrationTest {
         val connection = container.playbackConnection
         val audio = container.audioRepository
         val controller = container.audioPlaybackController
+        val originalLanguages = audio.state.value.preferredLanguages
 
         val multiAudio = copyAsset(context, testContext, "step5_multi_audio.mp4")
         val externalAudio = copyAsset(context, testContext, "step5_external_bn.m4a")
@@ -88,6 +89,15 @@ class ProfessionalAudioIntegrationTest {
             val embedded = audio.state.value.tracks.filter { !it.external && it.supported }
             assertTrue("Expected at least two real embedded audio tracks", embedded.size >= 2)
             assertTrue("Track labels must be human-readable", embedded.all { it.label.isNotBlank() })
+
+            instrumentation.runOnMainSync {
+                controller.selectAuto()
+                controller.setPreferredLanguage("bn")
+            }
+            assertEquals("bn", audio.state.value.preferredLanguages.firstOrNull())
+            assertTrue("Preferred Auto language did not reach Media3", await(3_000L) {
+                connection.playerOrNull()?.trackSelectionParameters?.preferredAudioLanguages?.firstOrNull() == "bn"
+            })
 
             val secondTrack = embedded[1]
             instrumentation.runOnMainSync { controller.selectTrack(secondTrack.key) }
@@ -174,8 +184,10 @@ class ProfessionalAudioIntegrationTest {
             assertEquals(BackgroundPlaybackMode.PIP_WHEN_POSSIBLE, recreatedPreferences.state.value.backgroundMode)
             assertTrue(recreatedPreferences.state.value.disableVideoInBackground)
             assertEquals(180L, recreatedPreferences.routeCompensationFor(audio.state.value.currentRoute.type))
+            assertEquals("bn", recreatedPreferences.state.value.preferredLanguages.firstOrNull())
         } finally {
             instrumentation.runOnMainSync {
+                originalLanguages.firstOrNull()?.let(controller::setPreferredLanguage)
                 controller.setAudioOnly(false)
                 controller.setBackgroundVideoDisabled(false)
                 controller.setEqualizerEnabled(false)
