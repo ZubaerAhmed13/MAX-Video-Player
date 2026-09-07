@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import androidx.room.withTransaction
 import com.zubaer.maxvideoplayer.core.database.MaxDatabase
 import com.zubaer.maxvideoplayer.core.database.SubtitleAssociationEntity
 import com.zubaer.maxvideoplayer.core.database.SubtitleMediaStateEntity
@@ -19,6 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.FileNotFoundException
 import java.security.MessageDigest
@@ -41,6 +44,7 @@ class SubtitleRepository(
     private val resolver: ContentResolver = appContext.contentResolver
     private val preferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val persistenceMutex = Mutex()
 
     private val _style = MutableStateFlow(loadStyle())
     val style: StateFlow<SubtitleStyleState> = _style.asStateFlow()
@@ -141,7 +145,7 @@ class SubtitleRepository(
         if (preferred) selectedExternalIds[mediaId] = id
         recoverableErrors.remove(mediaId)
         persistLegacyAttachment(mediaId, attachment)
-        persistAssociationAsync(attachment, preferred)
+        persistMediaSnapshotAsync(mediaId)
         return attachment
     }
 
@@ -164,15 +168,15 @@ class SubtitleRepository(
         val existing = associations[mediaId].orEmpty()
         if (attachmentId == null) {
             selectedExternalIds.remove(mediaId)
-            persistMediaStateAsync(mediaId, null, subtitleDelayFor(mediaId))
+            associations[mediaId] = existing.map { it.copy(isPreferred = false) }
+            persistMediaSnapshotAsync(mediaId)
             return
         }
         val selected = existing.firstOrNull { it.id == attachmentId } ?: return
         associations[mediaId] = existing.map { it.copy(isPreferred = it.id == attachmentId) }
         selectedExternalIds[mediaId] = attachmentId
         mediaDelayMs[mediaId] = SubtitleTimingPolicy.clamp(selected.delayMs)
-        persistMediaStateAsync(mediaId, attachmentId, mediaDelayMs[mediaId] ?: 0L)
-        database?.let { db -> ioScope.launch { db.subtitleDao().setPreferred(mediaId, attachmentId) } }
+        persistMediaSnapshotAsync(mediaId)
         persistLegacyAttachment(mediaId, selected.copy(isPreferred = true))
     }
 
@@ -183,9 +187,7 @@ class SubtitleRepository(
             if (it.id == attachmentId) it.copy(encoding = encoding, availability = SubtitleAvailability.UNKNOWN) else it
         }
         recoverableErrors.remove(mediaId)
-        database?.let { db ->
-            ioScope.launch { db.subtitleDao().setEncoding(attachmentId, encoding.name, SubtitleAvailability.UNKNOWN.name) }
-        }
+        persistMediaSnapshotAsync(mediaId)
         return true
     }
 
@@ -200,9 +202,9 @@ class SubtitleRepository(
         val saved = saveExternalAttachment(mediaId, descriptor, preferred = old.isPreferred || wasSelected)
         val restored = saved.copy(delayMs = old.delayMs, encoding = old.encoding)
         associations[mediaId] = associations[mediaId].orEmpty().map { if (it.id == saved.id) restored else it }
-        database?.subtitleDao()?.upsertAssociation(restored.toEntity())
         if (wasSelected) selectExternalAttachment(mediaId, restored.id)
         recoverableErrors.remove(mediaId)
+        persistMediaSnapshotNow(mediaId)
         restored
     }
 
@@ -217,9 +219,8 @@ class SubtitleRepository(
         if (wasSelected) {
             val next = promoted.firstOrNull { it.isPreferred }
             if (next == null) selectedExternalIds.remove(mediaId) else selectedExternalIds[mediaId] = next.id
-            persistMediaStateAsync(mediaId, next?.id, subtitleDelayFor(mediaId))
         }
-        database?.let { db -> ioScope.launch { db.subtitleDao().deleteAssociation(attachmentId) } }
+        persistMediaSnapshotAsync(mediaId)
         if (promoted.isEmpty()) clearLegacyAttachment(mediaId) else promoted.firstOrNull { it.isPreferred }?.let { persistLegacyAttachment(mediaId, it) }
         if (promoted.isEmpty()) recoverableErrors.remove(mediaId)
     }
@@ -229,8 +230,7 @@ class SubtitleRepository(
         selectedExternalIds.remove(mediaId)
         recoverableErrors.remove(mediaId)
         clearLegacyAttachment(mediaId)
-        database?.let { db -> ioScope.launch { db.subtitleDao().deleteAssociationsForMedia(mediaId) } }
-        persistMediaStateAsync(mediaId, null, subtitleDelayFor(mediaId))
+        persistMediaSnapshotAsync(mediaId)
     }
 
     suspend fun refreshAvailability(mediaId: String): Boolean = withContext(Dispatchers.IO) {
@@ -243,9 +243,6 @@ class SubtitleRepository(
                 else -> probeAvailability(Uri.parse(attachment.uri))
             }
             if (next != attachment.availability) changed = true
-            if (next != attachment.availability) {
-                database?.subtitleDao()?.setAvailability(attachment.id, next.name)
-            }
             attachment.copy(availability = next)
         }
         associations[mediaId] = refreshed
@@ -257,6 +254,7 @@ class SubtitleRepository(
             unavailable.availability == SubtitleAvailability.MISSING -> recoverableErrors[mediaId] =
                 "Subtitle file is missing. Video playback can continue; relink or remove the subtitle."
         }
+        if (changed) persistMediaSnapshotNow(mediaId)
         changed
     }
 
@@ -267,7 +265,7 @@ class SubtitleRepository(
         associations[mediaId] = associations[mediaId].orEmpty().map {
             if (it.id == attachmentId) it.copy(availability = SubtitleAvailability.MALFORMED) else it
         }
-        database?.let { db -> ioScope.launch { db.subtitleDao().setAvailability(attachmentId, SubtitleAvailability.MALFORMED.name) } }
+        persistMediaSnapshotAsync(mediaId)
     }
 
     fun recoverableErrorFor(mediaId: String): String? = recoverableErrors[mediaId]
@@ -282,9 +280,8 @@ class SubtitleRepository(
             associations[mediaId] = associations[mediaId].orEmpty().map {
                 if (it.id == selectedId) it.copy(delayMs = safe) else it
             }
-            database?.let { db -> ioScope.launch { db.subtitleDao().setAssociationDelay(selectedId, safe) } }
         }
-        persistMediaStateAsync(mediaId, selectedId, safe)
+        persistMediaSnapshotAsync(mediaId)
         return safe
     }
 
@@ -395,28 +392,60 @@ class SubtitleRepository(
         }
     }
 
-    private fun persistAssociationAsync(attachment: ExternalSubtitleAttachment, preferred: Boolean) {
+    /**
+     * Reconciles one media item's complete subtitle state from the in-memory source of truth.
+     * Every asynchronous persistence request reads the latest snapshot only after acquiring the
+     * mutex, so an older coroutine that happens to finish later cannot overwrite a newer selection.
+     */
+    private fun persistMediaSnapshotAsync(mediaId: String) {
         val db = database ?: return
-        ioScope.launch {
-            db.subtitleDao().upsertAssociation(attachment.toEntity())
-            if (preferred) db.subtitleDao().setPreferred(attachment.mediaId, attachment.id)
-            db.subtitleDao().upsertMediaState(
-                SubtitleMediaStateEntity(
-                    stableMediaId = attachment.mediaId,
-                    selectedExternalId = if (preferred) attachment.id else selectedExternalIds[attachment.mediaId],
-                    delayMs = subtitleDelayFor(attachment.mediaId),
-                    updatedAtMs = System.currentTimeMillis(),
-                ),
-            )
-        }
+        ioScope.launch { persistMediaSnapshot(db, mediaId) }
     }
 
-    private fun persistMediaStateAsync(mediaId: String, selectedId: String?, delayMs: Long) {
+    private suspend fun persistMediaSnapshotNow(mediaId: String) {
         val db = database ?: return
-        ioScope.launch {
-            db.subtitleDao().upsertMediaState(
-                SubtitleMediaStateEntity(mediaId, selectedId, SubtitleTimingPolicy.clamp(delayMs), System.currentTimeMillis()),
-            )
+        persistMediaSnapshot(db, mediaId)
+    }
+
+    private suspend fun persistMediaSnapshot(db: MaxDatabase, mediaId: String) {
+        persistenceMutex.withLock {
+            db.withTransaction {
+                val current = associations[mediaId].orEmpty()
+                val selectedId = selectedExternalIds[mediaId]
+                    ?.takeIf { candidate -> current.any { it.id == candidate } }
+                    ?: current.firstOrNull { it.isPreferred }?.id
+                val normalized = current.map { attachment ->
+                    attachment.copy(isPreferred = attachment.id == selectedId)
+                }
+
+                if (selectedId == null) {
+                    selectedExternalIds.remove(mediaId)
+                } else {
+                    selectedExternalIds[mediaId] = selectedId
+                }
+                if (normalized.isEmpty()) {
+                    associations.remove(mediaId)
+                } else {
+                    associations[mediaId] = normalized
+                }
+
+                val liveIds = normalized.mapTo(hashSetOf()) { it.id }
+                db.subtitleDao().associationsForMedia(mediaId).forEach { persisted ->
+                    if (persisted.id !in liveIds) db.subtitleDao().deleteAssociation(persisted.id)
+                }
+                normalized.forEach { attachment ->
+                    db.subtitleDao().upsertAssociation(attachment.toEntity())
+                }
+                if (selectedId != null) db.subtitleDao().setPreferred(mediaId, selectedId)
+                db.subtitleDao().upsertMediaState(
+                    SubtitleMediaStateEntity(
+                        stableMediaId = mediaId,
+                        selectedExternalId = selectedId,
+                        delayMs = subtitleDelayFor(mediaId),
+                        updatedAtMs = System.currentTimeMillis(),
+                    ),
+                )
+            }
         }
     }
 
