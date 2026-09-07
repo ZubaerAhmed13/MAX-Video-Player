@@ -21,7 +21,6 @@ class ProfessionalMediaCodecSelector(
         val platformCandidates = delegate.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
         if (!mimeType.startsWith("video/", ignoreCase = true)) return platformCandidates
 
-        val byName = platformCandidates.mapIndexed { index, info -> info.name to info.toCandidate(index) }.toMap()
         val decision = DecoderSelectionPolicy.decide(
             mode = repository.requestedMode(),
             candidates = platformCandidates.mapIndexed { index, info -> info.toCandidate(index) },
