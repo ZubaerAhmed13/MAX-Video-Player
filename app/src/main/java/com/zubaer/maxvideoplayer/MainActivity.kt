@@ -137,12 +137,12 @@ class MainActivity : ComponentActivity() {
         enterPictureInPictureMode(builder.build())
     }
 
-    private fun setPlayerHostState(media: AppMedia?, autoPip: Boolean) {
+    internal fun setPlayerHostState(media: AppMedia?, autoPip: Boolean) {
         currentPipMedia = media
         autoPipEnabled = media != null && autoPip
     }
 
-    private fun setAudioBackgroundPolicy(mode: BackgroundPlaybackMode, disableVideo: Boolean) {
+    internal fun setAudioBackgroundPolicy(mode: BackgroundPlaybackMode, disableVideo: Boolean) {
         audioBackgroundMode = mode
         disableVideoInBackground = disableVideo
     }
