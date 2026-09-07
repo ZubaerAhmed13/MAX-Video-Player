@@ -1,6 +1,7 @@
 package com.zubaer.maxvideoplayer.feature.player
 
 import com.zubaer.maxvideoplayer.core.model.DecoderMode
+import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderSessionState
 
 enum class PlayerGestureKind {
     NONE,
@@ -108,6 +109,7 @@ data class PlayerCoordinatorState(
     val accessibilityMode: Boolean = false,
     val isPlaying: Boolean = false,
     val preferences: PlayerPreferencesState = PlayerPreferencesState(),
+    val decoder: DecoderSessionState = DecoderSessionState(),
 )
 
 data class PanBounds(
