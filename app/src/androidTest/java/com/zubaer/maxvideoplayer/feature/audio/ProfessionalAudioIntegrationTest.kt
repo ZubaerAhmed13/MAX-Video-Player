@@ -67,7 +67,7 @@ class ProfessionalAudioIntegrationTest {
         controller.setBoost(0f)
         controller.setBalance(0f)
         controller.setChannelMode(AudioChannelMode.STEREO)
-        controller.setPitch(1f)
+        instrumentation.runOnMainSync { controller.setPitch(1f) }
         controller.setBackgroundMode(BackgroundPlaybackMode.CONTINUE_AUDIO)
         controller.setDisableVideoInBackground(false)
 
