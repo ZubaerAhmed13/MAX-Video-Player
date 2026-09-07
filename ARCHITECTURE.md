@@ -1,4 +1,4 @@
-# MAX Video Player — Architecture through Step 5
+# MAX Video Player — Architecture through Step 6
 
 ## Clean-room boundary
 
@@ -11,7 +11,7 @@ Playback remains service-owned:
 ```text
 Compose UI
     ↓
-AudioPlaybackController / PlaybackConnection
+PlayerViewModel / AudioPlaybackController / PlaybackConnection
     ↓
 MediaController
     ↓
@@ -23,93 +23,170 @@ Media3PlaybackEngine
     ↓
 ExoPlayer
     ↓
-DefaultAudioSink + MaxAudioProcessor
+ProfessionalRenderersFactory
+    ├─ video → ProfessionalMediaCodecSelector → Android/Media3 decoder
+    └─ audio → DefaultAudioSink + MaxAudioProcessor
     ↓
-Android audio output
+Android video/audio output
 ```
 
-Steps 1–5 preserve this ownership. Step 5 does not create an Activity-owned or second audio player. Embedded audio, selected external audio, video and Step-4 subtitles share one authoritative Media3 timeline.
+Steps 1–6 preserve this ownership. Step 6 does not create an Activity-owned player, a second ExoPlayer, or parallel hardware/software players. Embedded/external audio, video and Step-4 subtitles remain on the one authoritative Media3 timeline.
 
-## Logical layers through Step 5
+## Logical layers through Step 6
 
-- `core.model` — stable media/domain/playback state
-- `core.database` — Room entities/DAOs/migrations through version 4
+- `core.model` — stable media/domain/playback state and decoder mode catalog
+- `core.database` — Room entities/DAOs/migrations through version 5
 - `core.media` — MediaStore, SAF, metadata and URI availability
-- `core.device` — runtime device/codec capability profile
-- `playback.engine` — Media3 engine, subtitle-aware source composition and custom audio-sink integration
-- `playback.session` — service/session/controller ownership, queues and playback state
+- `core.device` — runtime device and decoder capability inventory
+- `playback.engine` — service-owned Media3 engine, source composition, video-decoder renderer policy and custom audio sink
+- `playback.session` — service/session/controller ownership, queues and decoder-switch commands
 - `feature.library` — library/index/queue/thumbnail/file actions
-- `feature.player` — player UI, gestures, display transforms, orientation and PiP
+- `feature.player` — player UI, gestures, decoder controls/diagnostics, display/orientation/PiP
 - `feature.subtitle` — Step-4 subtitle engine
 - `feature.audio` — Step-5 audio tracks, external audio, DSP, sync, routing and professional controls
+- `feature.decoder` — Step-6 classification, policy, persistence, runtime diagnostics and Media3 codec selection
 - `ui` — application theme
 
-# Step-5 professional audio architecture
+# Step-6 professional decoder architecture
 
-## Control/data flow
+## Mode policy
 
-```text
-ProfessionalAudioUi
-        ↓ user intent
-AudioPlaybackController ──────────────┐
-        ↓                             │
-PlaybackConnection / MediaController  │
-        ↓                             │
-PlaybackService / MediaSession        │
-        ↓                             │
-Media3PlaybackEngine                  │
-        ↓                             │
-DefaultAudioSink + MaxAudioProcessor  │
-                                      │
-AudioRepository ── Room v4 / prefs ───┘
-        ↓
-ContentResolver / SAF + AudioRouteMonitor
-```
+The four user-visible modes are materially different routing policies:
 
-`AudioPlaybackController` translates user intent into commands on the existing service-owned MediaController. It never creates another ExoPlayer.
+### Auto
 
-## Embedded audio tracks
+- discovers available video decoders through Media3 / Android
+- prefers hardware candidates
+- permits deliberate fallback across remaining compatible candidates, including software
+- records actual initialized decoder/backend instead of changing only a label
 
-Media3 `currentTracks` is authoritative for real audio groups. Step 5 publishes readable descriptors including available label/language, MIME/codec, channel count, sample rate, bitrate, commentary role, support and selected state.
+### Hardware
 
-Manual selection uses `TrackSelectionOverride`. Durable restore stores descriptive track fields rather than unstable Media3 group indexes, allowing reordered groups to be rematched.
+- exposes only the preferred hardware-accelerated candidate
+- no software candidate is visible
+- no second hardware candidate is visible, so strict mode does not silently fall back
+- failure is surfaced truthfully
 
-Auto mode clears audio overrides and applies the persisted preferred-language list.
+### Enhanced Hardware
 
-## External audio
+- exposes the ordered hardware-only candidate set
+- Media3 initialization fallback can move to another hardware codec
+- software candidates remain excluded
 
-External audio is loaded through Android `OpenDocument`/SAF and stored as a durable association to the stable media ID.
+### Software
 
-`ProfessionalMediaSourceFactory` composes the selected external audio with the primary source using `MergingMediaSource`:
+- exposes software-only platform `MediaCodec` candidates
+- hardware candidates remain excluded
+- no FFmpeg/native video decoder is bundled in Step 6
+- when no software backend exists for the format, the product reports it rather than silently using hardware
 
-```text
-primary video + embedded audio + Step-4 subtitles
-                     +
-selected external audio
-                     ↓
-              one Media3 timeline
-```
+## Classification policy
 
-No second synchronized player, extraction or transcode is used. Missing/permission-lost/unsupported external audio remains recoverable; embedded/default audio stays available as a safe fallback.
+API-29+ platform/Media3 hardware/software/vendor flags are authoritative. Older API fallback is intentionally conservative: only known software codec-name families are classified as software; ambiguous vendor names remain `UNKNOWN` rather than being guessed as hardware.
 
-Across the MediaSession boundary, merged-child identity is resolved using preserved merged `Format` identity as well as direct group identity where available, because MediaSession may rewrite controller-visible group IDs.
+## Format compatibility
 
-## Room v4
+`MediaCodecSelector` defines the backend-visible candidate pool. Media3's `MediaCodecVideoRenderer` then performs format-aware ordering using decoder `isFormatSupported`, which accounts for MIME/profile/level and video size/rate before codec initialization.
 
-Step 5 advances Room from v3 to v4.
+The separate device inventory records Android-exposed per-MIME capability evidence:
 
-New tables:
+- hardware/software/unknown classification
+- vendor flag where exposed
+- adaptive playback
+- secure playback
+- tunneled playback
+- low-latency capability where exposed
+- profile/level pairs
+- color formats
+- 720p / 1080p / 1440p / 2160p size/rate probes at 30/60 fps
 
-- `audio_associations` — external-audio URI relationship, name/language/MIME, preferred flag and availability
-- `audio_media_state` — selection mode, selected external ID or embedded descriptor fields, per-media audio delay and timestamp
+The inventory is device-specific and is never treated as universal Android codec support.
 
-`MIGRATION_3_4` is explicit and `fallbackToDestructiveMigration()` is not used. Migration instrumentation covers v1→v4, v2→v4 and v3→v4 while preserving history, multi-GB `Long` values, favourites, playlists, library/index/preferences and Step-4 subtitle rows.
+## Runtime decoder switching
 
-## Deterministic PCM DSP
+`PlaybackService` collects decoder-mode requests from `DecoderRepository`. Switching happens inside `Media3PlaybackEngine` and reuses the same ExoPlayer.
 
-`Media3PlaybackEngine` installs `MaxAudioProcessor` into a custom `DefaultAudioSink`. User-defined EQ/gain/channel/delay behavior therefore occurs in the production ExoPlayer audio path rather than only in UI state.
+Before re-prepare the engine snapshots:
 
-Conceptual order:
+- media queue
+- current media index
+- current position
+- play/pause intent
+- repeat mode
+- shuffle state
+- playback parameters, including Step-3 speed and Step-5 pitch
+- track-selection parameters, preserving audio/subtitle/video selection
+
+The engine stops and re-prepares the same media items at the same index/position, restores those values and leaves the Step-5 audio sink/DSP installed.
+
+## Decoder failure and fallback
+
+Actual decoder initialization/release and playback errors are observed from Media3. A failed candidate is recorded and blacklisted for the current session. A retry occurs only when another candidate remains under the active policy. Fallback history is bounded, preventing an unbounded retry loop.
+
+Hardware has only one visible candidate. Enhanced Hardware can retry only hardware. Software can retry only software. Auto can intentionally cross backend classes.
+
+## Requested vs effective diagnostics
+
+Decoder state deliberately separates requested policy from actual decoder state. Diagnostics include:
+
+- requested mode
+- effective mode/backend
+- actual initialized decoder name
+- hardware/software/vendor/secure flags where known
+- input MIME and codec string
+- resolution and frame rate where known
+- initialization duration
+- dropped frames
+- switching state
+- structured last failure
+- bounded fallback history/count
+
+The UI therefore cannot claim Software or Hardware merely because the user tapped that label.
+
+## Device decoder capability cache
+
+`DeviceCapabilityProvider.collectDecoderProfile()` produces an immutable codec inventory. `PlayerViewModel` loads it on `Dispatchers.Default`, not during Compose recomposition or the Step-5 realtime audio callback. The Decoder dialog exposes an advanced per-codec panel and an explicit off-main-thread manual refresh.
+
+## Room v5 and decoder persistence
+
+Step 6 advances Room from v4 to v5.
+
+New table:
+
+- `decoder_media_state` — stable media ID to optional per-media decoder-mode override plus update time
+
+`MIGRATION_4_5` is explicit. `fallbackToDestructiveMigration()` is not used. Migration instrumentation preserves Step-1 history, multi-GB-safe values, Step-2 favourites/playlists/library state, Step-4 subtitle rows and Step-5 audio associations/state.
+
+Global decoder settings remain lightweight preferences:
+
+- default decoder mode
+- remember decoder per video
+- show decoder diagnostics
+
+## DRM / secure-decoder boundary
+
+Secure requirements are passed into Media3 codec discovery. Step 6 does not bypass DRM, downgrade secure-decoder requirements or invoke private OEM codec APIs.
+
+## Color / HDR / resolution boundary
+
+Decoder selection does not intentionally transcode, resize, recolor or alter HDR metadata. Video output stays in the Media3/Android decoder/render path. Capability inventory reports only exposed metadata. Physical HDR/10-bit/color-fidelity certification remains Step 10.
+
+## Large-media policy
+
+Step 6 remains URI/reference based. It does not:
+
+- copy whole source videos into app storage
+- read whole media into RAM
+- transcode before playback
+- add a 3 GB ceiling
+- add a 1080p ceiling
+- decode entire files ahead of playback
+
+Decoder switching reuses MediaItems/URIs and the same playback service.
+
+# Step-5 professional audio architecture — preserved
+
+`Media3PlaybackEngine` still installs project-owned `MaxAudioProcessor` in `DefaultAudioSink`. The deterministic PCM chain remains:
 
 ```text
 Decoded PCM
@@ -127,153 +204,53 @@ Per-media + route audio delay
 Media3 AudioSink
 ```
 
-Supported app-owned processing formats:
+The realtime audio callback performs no Room, codec inventory, storage, network, Compose or coroutine work. Immutable DSP parameter snapshots are published outside the callback. Step 6 changes only video decoder routing and preserves audio tracks, external audio, EQ, channel controls, pitch, sync, audio-only/background behavior, audio focus and route handling.
 
-- PCM 16-bit
-- PCM float
+# Step-4 subtitle coexistence — preserved
 
-Unsupported PCM/output formats are rejected/bypassed truthfully instead of reinterpreting bytes.
+Embedded/external subtitles, SRT/WebVTT/SSA/ASS/TTML parsing, encoding handling, sidecar discovery, appearance, per-media delay and Room persistence remain on the existing media-source/parser path. Decoder switching restores track-selection parameters instead of replacing subtitle architecture.
 
-### Real-time policy
+# Step-3 player experience — preserved
 
-The audio callback performs no Room, storage, network, Compose or coroutine work. UI/repository changes publish a small immutable `AudioDspParameters` snapshot through an `AtomicReference`.
+Controls/auto-hide, seeking, double-tap, brightness, Android media-volume gesture, zoom/pan, aspect/resize/rotation/orientation/fullscreen, lock, 0.25×–4× speed, previous/next/repeat/shuffle, PiP and accessibility remain on the same player/session.
 
-Processing/filter/delay arrays are allocated or reconfigured at format/flush/parameter boundaries, not per sample. Filter history is reset after flush/reconfiguration. EQ coefficients use short ramps to reduce discontinuity when settings change live.
+# Step-2 library — preserved
 
-### Numerical safety
+Videos/folders/Continue Watching/Recent/History/Favourites/Playlists, search/sort/filter, MediaStore/SAF, Room index/cache, relink, rename/delete and bounded thumbnails remain unchanged by decoder routing.
 
-- invalid/non-finite float input on the active DSP path is sanitized
-- non-finite/unstable filter output resets defensively
-- EQ/preamp/boost/balance/delay values are bounded by policy
-- the soft limiter prevents invalid output range
-- positive-delay storage is bounded to 40 MiB
-- excessive high-rate/high-channel delay requests report DSP unavailability rather than allocating unbounded memory
-- neutral PCM16 uses a transparent copy path
-- neutral float uses a transparent copy path for valid PCM
+# Step-1 foundations — preserved
 
-## 10-band equalizer
-
-Center frequencies:
-
-`31, 62, 125, 250, 500, 1k, 2k, 4k, 8k, 16k Hz`
-
-Gain range is ±12 dB. A band at/above the safe Nyquist boundary is disabled instead of constructing an unstable filter.
-
-Original presets: Flat, Bass, Vocal, Treble, Rock, Classical, Electronic, plus Custom.
-
-The certification suite measures real output response at 62 Hz, 1 kHz and 8 kHz rather than relying only on coefficient assertions.
-
-## Gain and channel controls
-
-Preamp and digital boost are independent of Android system media volume. The Step-3 right-side gesture continues to control actual Android media volume rather than DSP boost.
-
-Stereo input supports:
-
-- Stereo
-- Mono downmix
-- Left duplicated to both stereo outputs
-- Right duplicated to both stereo outputs
-- left/right balance
-
-### Multichannel truthfulness
-
-Channel mode and balance are explicitly stereo-only. For a selected non-stereo track (for example 5.1/7.1), the UI disables those controls and states that the multichannel layout is preserved.
-
-The DSP does not reinterpret six/eight-channel frames as stereo. EQ/gain may still process each accessible PCM channel where supported.
-
-## Audio synchronization
-
-Per-media audio delay is a `Long` and is clamped to ±10,000 ms.
-
-- positive delay = bounded PCM delay buffering
-- negative delay = deterministic leading-frame trimming
-- zero delay = no sample insertion/removal
-- changing delay seeks/flushes at the current position so stale delayed PCM is not retained
-
-Route compensation is separate global state keyed by route family. Effective timing is:
-
-```text
-per-media delay + current-route compensation
-```
-
-The final effective value is clamped by the same professional delay range.
-
-## Pitch and Step-3 speed
-
-Step-3 speed remains 0.25×–4×. Step 5 adds independent pitch through real Media3 `PlaybackParameters`; setting one preserves the other.
-
-## Audio-only mode
-
-`Play as audio` disables Media3 video-track selection while keeping the same player, media item, queue and timeline. Restoring video reenables selection without restarting playback from zero.
-
-## Background policy
-
-Global leave-player policy:
-
-- Pause
-- Continue audio
-- PiP when possible
-
-Optional `Disable video while playing in background` uses the same service-owned track-selection path. Lifecycle-only suppression is distinct from user-selected Audio-only mode.
-
-Foreground return restores video after lifecycle suppression. API-35 instrumentation certifies the real PiP path rather than forcing an impossible lifecycle transition for an Activity that successfully entered PiP.
-
-The existing MediaSession/foreground-service notification remains authoritative for background controls.
-
-## Android audio integration
-
-`Media3PlaybackEngine` retains media `AudioAttributes`, Media3 audio-focus handling and `setHandleAudioBecomingNoisy(true)`.
-
-`AudioRouteMonitor` classifies speaker, wired headset/headphones, Bluetooth A2DP/LE where exposed, USB, HDMI and unknown. The app reports truthful route labels from Android where available and does not force private Bluetooth routing.
-
-## Step-4 subtitle coexistence
-
-External-audio composition preserves the Step-4 subtitle media-source/parser path. Audio delay and subtitle delay are separate repositories and controls.
-
-API-35 production integration attaches an external subtitle, then external audio, and verifies the subtitle association remains intact while external audio becomes the actually selected Media3 track.
-
-# Preserved Step-1–4 architecture
-
-Step 5 preserves:
-
-- Step 1 service-owned MediaSession playback, history/resume and background service
-- Step 2 library, favourites, playlists, MediaStore/SAF, relink/file operations and thumbnails
-- Step 3 gestures, speed, display transforms, PiP and accessibility behavior
-- Step 4 embedded/external subtitles, SRT/VTT/SSA/ASS/TTML, timing, styling, sidecars and Room subtitle persistence
-
-No Step-5 code adds a whole-video copy, full-file RAM read, transcode, artificial 3 GB ceiling or 1080p ceiling. Video colour/HDR/scaling/decoder selection are not modified.
+Service-owned playback, MediaSession background foundation, resume/history, URI-based media, long-safe values and device capability foundation remain authoritative.
 
 # Verification architecture
 
-Step-5 software/emulator certification includes:
+Step-6 software/emulator certification adds:
 
-- PCM16 and PCM-float neutral transparency
-- EQ-enabled Flat transparency
-- 62 Hz / 1 kHz / 8 kHz measured response with known gain
-- cross-band EQ selectivity
-- Nyquist-safety handling
-- −6/0/+6 dB preamp behavior
-- boost and integer/float limiter tests
-- NaN/Infinity sanitization on active DSP
-- mono/left/right/balance mapping and channel-inversion checks
-- 5.1 preservation under stereo-only controls
-- zero/+500 ms/negative delay semantics
-- delay clamping and delay-buffer flush/seek reset
-- 44.1/48/96 kHz processing
-- filter reset and live parameter revision
-- DC-offset/numerical safety
-- long deterministic extreme-settings streaming stability
-- truthful unsupported-PCM rejection
-- Room v1/v2/v3 → v4 migration instrumentation
-- API-35 service-owned track/external-audio/DSP/audio-only/background/PiP/subtitle coexistence tests
-- API-26/API-28 legacy regressions
+- four-mode policy/unit tests
+- hardware/software backend isolation
+- Enhanced Hardware multi-candidate hardware-only behavior
+- Auto ordering and fallback termination
+- session blacklist behavior
+- profile/level, secure and size/rate policy checks
+- persisted enum fallback
+- Room v4→v5 plus earlier-chain preservation instrumentation
+- API-35 real service-owned Auto/Software/Hardware/Enhanced Hardware routing test with actual initialized codec identity
+- playback-position preservation across decoder switches
+- API-35 real codec inventory/classification report
+- retained Step-1–5 unit/instrumentation suites
+- retained API-26/API-28 thumbnail regressions
 
-# Later-step boundaries
-
-Step 5 does **not** claim Step 6 decoder work. Hardware/enhanced-hardware/software decoder selection, codec fallback and FFmpeg/custom software decoding remain Step 6.
+See `STEP_6_TEST_MATRIX.md` for exact evidence.
 
 # Physical certification boundary
 
-Real Bluetooth/headset/USB/HDMI latency and acoustic quality, OEM audio effects/offload, physical 3 GB+/4K/HDR playback, battery, thermal and broad phone/tablet behavior remain:
+The following remain:
 
-**NOT VERIFIED — DEFERRED TO STEP 10**.
+**NOT VERIFIED — DEFERRED TO STEP 10**
+
+- Snapdragon/Exynos/MediaTek/Tensor decoder behavior
+- OEM codec quirks and runtime crash recovery
+- representative physical H.264/HEVC/VP9/AV1 performance
+- physical 4K60/high-bitrate/HDR/10-bit color behavior
+- battery, thermal and long-play stability
+- broad phone/tablet decoder matrix
