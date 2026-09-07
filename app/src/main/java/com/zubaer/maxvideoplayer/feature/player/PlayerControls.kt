@@ -239,6 +239,12 @@ private fun PlayerBottomBar(
             }
             TextButton(onClick = { onOpenMenu(PlayerMenu.PLAYBACK) }, modifier = Modifier.testTag("playback_mode_button")) { Text("Mode") }
             TextButton(
+                onClick = { onOpenMenu(PlayerMenu.DECODER) },
+                modifier = Modifier
+                    .testTag("decoder_button")
+                    .semantics { contentDescription = "Decoder selection and diagnostics" },
+            ) { Text("Decoder") }
+            TextButton(
                 onClick = onSubtitles,
                 modifier = Modifier.testTag("subtitle_button").semantics { contentDescription = "Subtitles and closed captions" },
             ) {
