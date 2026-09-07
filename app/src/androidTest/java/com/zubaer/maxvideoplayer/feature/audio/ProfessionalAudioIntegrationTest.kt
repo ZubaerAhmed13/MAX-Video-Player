@@ -23,11 +23,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 /**
- * Step-5 production-path certification. Fixtures are synthetic redistribution-safe tones/video.
+ * Step-5 production-path certification. Fixtures are synthetic and redistribution-safe.
  * Commands travel through PlaybackConnection -> MediaController -> PlaybackService -> Media3.
  */
 @RunWith(AndroidJUnit4::class)
@@ -46,9 +48,10 @@ class ProfessionalAudioIntegrationTest {
         val originalLanguages = audio.state.value.preferredLanguages
 
         val multiAudio = copyAsset(context, testContext, "step5_multi_audio.mp4")
-        val externalAudio = copyAsset(context, testContext, "step5_external_bn.m4a")
+        val externalAudio = createExternalPcmWav(context.cacheDir)
         val externalSubtitle = copyAsset(context, testContext, "step5_external.srt")
         certifyFixtureStructure(multiAudio)
+        certifyExternalAudioFixture(externalAudio)
 
         val mediaId = "step5-professional-audio-${System.currentTimeMillis()}"
         val media = AppMedia(
@@ -145,7 +148,8 @@ class ProfessionalAudioIntegrationTest {
             })
 
             val externalDescriptor = audio.describe(Uri.fromFile(externalAudio))
-            assertNotNull("External AAC fixture was not recognized", externalDescriptor)
+            assertNotNull("Runtime-generated external WAV fixture was not recognized", externalDescriptor)
+            assertEquals("bn", externalDescriptor?.displayName?.substringAfterLast('_')?.substringBeforeLast('.'))
             instrumentation.runOnMainSync { controller.attachExternal(externalDescriptor!!) }
             assertTrue("External audio association/selection did not persist", await(10_000L) {
                 val state = audio.state.value
@@ -167,6 +171,7 @@ class ProfessionalAudioIntegrationTest {
                 "Embedded audio remained selected after explicit external-audio selection",
                 audio.state.value.tracks.none { !it.external && it.selected },
             )
+            assertTrue("External audio triggered a playback error: ${connection.state.value.error}", connection.state.value.error == null)
             assertTrue(
                 "External audio replaced Step-4 subtitle association",
                 container.subtitleRepository.externalAttachmentsFor(mediaId).isNotEmpty(),
@@ -263,6 +268,62 @@ class ProfessionalAudioIntegrationTest {
         } finally {
             extractor.release()
         }
+    }
+
+    private fun certifyExternalAudioFixture(file: File) {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(file.absolutePath)
+            var audioTracks = 0
+            var videoTracks = 0
+            repeat(extractor.trackCount) { index ->
+                val mime = extractor.getTrackFormat(index).getString(android.media.MediaFormat.KEY_MIME).orEmpty()
+                if (mime.startsWith("audio/")) audioTracks++
+                if (mime.startsWith("video/")) videoTracks++
+            }
+            assertEquals("External fixture must be audio-only", 0, videoTracks)
+            assertEquals("External fixture must expose exactly one audio track", 1, audioTracks)
+        } finally {
+            extractor.release()
+        }
+    }
+
+    /** Creates a deterministic 4-second, 48 kHz, mono PCM16 WAV without opaque binary assets. */
+    private fun createExternalPcmWav(directory: File): File {
+        val sampleRate = 48_000
+        val channels = 1
+        val bitsPerSample = 16
+        val seconds = 4
+        val bytesPerSample = bitsPerSample / 8
+        val dataSize = sampleRate * channels * bytesPerSample * seconds
+        val file = File(directory, "step5_external_bn.wav")
+        file.outputStream().buffered().use { output ->
+            val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+            header.put("RIFF".toByteArray(Charsets.US_ASCII))
+            header.putInt(36 + dataSize)
+            header.put("WAVE".toByteArray(Charsets.US_ASCII))
+            header.put("fmt ".toByteArray(Charsets.US_ASCII))
+            header.putInt(16)
+            header.putShort(1) // PCM
+            header.putShort(channels.toShort())
+            header.putInt(sampleRate)
+            header.putInt(sampleRate * channels * bytesPerSample)
+            header.putShort((channels * bytesPerSample).toShort())
+            header.putShort(bitsPerSample.toShort())
+            header.put("data".toByteArray(Charsets.US_ASCII))
+            header.putInt(dataSize)
+            output.write(header.array())
+
+            val silence = ByteArray(8 * 1024)
+            var remaining = dataSize
+            while (remaining > 0) {
+                val count = minOf(remaining, silence.size)
+                output.write(silence, 0, count)
+                remaining -= count
+            }
+        }
+        assertEquals(44L + dataSize.toLong(), file.length())
+        return file
     }
 
     private fun copyAsset(
