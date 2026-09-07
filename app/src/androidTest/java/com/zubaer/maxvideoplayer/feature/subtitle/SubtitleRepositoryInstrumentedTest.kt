@@ -101,7 +101,19 @@ class SubtitleRepositoryInstrumentedTest {
             first.setSubtitleDelay("media-A", 750L)
 
             withTimeout(5_000L) {
-                while (db.subtitleDao().associationsForMedia("media-A").size < 2 || db.subtitleDao().mediaState("media-A")?.delayMs != 750L) {
+                while (true) {
+                    val associations = db.subtitleDao().associationsForMedia("media-A")
+                    val state = db.subtitleDao().mediaState("media-A")
+                    val selectedRow = db.subtitleDao().association(bangla.id)
+                    if (
+                        associations.size >= 2 &&
+                        state?.selectedExternalId == bangla.id &&
+                        state.delayMs == 750L &&
+                        selectedRow?.isPreferred == true &&
+                        selectedRow.delayMs == 750L
+                    ) {
+                        break
+                    }
                     delay(25L)
                 }
             }
