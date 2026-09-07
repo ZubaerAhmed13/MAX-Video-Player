@@ -1,8 +1,8 @@
-# Dependency Register — through Step 5
+# Dependency Register — through Step 6
 
-MAX Video Player remains a clean-room native Android application. Step 5 deliberately extends the existing AndroidX / Media3 / Room / Coroutines stack and adds **no new third-party runtime dependency** for the professional audio engine.
+MAX Video Player remains a clean-room native Android application. **Step 6 adds no new third-party runtime or native decoder dependency.** The professional decoder engine is implemented with the Android platform `MediaCodec`/`MediaCodecList` capability surface and the Media3 / ExoPlayer stack already present through Step 5.
 
-| Dependency | Version | Purpose through Step 5 | License family |
+| Dependency | Version | Purpose through Step 6 | License family |
 |---|---:|---|---|
 | Android Gradle Plugin | 9.4.0 | Android build tooling | Android SDK / Apache-style tooling terms |
 | Kotlin Compose plugin | 2.3.21 | Compose compiler integration | Apache 2.0 |
@@ -11,36 +11,40 @@ MAX Video Player remains a clean-room native Android application. Step 5 deliber
 | Activity Compose | 1.11.0 | Native Activity, PiP/lifecycle and activity-result/OpenDocument integration | Apache 2.0 |
 | Lifecycle | 2.10.0 | Lifecycle-aware StateFlow collection and ViewModels | Apache 2.0 |
 | Navigation Compose | 2.9.8 | Navigation foundation | Apache 2.0 |
-| Media3 | 1.11.0 | ExoPlayer, MediaSession, tracks, playback parameters, MergingMediaSource, subtitle parsing and custom PCM AudioProcessor/AudioSink integration | Apache 2.0 |
-| Room | 2.8.4 | History/library/subtitle state plus Step-5 external-audio and per-media audio state; explicit migrations through v4 | Apache 2.0 |
-| Kotlin Coroutines | 1.10.2 | Structured I/O, persistence, URI probing, library/subtitle work and service-safe asynchronous operations | Apache 2.0 |
+| Media3 | 1.11.0 | ExoPlayer, MediaSession, MediaCodec renderer/selector extension points, decoder analytics, tracks, playback parameters, source composition, subtitles and custom PCM AudioProcessor/AudioSink integration | Apache 2.0 |
+| Room | 2.8.4 | History/library/subtitle/audio state plus Step-6 per-media decoder override; explicit migrations through v5 | Apache 2.0 |
+| Kotlin Coroutines | 1.10.2 | Structured I/O, persistence, codec-inventory scans, URI probing and service-safe asynchronous operations | Apache 2.0 |
 | Material Components | 1.13.0 | Android theme interoperability | Apache 2.0 |
-| JUnit / AndroidX Test / Compose UI test | pinned in version catalog | JVM DSP tests, migration tests, UI/integration tests and API-35 certification | respective open-source licenses |
+| JUnit / AndroidX Test / Compose UI test | pinned in version catalog | JVM policy tests, migration tests, production playback integration and API-35 certification | respective open-source licenses |
 
-## Step-5 dependency decisions
+## Step-6 dependency decision
+
+- **No FFmpeg binary or bundled native video decoder was added.** Software mode uses only genuine software-only decoders that the device/platform exposes to Media3. If none exists for the requested format, the app reports that truthfully rather than silently using hardware.
+- **No proprietary OEM decoder library was added.** Hardware and Enhanced Hardware route only through Android/Media3 codec discovery and classification.
+- **No second playback engine or second ExoPlayer was added.** Decoder policy is injected into the existing service-owned Media3 renderer path.
+- **No codec-name hardcoding is used as the primary API-29+ classifier.** Android/Media3 hardware/software flags are authoritative; conservative name heuristics are only a legacy fallback where platform classification is unavailable.
+- **No networking/upload dependency was introduced.** Decoder selection and capability diagnostics are local.
+- **No new NDK ABI payload was introduced.** There are therefore no new decoder `.so` artifacts, ABI packaging rules or native licenses to audit in Step 6.
+- **No licensed Dolby/DTS/Atmos video/audio decoder binary was added.** The app only reports what the current device exposes and does not claim universal licensed-codec support.
+
+## Platform / Media3 APIs intentionally used in Step 6
+
+- Media3 `MediaCodecSelector` and `DefaultRenderersFactory`
+- Media3 `MediaCodecVideoRenderer` format-support ordering and decoder fallback behavior through existing ExoPlayer internals
+- Media3 decoder analytics callbacks for actual initialized/released decoder identity, input format, initialization duration and dropped frames
+- Android `MediaCodecList` / `MediaCodecInfo` / `CodecCapabilities` / `VideoCapabilities`
+- API-29+ hardware-accelerated, software-only and vendor classification flags
+- adaptive, secure, tunneled and available low-latency capability flags
+- profile/level, color-format and size/rate capability reporting
+- Room v5 for stable per-media decoder override state
+- SharedPreferences for global decoder default, remember-per-video and diagnostics preferences
+
+## Step-5 dependency decisions retained
 
 - **No proprietary audio/DSP library was added.** The 10-band EQ, channel mapping, balance, preamp, boost, limiter and delay path are project-owned clean-room PCM processing implemented through Media3 extension points.
-- **No `android.media.audiofx.Equalizer` dependency is used as the required core DSP.** OEM/platform effect variability would make behavior non-deterministic. Platform effects may be future optional enhancements only.
-- **No FFmpeg decoder binary was added.** Step 5 keeps Media3's existing decoder path. Software/enhanced decoder routing remains Step 6.
-- **No proprietary Dolby/DTS/Atmos binary or license-dependent codec implementation was added.** Step 5 reports only what Media3/device support exposes; it does not claim licensed codec certification.
+- **No `android.media.audiofx.Equalizer` dependency is used as the required core DSP.** OEM/platform effect variability would make behavior non-deterministic.
 - **No second playback library/player was added for external audio.** Selected external audio is merged into the existing Media3 timeline and controlled by the service-owned player.
 - **No new storage framework was added.** External audio uses Android `OpenDocument`, `ContentResolver`, URI references and persistable read permission where available.
-- **No new database system was added.** Room advances from v3 to v4 with explicit `MIGRATION_3_4`.
-- **No networking/upload dependency was introduced.** Audio processing is local.
-- **No NDK/C++ DSP dependency was introduced.** The current deterministic DSP is Kotlin/Java-side Media3 processing.
-
-## Platform / Media3 APIs intentionally used in Step 5
-
-- Media3 `Player.currentTracks`, `TrackSelectionOverride` and track-selection parameters
-- Media3 `PlaybackParameters` for independent pitch while preserving the existing speed path
-- Media3 `DefaultRenderersFactory`, `DefaultAudioSink` and custom `AudioProcessor`
-- Media3 `MergingMediaSource` for one service-owned video/audio/subtitle timeline with selected external audio
-- Media3 `AudioAttributes` with audio-focus handling and `setHandleAudioBecomingNoisy(true)`
-- Android `AudioManager`, `AudioDeviceCallback` and `AudioDeviceInfo` for output-route awareness
-- Android Activity lifecycle and PiP APIs for Pause / Continue audio / PiP background policy
-- Android Storage Access Framework `OpenDocument` and `ContentResolver` for external audio/subtitles
-- Room v4 audio entities/DAOs/migrations for relational per-media audio state
-- SharedPreferences for lightweight global EQ/background/route-profile settings
 
 ## Step-4 dependency decisions retained
 
@@ -71,8 +75,6 @@ Any future dependency must record:
 
 An opaque binary DSP/decoder library must not be introduced simply to avoid implementing or validating required behavior.
 
-## Step-6 boundary
+## Later-step boundary
 
-Step 5 does not add custom decoder libraries. Hardware/enhanced-hardware/software decoder control, software codec fallback and any FFmpeg/custom decoder decision belong to Step 6 and require a separate dependency/license review.
-
-Any future dependency addition must be documented here before the corresponding capability is considered complete.
+Step 6 does not bundle a universal software codec backend. Cross-OEM decoder certification, physical 4K/HDR/high-bitrate/thermal/battery behavior and any future decision to bundle a native software video decoder remain separate work requiring an explicit dependency/license review and physical certification in Step 10 where specified.
