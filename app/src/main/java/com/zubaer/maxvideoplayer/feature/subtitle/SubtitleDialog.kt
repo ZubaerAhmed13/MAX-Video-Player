@@ -36,9 +36,8 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
- * Professional subtitle control surface. It intentionally talks to the single application
- * SubtitleRepository/PlaybackConnection for advanced Step-4 operations; the existing callbacks are
- * retained for PlayerScreen/test compatibility and primary actions.
+ * Professional subtitle control surface backed by the application's single service-owned playback
+ * connection and subtitle repository. File probing is asynchronous and URI/reference based.
  */
 @Composable
 fun SubtitleDialog(
@@ -72,6 +71,28 @@ fun SubtitleDialog(
     var relinkAssociationId by remember { mutableStateOf<String?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
 
+    val externalPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && repository != null && connection != null) {
+            repository.persistReadPermission(uri)
+            scope.launch {
+                val descriptor = repository.describeAsync(uri)
+                val availability = repository.probeDescriptor(uri)
+                when {
+                    descriptor == null -> localError = "That file is not a supported SRT, WebVTT, SSA/ASS or TTML subtitle."
+                    availability != SubtitleAvailability.AVAILABLE -> localError =
+                        "The subtitle file could not be opened. Check provider permission or choose another file."
+                    else -> {
+                        connection.attachExternalSubtitle(descriptor)
+                        localError = null
+                    }
+                }
+            }
+        } else if (uri != null) {
+            // Compatibility fallback for isolated previews/tests that do not run under the app container.
+            onLoadExternal()
+        }
+    }
+
     val relinkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val associationId = relinkAssociationId
         relinkAssociationId = null
@@ -79,8 +100,8 @@ fun SubtitleDialog(
             repository.persistReadPermission(uri)
             scope.launch {
                 val descriptor = repository.describeAsync(uri)
-                if (descriptor == null) {
-                    localError = "That file is not a supported SRT, WebVTT, SSA/ASS or TTML subtitle."
+                if (descriptor == null || repository.probeDescriptor(uri) != SubtitleAvailability.AVAILABLE) {
+                    localError = "That subtitle could not be opened or is not a supported format."
                 } else {
                     connection.relinkExternalSubtitle(associationId, descriptor)
                     localError = null
@@ -115,9 +136,7 @@ fun SubtitleDialog(
                     TextButton(onClick = { onEnabled(false) }, modifier = Modifier.testTag("subtitle_off")) {
                         Text(if (!playback.subtitles.enabled) "✓ Off" else "Off")
                     }
-                    TextButton(onClick = onAuto, modifier = Modifier.testTag("subtitle_auto")) {
-                        Text("Auto")
-                    }
+                    TextButton(onClick = onAuto, modifier = Modifier.testTag("subtitle_auto")) { Text("Auto") }
                     playback.subtitles.tracks.forEach { track ->
                         TextButton(
                             onClick = { onTrack(track.key) },
@@ -135,16 +154,21 @@ fun SubtitleDialog(
                     Text("No embedded or currently available external subtitle track is exposed by this media.")
                 }
 
-                playback.subtitles.recoverableError?.let {
-                    Text("Subtitle recovery: $it")
-                }
+                playback.subtitles.recoverableError?.let { Text("Subtitle recovery: $it") }
                 localError?.let { Text(it) }
 
                 HorizontalDivider()
                 Text("External subtitles")
-                Button(onClick = onLoadExternal, modifier = Modifier.testTag("load_external_subtitle")) {
-                    Text("Open subtitle file")
-                }
+                Button(
+                    onClick = {
+                        if (repository != null && connection != null) {
+                            externalPicker.launch(SubtitleFormatPolicy.supportedPickerMimeTypes())
+                        } else {
+                            onLoadExternal()
+                        }
+                    },
+                    modifier = Modifier.testTag("load_external_subtitle"),
+                ) { Text("Open subtitle file") }
                 Text("SRT, WebVTT, SSA/ASS and TTML/DFXP are side-loaded by URI reference. The video is never copied or re-encoded.")
 
                 playback.subtitles.externalAssociations.forEach { external ->
@@ -221,7 +245,12 @@ fun SubtitleDialog(
                     )
                 }
                 Text("Preferred languages (selection order is priority)")
-                Text(preferences.preferredLanguages.mapIndexed { index, code -> "${index + 1}. ${SubtitleMatcher.humanLanguageName(code)}" }.joinToString("  ").ifBlank { "No preference" })
+                Text(
+                    preferences.preferredLanguages
+                        .mapIndexed { index, code -> "${index + 1}. ${SubtitleMatcher.humanLanguageName(code)}" }
+                        .joinToString("  ")
+                        .ifBlank { "No preference" },
+                )
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                     COMMON_LANGUAGES.forEach { (code, label) ->
                         val active = code in preferences.preferredLanguages
@@ -323,10 +352,6 @@ fun SubtitleDialog(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Use embedded cue font sizes", modifier = Modifier.weight(1f))
                     Switch(checked = style.applyEmbeddedFontSizes, onCheckedChange = onApplyEmbeddedFontSizes)
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Use Android caption style", modifier = Modifier.weight(1f))
-                    Switch(checked = style.useSystemCaptionStyle, onCheckedChange = { repository?.setUseSystemCaptionStyle(it) })
                 }
 
                 TextButton(onClick = onResetStyle) { Text("Reset subtitle appearance") }

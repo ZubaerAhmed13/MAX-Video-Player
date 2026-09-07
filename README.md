@@ -1,20 +1,28 @@
 # MAX Video Player
 
-MAX Video Player is an original, native Android media-player project intended to grow toward MX Player Pro-class feature depth, reliability, and usability through a **clean-room implementation**.
+MAX Video Player is an original, native Android media-player project intended to grow toward MX Player Pro-class feature depth, reliability and usability through a **clean-room implementation**.
 
-MX Player Pro is used only as a functionality, workflow, interaction, and feature-depth reference. This repository does **not** copy MX Player source code, decompiled code, binaries, proprietary decoder implementations, package names, branding, logos, fonts, certificates, API keys, or copyrighted assets.
+MX Player Pro is used only as a functionality, workflow and feature-depth reference. This repository does **not** copy MX Player source code, decompiled code, binaries, proprietary decoder implementations, package names, branding, logos, fonts, certificates, API keys or copyrighted assets.
 
 ## Current development status
 
-**Step 3 of 10 — Professional Player Experience: SOFTWARE/EMULATOR PASS**
+**Step 4 of 10 — Professional Subtitle Engine: SOFTWARE/EMULATOR PASS**
 
-Step-3 implementation branch: `step-3-professional-player-ui`
+Step-4 branch: `step-4-professional-subtitles`
 
-Final Step-3 implementation SHA before certification documentation: `13411414c29464aaddfe9b5475eed03b16ddb4c2`.
+Authoritative Step-4 implementation gate before documentation finalization:
 
-Step 1 remains the playback/lifecycle/storage foundation and Step 2 remains the professional media-library foundation. Step 3 adds the professional touch-first player experience while preserving service-owned MediaSession playback, Room, MediaStore, SAF, queues, history/resume, and large-media safeguards.
+- implementation SHA: `94aa7af146e342f8405c6032f8d29bfe9250d780`
+- GitHub Actions workflow: `Android CI`
+- run: `34100525570` (#129)
+- debug build + JVM tests: **PASS**
+- release compilation: **PASS**
+- lint: **PASS**
+- API-35 full instrumentation: **PASS**
+- API-26 legacy-thumbnail regression: **PASS**
+- API-28 legacy-thumbnail regression: **PASS**
 
-Seek-frame preview is intentionally reported **PARTIAL — architecture/foundation only** rather than displaying fake thumbnails. Physical 3 GB+, 4K/HDR, OEM gesture/fullscreen behavior, real Bluetooth/headset routing, physical cutouts/foldables/external displays, battery, thermal, and broad hardware certification remain **NOT VERIFIED — DEFERRED TO STEP 10** by project policy.
+The documentation-complete PR head must also pass the same CI matrix before merge. Physical 3 GB+, 4K/HDR, OEM/provider, hardware-routing, cutout/foldable, battery, thermal and broad device-matrix certification remains **NOT VERIFIED — DEFERRED TO STEP 10**.
 
 ## Platform baseline
 
@@ -32,48 +40,39 @@ Seek-frame preview is intentionally reported **PARTIAL — architecture/foundati
 - Android Gradle Plugin 9.4.0
 - Gradle 9.6.0
 
-This is a fully native Android application. It does not use WebView, Capacitor, Cordova, React Native, Flutter, or TWA as its application architecture.
+This is a fully native Android application. It does not use WebView, Capacitor, Cordova, React Native, Flutter or TWA as its application architecture.
 
-## Step-3 professional player experience
+## Step-4 professional subtitle engine
 
-Implemented and automated-test-backed software/emulator behavior includes:
+Step 4 adds a real subtitle layer without replacing the Step-1 service-owned player or the Step-2/3 library/player architecture.
 
-- original professional top/bottom control overlays with title, queue position, seek/time display, previous/play-pause/next and player actions
-- one authoritative control-visibility/auto-hide state machine that respects playback, interaction, menus, tutorial, lock and accessibility state
-- Long-safe seek math, seek-bar scrubbing with local target preview and final exact seek on release, horizontal swipe seeking and seek HUD
-- configurable double-tap zones: left/back, center/play-pause, right/forward, with persisted 5–60 second seek distance
-- real left-side window-brightness gesture with safe clamping, system/default initialization and restoration when leaving the player
-- real right-side `AudioManager` media-volume gesture using each device/emulator's actual maximum volume rather than assuming a fixed step count
-- touch slop, direction locking, gesture ownership and modal/resume/tutorial/preparing-state conflict blocking
-- two-finger pinch zoom from 1× to 5×, two-finger pan, rendered-transform-aware bounds and explicit reset
-- resize/display modes: Fit, Fill, Crop, Original/100%, 16:9, 4:3, 18:9, 21:9 and validated/persisted custom aspect ratio
-- display-only 90° rotation plus Auto/Sensor, Portrait, Landscape, Reverse Portrait, Reverse Landscape and Lock Current orientation modes
-- fullscreen/immersive mode using modern system-bar APIs on supported Android versions with safe restoration/fallback
-- genuine touchscreen lock that suppresses normal player interactions and exposes only the explicit unlock path while service/system media controls remain independent
-- playback speed from 0.25× to 4.0× with common presets and 0.05× fine adjustment, plus optional remembered speed
-- MediaSession-owned previous/next queue navigation, repeat and shuffle; current player metadata/display/PiP follows the active queue item
-- dynamic PiP ratio derived from current media dimensions and rotation, reduced to a valid rational, clamped to Android-safe bounds, with 16:9 fallback and opt-in automatic PiP
-- buffering UI, recovery-oriented playback error UI, media-information dialog and playback-ended replay/next path
-- persistent Step-3 interaction preferences with stable enum names, safe clamping and restart/repository-recreation coverage
-- first-run/or-menu original gesture tutorial
-- accessibility semantics/content descriptions, live TalkBack/touch-exploration awareness, standard clickable controls and scroll-safe/narrow/large-text-friendly option surfaces
-- SurfaceView-based Media3 rendering with geometric display transforms only; Step 3 adds no color filter, full-frame bitmap pipeline, source rewrite or re-encode
+Implemented software/emulator behavior includes:
 
-## Step-2 professional library — preserved
+- embedded Media3 text-track discovery and manual selection
+- explicit subtitle **Off**, **Auto** and manual track selection
+- external side-loaded subtitle loading through Android `OpenDocument` / SAF by URI reference
+- multiple external subtitle associations per stable media ID
+- SRT, WebVTT, SSA/ASS and TTML/DFXP text subtitle policy
+- direct Android instrumentation proving the real Media3 subtitle parsers emit cues for SRT, WebVTT, ASS, SSA and TTML
+- multilingual Unicode fixture coverage including English, Bangla, Arabic/RTL and Japanese text
+- deterministic external-track identity: custom Media3 ID when preserved, with label/MIME/language fallback when `Format.id` is not propagated
+- persisted per-media preferred external subtitle and subtitle delay
+- positive/negative subtitle synchronization using `Long` timing with a bounded ±600,000 ms policy
+- automatic matching sidecar discovery for user-approved SAF folders using filename scoring and preferred-language ordering
+- preferred subtitle language settings
+- encoding detection/override for Auto, UTF-8, UTF-16 LE, UTF-16 BE and Windows-1252; external text can be normalized to UTF-8 before Media3 parsing
+- durable subtitle associations, selection, availability, encoding and delay in Room v3
+- explicit database `MIGRATION_2_3` while preserving Step-1/2 data and without destructive migration fallback
+- availability/recovery states for missing, permission-lost, unsupported and malformed external subtitle sources
+- external subtitle relinking while preserving the media relationship, selected state and synchronization delay
+- malformed/unavailable external subtitle isolation so a subtitle failure does not become a video-playback failure
+- asynchronous production subtitle-file probing; no whole-video read, copy or re-encode
+- subtitle appearance controls for text size, text colour, background, edge style/colour, bottom margin and embedded cue styling/font-size behavior
+- scroll-safe subtitle controls suitable for narrow player surfaces
 
-Step 3 preserves the Step-2 professional library, including:
+The Android system-caption-style toggle is intentionally **not** exposed as a fake control because Step 4 does not yet apply that setting through `SubtitleView`.
 
-- Videos, Folders, Continue Watching, Recent, History, Favourites, and Playlists
-- lazy list/adaptive grid views, professional search, sorting and filtering
-- MediaStore plus user-approved SAF folder sources and persisted permissions
-- Room v2 media index/cache, favourites, playlists, sources, exclusions and preferences with explicit `MIGRATION_1_2`
-- deterministic 512-row index loading with progressive snapshots
-- playlist/folder/visible-list queues with selected-item start index
-- rename/delete/relink flows with stable-ID relationship preservation
-- bounded/cancellable thumbnail loading with a 16 MiB LRU memory cache and API-26/API-28 legacy regression coverage
-- 10,000-entry deterministic search/sort/filter coverage and Long-safe multi-GB metadata tests
-
-## Playback ownership — preserved from Step 1
+## Playback ownership — preserved
 
 ```text
 Compose Player / Library UI
@@ -91,39 +90,76 @@ PlaybackEngine
 Media3 / ExoPlayer
 ```
 
-Step 3 does not create an Activity-owned ExoPlayer. Queue navigation, speed, repeat, shuffle, PiP continuity, notification/headset/Bluetooth media control architecture and background playback remain anchored to the same service/session owner.
+Step 4 does not create an Activity-owned ExoPlayer. External subtitles are attached by rebuilding the current MediaItem/source through the existing service-owned controller while preserving queue index, position and play state.
 
-## Step-3 player state and interaction ownership
+`Media3PlaybackEngine` uses a subtitle-aware media-source factory so synchronization offsets are applied by a subtitle parser wrapper rather than by rewriting video/audio media.
 
-`PlayerViewModel` owns immutable coordinator state for control visibility, lock, gesture ownership, HUD, seek target, zoom/pan, resize/custom aspect, rotation, orientation, fullscreen, tutorial/accessibility mode and Step-3 preferences. `PlaybackConnection` separately exposes service-owned playback state. `PlayerInteractionPolicy` contains deterministic pure math/policy for seek, double-tap, brightness, volume, zoom/pan, transforms and PiP ratio.
+## Subtitle storage and recovery model
 
-Surface gestures are disabled while a player menu, tutorial, resume dialog or preparation state owns input. TalkBack touch exploration also disables potentially conflicting surface gestures while keeping standard clickable controls available.
+Room database version 3 adds:
 
-## Storage, large-library and large-media policy
+- `subtitle_associations` — stable media relationship, URI, label, language, MIME/format, encoding, preferred flag, availability and per-association delay
+- `subtitle_media_state` — selected external association and per-media delay
 
-MediaStore and SAF remain source truth; Room `media_index` remains a recoverable metadata index/cache. The app does not request `MANAGE_EXTERNAL_STORAGE` merely for convenience.
+The subtitle repository keeps a small synchronous cache for MediaItem construction while persistence and file/provider probing stay on I/O dispatchers. Existing MediaStore/SAF media and large files remain reference-based.
 
-Normal playback and library operations stay URI/reference based. File sizes, durations, positions and seek targets remain `Long`-safe. Step 3 does not duplicate media, load whole videos into RAM, generate full-video frame sequences, or add an artificial media-size/resolution limit.
+Persisted external subtitle access is revalidated. If a subtitle disappears or permission is lost, the association remains recoverable, the unavailable subtitle is not attached to Media3, and the video path remains independent. `Relink` binds a replacement subtitle file back to the same media relationship.
 
-## Seek-preview boundary
+## Format and encoding policy
 
-`SeekPreviewProvider` defines the architecture boundary for a future bounded, asynchronous, cancellable frame-preview implementation. Step 3 does **not** claim rendered seek thumbnails because a safe frame-extraction engine was not introduced here.
+Supported Step-4 text subtitle families:
 
-Status: **PARTIAL — architecture/foundation only**.
+- SRT / SubRip
+- WebVTT
+- SSA
+- ASS
+- TTML / DFXP
 
-## Automated build and verification
+Provider MIME aliases and filename extensions are normalized by `SubtitleFormatPolicy`. XML is accepted only when bounded prefix inspection identifies TTML-like content.
 
-Authoritative Step-3 implementation gate:
+`SubtitleEncodingPolicy` recognizes UTF-8/UTF-16 BOMs, validates UTF-8 and exposes Windows-1252 fallback/override. Encoding normalization is applied only to external subtitle text; embedded tracks are left to Media3.
 
-- GitHub Actions workflow: `Android CI`
-- run: `34058821634` (#103)
-- implementation SHA: `13411414c29464aaddfe9b5475eed03b16ddb4c2`
-- debug build + JVM tests: **PASS**
-- release compilation: **PASS**
-- lint: **PASS**
-- API-35 full instrumentation / Compose / real playback host integration: **PASS**
-- API-26 legacy-thumbnail regression: **PASS**
-- API-28 legacy-thumbnail regression: **PASS**
+## Synchronization policy
+
+Subtitle delay is `Long`-safe and clamped to ±600 seconds. Positive values show cues later and negative values show cues earlier. Negative shifts crossing time zero are clipped safely rather than producing invalid negative cue time.
+
+A fresh subtitle parser factory is created per MediaItem so queue prefetching cannot accidentally inherit another media item's delay.
+
+## Step-3 professional player — preserved
+
+Step 4 retains the Step-3 player experience: controls/auto-hide, seek/double-tap/brightness/volume/zoom/pan gestures, resize/aspect/rotation/orientation/fullscreen, lock, 0.25×–4.0× speed, queues, repeat/shuffle, PiP, accessibility handling, tutorial and Long-safe display/seek math.
+
+Seek-frame thumbnail preview remains **PARTIAL — architecture/foundation only**; Step 4 does not fabricate that capability.
+
+## Step-2 professional library — preserved
+
+Videos, folders, Continue Watching, Recent, History, Favourites, Playlists, search/sort/filter, MediaStore, user-approved SAF folders, Room media index/cache, relink, rename/delete and bounded thumbnails remain preserved. API-26/API-28 thumbnail regression jobs stay in the Step-4 CI matrix.
+
+## Large-media and quality policy
+
+Normal playback, library and subtitle operations remain URI/reference based. File sizes, durations, positions, subtitle timing and seek targets remain `Long`-safe where applicable.
+
+Step 4 does not:
+
+- copy or transcode the video to add subtitles
+- load whole videos into RAM
+- generate full-video frame sequences
+- alter source colour characteristics
+- add an artificial media resolution/file-size limit
+
+Real 3 GB+, 4K/HDR and OEM/device performance remain Step-10 physical certification items rather than inferred PASS claims.
+
+## Verification
+
+Step-4 automated evidence includes:
+
+- JVM tests for format policy, filename/language matching, encoding and subtitle timing
+- Room migration/persistence instrumentation, including v1 → v3 and v2 → v3 preservation
+- repository tests for multiple associations, selection and delay persistence
+- parser instrumentation for SRT/WebVTT/ASS/SSA/TTML and multilingual Unicode
+- recovery instrumentation for missing subtitle → recoverable state → relink, delay preservation and encoding persistence
+- real service-owned MP4 + side-loaded SRT cue integration on API 35
+- retained Step-1/2/3 integration and API-26/API-28 regression suites
 
 Core CI commands:
 
@@ -132,26 +168,23 @@ gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
 gradle --no-daemon :app:assembleRelease
 gradle --no-daemon :app:lintDebug
 gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
-gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.zubaer.maxvideoplayer.feature.library.ThumbnailRepositoryInstrumentedTest
 ```
-
-The final documentation head must pass the same pull-request CI before Step 3 is merged to `main`.
 
 ## Documentation
 
-- `ARCHITECTURE.md` — Step-1 playback ownership, Step-2 library architecture and Step-3 player interaction/display architecture
-- `DEPENDENCIES.md` — dependency register
-- `PARITY_MATRIX.md` — evidence-backed capability matrix through Step 3
+- `ARCHITECTURE.md` — architecture through Step 4
+- `DEPENDENCIES.md` — dependency/license decisions through Step 4
+- `PARITY_MATRIX.md` — evidence-backed capability matrix through Step 4
 - `LARGE_MEDIA_AUDIT.md` — large-media/integer safety boundary
-- `STEP_1_COMPLETION_REPORT.md` — Step-1 certification record
-- `STEP_2_COMPLETION_REPORT.md` — Step-2 certification record
-- `STEP_3_COMPLETION_REPORT.md` — Step-3 A–Z software/emulator certification record
+- `STEP_1_COMPLETION_REPORT.md`
+- `STEP_2_COMPLETION_REPORT.md`
+- `STEP_3_COMPLETION_REPORT.md`
+- `STEP_4_COMPLETION_REPORT.md`
 
 ## Roadmap boundary
 
-Step 3 intentionally does **not** implement the Step-4 professional subtitle engine, Step-5 audio DSP/equalizer stack, Step-6 software decoder/FFmpeg routing, later network/cloud/cast work, or Step-10 physical-device certification. Step 4 must not begin as part of Step-3 completion.
+Step 4 does **not** begin Step 5 audio DSP/equalizer work, Step 6 software-decoder/FFmpeg routing, later network/cloud/cast work or Step-10 physical certification.
 
 ## Contribution principle
 
-Do not solve difficult architectural problems by deleting requirements. Preserve working behavior, implement independently, document genuine limitations, keep user data through schema changes, and never fabricate verification results.
+Do not solve difficult architectural problems by deleting requirements. Preserve working behavior, implement independently, document genuine limitations, keep user data through schema changes and never fabricate verification results.

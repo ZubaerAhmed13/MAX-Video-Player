@@ -1,12 +1,12 @@
-# MAX Video Player — Architecture through Step 3
+# MAX Video Player — Architecture through Step 4
 
 ## Clean-room boundary
 
-MAX Video Player is an original Android implementation. MX Player Pro is used only as a behavioral and feature-depth reference. No proprietary code, binaries, assets, package names, branding, certificates, API keys, database schemas, gesture implementations, decoder implementations, or copyrighted layouts are reused.
+MAX Video Player is an original native Android implementation. MX Player Pro is used only as a behavioral and feature-depth reference. No proprietary code, binaries, assets, package names, branding, certificates, API keys, database schemas, gesture implementations, decoder implementations or copyrighted layouts are reused.
 
 ## Playback ownership model
 
-Playback remains **service-owned**, not Activity-owned. `PlaybackService` (Media3 `MediaSessionService`) owns the Media3 playback engine/session. Compose connects through `PlaybackConnection` / `MediaController`.
+Playback remains **service-owned**, not Activity-owned.
 
 ```text
 Compose UI
@@ -24,351 +24,265 @@ PlaybackEngine
 Media3 / ExoPlayer
 ```
 
-Step 3 does not replace or bypass this model. Player previous/next, speed, repeat, shuffle, PiP continuity, recreation, notification controls and external media-button architecture operate through the existing service/session.
+Steps 1–4 preserve this ownership. Step 4 does not create a second player to handle subtitles.
 
-## Logical layers
+## Logical layers through Step 4
 
-- `core.model` — stable media/domain models, resume policy, playback UI state, decoder truth status
-- `core.database` — Room v2 entities/DAOs/migrations, authoritative playback history, library persistence/index
-- `core.media` — MediaStore discovery, SAF metadata/tree traversal, stable identity, deep metadata extraction, URI availability
-- `core.device` — device and MediaCodec capability profiling
-- `playback.engine` — application playback abstraction and Media3 implementation
-- `playback.session` — MediaSessionService, controller connection, queue/repeat/shuffle/speed state and system lifecycle integration
-- `feature.library` — library repository/derivation, queue planning, thumbnails, file actions/relink, Compose library UI
-- `feature.player` — professional player UI, player coordinator state, interaction policy, gestures, display transforms, orientation, preferences, PiP inputs and seek-preview boundary
+- `core.model` — stable media/domain models and playback/subtitle UI state
+- `core.database` — Room entities/DAOs/migrations, playback history, library state and subtitle persistence
+- `core.media` — MediaStore, SAF, metadata and URI availability
+- `core.device` — runtime device/codec capability profile
+- `playback.engine` — playback abstraction and Media3 implementation
+- `playback.session` — service/session/controller integration and queue/player state
+- `feature.library` — library/index/queue/thumbnail/file actions
+- `feature.player` — player UI, gestures, display transforms, orientation, PiP and subtitle host integration
+- `feature.subtitle` — Step-4 subtitle format/encoding policy, persistence, matching, timing, recovery and controls
 - `ui` — application theme
 
-The project remains one application module at this stage; package boundaries keep later module extraction possible without changing domain contracts.
+# Step-4 professional subtitle architecture
 
-# Step-3 professional player architecture
-
-## State ownership
-
-Step 3 deliberately separates playback state from player-interaction state.
+## Data flow
 
 ```text
-PlaybackService / MediaSession
+SubtitleDialog / Player UI
+        ↓ user intent
+PlaybackConnection ────────────────┐
+        ↓                          │
+MediaController                    │
+        ↓                          │
+MediaSessionService                │
+        ↓                          │
+Media3PlaybackEngine               │
+        ↓                          │
+SubtitleAwareMediaSourceFactory    │
+        ↓                          │
+Offset/Resilient subtitle parser   │
+                                   │
+SubtitleRepository ── Room v3 ─────┘
         ↓
-PlaybackConnection.state : PlaybackUiState
-        ↓
-      PlayerScreen
-        ↑
-PlayerViewModel.state : PlayerCoordinatorState
-        ↑
-PlayerPreferences + PlayerInteractionPolicy
+SAF / ContentResolver URI references
 ```
 
-`PlaybackUiState` reflects the real service-owned player: media ID/title, play/buffer/end state, position/duration, queue availability/index/count, speed, repeat, shuffle and mapped playback error.
+The UI never owns a second ExoPlayer. External subtitle attachment updates the current `MediaItem` through the existing controller and rebuilds the queue entry while retaining active queue index, position and `playWhenReady`.
 
-`PlayerCoordinatorState` represents interaction/UI state such as:
+## Subtitle state ownership
 
-- controls visible/locked/unlock visible
-- interaction active and gesture kind
-- current HUD / seek target
-- brightness and volume fractions
-- zoom / pan
-- resize mode and custom aspect
-- display rotation
-- orientation mode
-- fullscreen
-- tutorial/accessibility state
-- persisted Step-3 preferences
+`PlaybackConnection` publishes `SubtitlePlaybackState` as part of `PlaybackUiState`. It includes:
 
-The ViewModel is the authoritative state machine. Composables render state and forward user intent; they do not own independent competing auto-hide timers or duplicate playback engines.
+- enabled/off state
+- discovered text tracks
+- selected track key
+- external associations
+- selected external association ID
+- current delay
+- recoverable subtitle error
 
-## Player presentation decomposition
+`SubtitleRepository` owns durable subtitle relationships, preferences and appearance state. Media3 remains authoritative for actual exposed/selected text tracks.
 
-Step 3 avoids one giant player composable by separating concerns across:
+## Embedded track discovery and identity
 
-- `PlayerScreen.kt` — surface/host integration, pointer routing, current queue item, error/recovery and system integration callbacks
-- `PlayerControls.kt` — professional overlay, top/bottom controls, seek bar, time labels, buffering indicator and HUD
-- `PlayerDialogs.kt` — display, speed, playback mode, orientation, player controls, media information and gesture tutorial surfaces
-- `PlayerViewModel.kt` — coordinator state transitions, auto-hide/HUD timers, resume/load logic and preference/application commands
-- `PlayerInteractionModels.kt` — immutable state/enums/models
-- `PlayerInteractionPolicy.kt` — deterministic pure interaction/display/PiP math
-- `PlayerOrientationPolicy.kt` — orientation-mode-to-Android mapping
-- `PlayerPreferences.kt` — persisted Step-3 preferences with stable names and safe defaults
-- `SeekPreviewProvider.kt` — future bounded asynchronous seek-frame preview contract only
+Media3 `currentTracks` is inspected for `TRACK_TYPE_TEXT`. Track labels use available language/label/forced/default metadata.
 
-## Control visibility state machine
+For side-loaded tracks, identity first uses the custom subtitle configuration ID. Because Media3 does not guarantee that `SubtitleConfiguration.id` is preserved as `Format.id` in every source path, Step 4 also performs a deterministic descriptor match using label, MIME type and language. This preserves external-track identity without weakening the actual rendering test.
 
-There is one centralized auto-hide policy. Controls initially appear and may hide only when all of the following are true:
+## External subtitle association model
 
-- playback is playing
-- controls are visible and not locked
-- no gesture/seek interaction is in progress
-- no player menu is open
-- the gesture tutorial is not open
-- accessibility/touch-exploration mode does not require stable controls
+External subtitle files remain URI/reference based. One media item may own multiple associations.
 
-Meaningful player interaction cancels/resets the current hide job. Paused state keeps controls sensible. Seek-bar dragging uses local scrubbing state and does not repeatedly seek the service while the thumb moves.
+Each association records:
 
-## Gesture state machine and conflict resolution
+- stable association ID
+- stable media ID
+- subtitle URI
+- display label
+- language
+- MIME type
+- format
+- encoding
+- preferred flag
+- availability
+- synchronization delay
 
-The surface gesture engine classifies/owns one interaction at a time:
+The selected external association and per-media delay are stored separately in subtitle media state.
 
-```text
-NONE
-  ├─ horizontal drag → SEEK
-  ├─ left vertical drag → BRIGHTNESS
-  ├─ right vertical drag → VOLUME
-  ├─ two-finger scale → ZOOM
-  └─ two-finger movement while transformed → PAN
-```
+## Room v3
 
-Classification uses Android touch slop, dominant-direction locking and the actual surface width for left/right zoning. Once a drag has an owner it does not opportunistically switch between seek/brightness/volume mid-gesture.
+Step 4 advances the application database to version 3.
 
-Surface input is blocked while any of the following owns interaction:
+New tables:
 
-- touchscreen lock
-- player menu/dialog
-- first-run/manual tutorial
-- resume decision
-- player preparation
-- TalkBack touch exploration for conflicting custom gestures
+- `subtitle_associations`
+- `subtitle_media_state`
 
-Blocking exists at both pointer-routing and ViewModel mutation boundaries so a modal cannot accidentally change real brightness/volume behind itself.
+`MIGRATION_2_3` is explicit. Existing `MIGRATION_1_2` is retained so v1 → v3 upgrades execute both migrations. Migration instrumentation verifies Step-1 history/large `Long` values and Step-2 favourites/playlists/library/index/preferences survive the upgrade. No `fallbackToDestructiveMigration()` is introduced.
 
-Single tap toggles controls. Double tap uses player-relative zones rather than hardcoded pixels: left seeks backward, center toggles play/pause, right seeks forward.
+A small in-memory cache mirrors subtitle association/media state because MediaItem construction and track publication are synchronous. Room writes and provider probing run on I/O dispatchers.
 
-## Seeking and Long safety
+## SAF and external-file access
 
-Playback positions and seek targets remain `Long`.
+Manual loading uses `OpenDocument` and persistable read permission where supported. Production descriptor probing is asynchronous.
 
-The Compose slider necessarily exposes a fractional UI value, but conversion occurs only at the UI boundary using the real `Long` duration. While dragging:
+The repository inspects only bounded subtitle metadata/prefix data. It does not copy media files or load whole videos.
 
-1. local UI state updates the visible target continuously;
-2. the seek HUD shows direction/delta/target;
-3. no uncontrolled stream of expensive service `seekTo()` calls is emitted;
-4. one final clamped `Long` seek commits on release.
+Supported text-family policy:
 
-Horizontal swipe seek uses viewport width, media duration and persisted Low/Medium/High sensitivity. Math uses saturating/clamped operations for very long media and cannot seek below zero or beyond known duration.
+- SRT / SubRip
+- WebVTT
+- SSA
+- ASS
+- TTML / DFXP
 
-`SeekPreviewProvider` intentionally remains an interface/foundation. Step 3 does not read full media, generate a frame sequence, interrupt playback or display fake frame thumbnails.
+Provider MIME aliases and extensions are normalized. Generic XML is accepted only when bounded prefix inspection identifies a TTML-like document.
 
-## Brightness architecture
+## Automatic sidecar discovery
 
-Left-side vertical drag modifies only the current Activity window brightness. The gesture initializes from the current explicit window value when present, otherwise from system brightness normalized to a safe fraction. Values are clamped to a valid player range.
+For media indexed from user-approved SAF folder trees, the repository can query sibling documents in the same parent folder. Candidate subtitles are scored against the video filename by `SubtitleMatcher`.
 
-The original Activity window brightness is remembered and restored when the player leaves. Step 3 does not permanently modify global system brightness.
+Matching prefers exact stem/language-suffix matches and rejects generic/unrelated names. Preferred-language ordering is applied before lower-ranked candidates. Discovery is off-main-thread and does not recurse through unrelated storage during playback.
 
-## Volume architecture
+## Language policy
 
-Right-side vertical drag reads/writes Android `AudioManager.STREAM_MUSIC`. Percentage and index are derived from the runtime `getStreamMaxVolume()` value; the implementation never assumes a universal 15-step device.
+Preferred subtitle languages are persisted as canonical language codes. `Auto` selection passes the ordered language list to Media3 text-track selection and also enables undetermined text when appropriate.
 
-The HUD displays the actual post-write media-volume fraction.
+The professional subtitle panel exposes common language choices while repository APIs remain code-based rather than UI-label based.
 
-## Zoom, pan and display transforms
+## Encoding policy
 
-Zoom is a rendering transformation only. Step 3 does not rescale source frames in software, allocate frame bitmaps, change color characteristics or re-encode media.
+External subtitle text supports:
 
-Manual zoom is bounded from 1× to 5×. Pan bounds are computed from viewport dimensions plus the **effective rendered X/Y scale**, which includes resize/custom-aspect/original scaling and manual zoom. Translation is clamped independently on each axis so transformed video cannot be dragged completely away.
+- Auto
+- UTF-8
+- UTF-16 LE
+- UTF-16 BE
+- Windows-1252
 
-Changing resize mode or explicit reset returns manual zoom/pan to the defined default state.
+`SubtitleEncodingPolicy` detects UTF BOMs, validates UTF-8 and allows a persisted per-association override. External subtitle bytes can be normalized to UTF-8 before delegation to Media3's text parser. Embedded subtitle streams are not rewritten by this layer.
 
-The `PlayerView` remains Media3-backed and keeps its efficient video surface. Geometric properties are applied to the video surface view: scale X/Y, translation X/Y and display-only rotation.
+The default external encoding is a user preference; a selected external association can override it.
 
-## Resize and aspect model
+## Parser resilience
 
-Supported modes:
+The Step-4 parser chain composes three responsibilities:
 
-- Fit
-- Fill (explicit stretch)
-- Crop
-- Original / 100%
-- forced 16:9
-- forced 4:3
-- forced 18:9
-- forced 21:9
-- validated custom width:height
+1. optional external-text encoding normalization;
+2. subtitle timing offset;
+3. delegation to Media3's actual subtitle parser.
 
-Fit/Crop preserve source geometry according to their semantics. Fill and forced aspect modes are labeled as intentional display stretch rather than silently distorting the user’s media.
+External parser failures are converted into recoverable subtitle state rather than escalating into a video playback failure. The video/audio media source remains independently usable.
 
-Custom aspect input rejects non-finite, zero, negative and extreme invalid ratios. The validated ratio itself is persisted, not merely the enum `CUSTOM`, so restart does not silently revert a user-defined ratio.
+## Synchronization architecture
 
-## Queue-aware current media
+`SubtitleTimingPolicy` clamps delay to ±600,000 ms and keeps timing in `Long` microseconds/milliseconds.
 
-The player launch item is not assumed to stay current. `PlayerScreen` resolves the active `AppMedia` from `PlaybackUiState.mediaId` through the ViewModel’s queue. Consequently, after MediaSession Previous/Next the following all follow the current queue item:
+Positive delay shifts cues later; negative delay shifts earlier. If a negative shift crosses zero, cue start is clipped to zero and finite duration is reduced safely.
 
-- display geometry/dimensions/rotation
-- player title/fallback metadata
-- media information dialog
-- explicit PiP ratio inputs
-- automatic PiP host state
-- zoom/pan bound calculations
+`SubtitleAwareMediaSourceFactory` creates a fresh subtitle parser factory per `MediaItem`, snapshotting the correct delay for that media. This prevents a prefetched queue item from inheriting a previous item's synchronization value.
 
-This avoids stale metadata from the originally selected video after queue navigation.
+## Missing/permission-lost subtitle recovery
 
-## Orientation architecture
+Persisted external associations are re-probed. Availability can become:
 
-`OrientationMode` supports:
+- `AVAILABLE`
+- `MISSING`
+- `PERMISSION_LOST`
+- `UNSUPPORTED`
+- `MALFORMED`
+- `UNKNOWN`
 
-- Auto / Sensor
-- Portrait
-- Landscape
-- Reverse Portrait
-- Reverse Landscape
-- Lock Current
+Blocked/unavailable associations are not attached to the current MediaItem. The association remains visible for recovery.
 
-`PlayerOrientationPolicy` maps those stable domain values to Android `ActivityInfo` requested-orientation constants. The Activity applies orientation changes through one host callback rather than on every arbitrary recomposition. The chosen mode is persisted by stable enum name and unknown/future values safely fall back to Auto.
+`Relink` accepts a replacement supported subtitle URI and preserves the media relationship, selected/preferred state and delay. The underlying association ID may change because identity includes the URI.
 
-When the player is disposed, orientation policy returns to Auto so the rest of the app is not left locked unexpectedly.
+## Appearance state
 
-## Fullscreen and immersive mode
+`SubtitleStyleState` controls rendering through Media3 `SubtitleView`:
 
-Fullscreen is player UI state plus Activity host behavior; it does not create/recreate a second playback engine.
+- text scale
+- foreground colour
+- background colour
+- window colour in the state model
+- edge style
+- edge colour
+- bottom padding/margin
+- whether embedded cue styling is applied
+- whether embedded cue font sizes are applied
 
-On Android 30+, system bars use `WindowInsetsController`, hide status/navigation system bars and allow transient bars by swipe. Older supported Android versions use the existing compatible system-UI fallback. Leaving fullscreen/player restores system bars.
+The UI intentionally does not expose an Android system-caption-style switch unless that setting is actually applied by the rendering path.
 
-Player controls use safe drawing padding so critical overlay controls respect cutout/gesture insets at the software layout level. Physical OEM/cutout behavior remains Step-10 certification.
+## Step-4 control surface
 
-## Touchscreen lock
+The subtitle panel exposes:
 
-Lock mode is genuine interaction suppression, not an icon-only state.
+- Off
+- Auto
+- manual embedded/external track selection
+- load external subtitle
+- multiple external associations
+- select / relink / remove
+- per-file text encoding
+- ±50/100/500 ms synchronization adjustments and reset
+- matching-sidecar auto-load toggle
+- preferred language ordering
+- default external encoding
+- appearance sliders/choices
 
-When locked:
+The panel is vertically/horizontally scrollable where needed to remain usable on narrow player surfaces.
 
-- ordinary control overlay is hidden
-- seek/brightness/volume/zoom/pan/surface controls are rejected
-- player menus are closed
-- only the explicit unlock affordance can restore normal touchscreen controls
+## Error isolation
 
-The lock protects the touchscreen UI. The service-owned MediaSession remains available for supported system/notification/headset/Bluetooth controls.
+Subtitle-specific file/provider/parser failures are not mapped into the generic video playback error overlay when the video source itself is healthy. Instead the subtitle state publishes a recoverable message and the user can relink/remove/change encoding.
 
-## Playback speed, repeat and shuffle
+# Step-3 player architecture — preserved
 
-Playback speed is applied through the service-owned MediaController/MediaSession player. Step 3 exposes 0.25×–4.0×, common presets and 0.05× fine adjustment. Speed is per-session by default; optional remember-speed persists the selected value.
+Step 4 preserves the Step-3 player state machine and interaction policy: controls/auto-hide, seek/double-tap, brightness, volume, zoom/pan, resize/aspect, display rotation, orientation, fullscreen, lock, speed, repeat/shuffle, PiP and accessibility handling.
 
-Repeat and shuffle operate on the existing service queue rather than rebuilding a separate Activity queue.
+Display transforms remain geometric surface transforms. Step 4 does not re-encode video or add a frame-bitmap pipeline.
 
-## PiP architecture
+# Step-2 library architecture — preserved
 
-PiP reuses the existing Activity and service session; there is no second player.
+MediaStore/SAF discovery, Room media index/cache, favourites, playlists, folder exclusions, relink, rename/delete, bounded thumbnail loading and queue planning remain unchanged in ownership.
 
-`PlayerInteractionPolicy.pipRatio()`:
-
-1. uses current media width/height when valid;
-2. swaps effective dimensions for 90°/270° source rotation;
-3. reduces normal ratios by GCD;
-4. clamps extreme ratios to Android-supported safe bounds (2.39:1 and reciprocal);
-5. falls back to 16:9 if dimensions are unavailable.
-
-The explicit PiP button uses the current queue item. Automatic PiP is opt-in through a persisted preference. On API 31+ the Activity also enables seamless resize where supported.
-
-## Accessibility
-
-Important player controls expose meaningful semantics/content descriptions. TalkBack/touch-exploration state is observed live through `AccessibilityManager` listeners.
-
-When touch exploration is enabled, conflicting custom surface gestures are suppressed and controls remain visible/clickable. Player dialogs/option rows are scrollable where needed, reducing catastrophic breakage on narrow layouts and larger font scales.
-
-Physical TalkBack/OEM accessibility-device certification remains part of the later device matrix, but software semantics and API-35 behavior are automated-test-backed.
-
-## Step-3 preference persistence
-
-`PlayerPreferences` uses app-private SharedPreferences for Step-3 interaction preferences only. Persisted values include:
-
-- double-tap seek seconds
-- gesture sensitivity
-- horizontal seek enabled
-- brightness gesture enabled
-- volume gesture enabled
-- pinch zoom/pan enabled
-- control auto-hide timeout
-- orientation mode
-- default resize mode
-- custom aspect ratio
-- remember playback speed
-- remembered playback speed
-- automatic PiP
-- tutorial-seen state
-
-Enums are stored by stable names rather than raw ordinal values. Reads clamp numeric values and unknown enum names fall back safely.
-
-## Performance and memory behavior
-
-Step 3 keeps player UI work bounded:
-
-- playback position publication is approximately 500 ms while playing and 1,000 ms while not playing, not frame-by-frame
-- seek scrubbing uses local UI state and one final seek
-- gesture math uses small immutable values/pure calculations rather than frame bitmaps
-- no full-media reads or full-video frame sequence exists in the interaction layer
-- zoom/resize/rotation are display transforms rather than software re-encoding
-- timers are single cancellable coroutine jobs owned by the ViewModel
-- Accessibility listeners and player host state are removed/restored on disposal
-
-## Error and lifecycle resilience
-
-The player preserves the Step-1 mapped playback error model and exposes Retry/Back instead of raw exceptions. Buffering is surfaced independently of control visibility.
-
-Activity recreation reconnects the Compose host to the same service-owned session. Step-3 instrumentation verifies queue identity and seek position survive recreation. Fullscreen transitions and PiP do not create a new player.
-
-# Step-2 media-library architecture — preserved
-
-```text
-MediaStoreRepository ─┐
-                      ├─> LibraryRepository ─> Room media_index
-SafTreeScanner ───────┘          │                  │
-                                 │                  └─ count + bounded 512-row pages
-PlaybackHistoryRepository ───────┤
-                                 ├─ favourites / playlists
-                                 ├─ sources / exclusions / preferences
-                                 ↓
-                         LibraryViewModel
-                                 ↓
-              search / sort / filter / grouping
-                                 ↓
-                           LibraryScreen
-                                 ↓
-                     LibraryPlaybackRequest
-                                 ↓
-                    service-owned playback
-```
-
-`LibraryScreen` never scans MediaStore or SAF directly. Repositories/scanners own source and database I/O. `LibraryViewModel` coordinates flows and performs large derived-list work on `Dispatchers.Default`.
-
-## Source abstraction and media index
-
-Step 2 recognizes indexed MediaStore video sources and user-approved SAF tree sources. Persisted source state includes stable source identity, URI, display name, source type, permission state, availability state and scan timestamps.
-
-Room `media_index` is an index/cache, not proof that the source still exists. Refresh reconciles source rows while favourites, playlists, preferences and authoritative history stay separate so rescans do not destructively recreate user relationships.
-
-Room index loading uses deterministic `LIMIT/OFFSET` chunks of at most 512 rows, cancellation checks and progressive snapshots. The ViewModel ultimately holds lightweight O(n) metadata for the current library; synthetic 10,000-entry tests protect deterministic derivation behavior.
-
-## Room v2 persistence
-
-Database version 2 retains Step-1 `media_history` and `playback_preferences` and adds favourites, playlists/items, library sources, excluded folders, media index and library preferences. `MIGRATION_1_2` is explicit and `fallbackToDestructiveMigration()` is not used.
-
-## History, favourites, playlists and queues
-
-Continue Watching reuses Step-1 `ResumePolicy`. Favourites persist stable media IDs. Playlists use ordered relational items. `LibraryQueuePlanner` preserves visible/folder/playlist ordering and starts at the selected item; Step 3 consumes those real queues through MediaSession Previous/Next.
-
-## Thumbnail architecture
-
-`ThumbnailRepository` owns bounded, off-main-thread, cancellable thumbnail work with a 16 MiB LRU memory cache and graceful placeholder path. API-26 and API-28 emulator regression jobs remain part of Step-3 CI so player work cannot silently regress the legacy library path.
-
-## File actions and relink
-
-MediaStore/SAF rename/delete continue to follow Android/provider policy. Unavailable local media exposes stable-ID-preserving `Locate original` relink. Step 3 does not replace these flows.
+API-26 and API-28 thumbnail regression jobs remain mandatory CI gates for Step 4.
 
 # Large-media design
 
-Normal playback and library operations remain URI/reference based. The project does not copy media on import, load entire sources into RAM, cast file sizes/durations/positions to `Int`, or generate full-video frame sequences for player gestures.
+Media and external subtitle sources remain reference based. Step 4 adds no artificial media-size or resolution ceiling.
 
-Step-3 seek/display logic remains `Long`-safe and resolution-agnostic at the application level. Real 3 GB+, 4K/HDR and device-specific performance certification is not inferred from emulator tests.
+Large media is not copied on subtitle attachment. Subtitle processing is bounded to subtitle files/prefixes and timing metadata rather than video bytes. File sizes, durations, positions, seek values and subtitle timing remain `Long`-safe where applicable.
+
+Physical 3 GB+, 4K/HDR and OEM/device-specific performance are **NOT VERIFIED — DEFERRED TO STEP 10**.
+
+# Verification architecture
+
+Automated Step-4 coverage includes:
+
+- JVM format-policy tests
+- filename/language matching tests
+- encoding tests
+- subtitle timing tests
+- Room v1 → v3 and v2 → v3 migration tests
+- multiple-association/selection/delay repository persistence tests
+- real Media3 parser tests for SRT, WebVTT, ASS, SSA and TTML
+- multilingual Unicode/RTL fixture checks
+- missing-source/relink/encoding persistence instrumentation
+- real service-owned MP4 + side-loaded SRT cue integration on API 35
+- retained Step-1/2/3 instrumentation
+- API-26/API-28 thumbnail regressions
+
+Implementation gate `94aa7af146e342f8405c6032f8d29bfe9250d780`, Android CI run `34100525570` (#129), passed debug/JVM, release, lint, API-35 instrumentation, API-26 and API-28 jobs.
+
+The documentation-complete head must pass the same CI matrix before merge.
 
 # Later-step boundaries
 
-Step 3 does not implement:
+Step 4 does not implement:
 
-- Step 4 professional external subtitle/ASS-style engine and advanced sync/style management
-- Step 5 equalizer, boost, audio delay, Bluetooth sync and advanced DSP
-- Step 6 real software decoder/FFmpeg routing or fake decoder menu states
-- Step 7/8 SMB/WebDAV/FTP/cloud/Cast work
+- Step 5 equalizer, boost, audio delay, Bluetooth sync or advanced DSP
+- Step 6 software decoder/FFmpeg routing
+- Step 7/8 network/cloud/Cast work
 - Step 9 full advanced settings/security system
 - Step 10 physical certification
 
 # Physical certification boundary
 
-Real 3 GB+, 4K/HDR, SD card, USB/OTG, OEM-specific MediaStore/document-provider behavior, OEM gesture/fullscreen behavior, physical Bluetooth/headset routing, real display cutouts/foldables/external displays, high-refresh behavior, battery, thermal and broad device-matrix certification are **NOT VERIFIED — DEFERRED TO STEP 10**.
-
-This is an explicit project boundary and does not convert those physical claims to PASS by inference.
+Real 3 GB+/5 GB+/10 GB playback, 4K/HDR colour/performance, SD/USB/OTG, OEM provider behavior, physical Bluetooth/headset routing, cutouts/foldables/external displays, battery, thermal and broad device-matrix testing remain **NOT VERIFIED — DEFERRED TO STEP 10**.
