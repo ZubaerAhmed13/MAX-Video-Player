@@ -114,9 +114,29 @@ class Step6DecoderIntegrationTest {
                 val hardware = repository.state.value.diagnostics
                 assertEquals(DecoderMode.HARDWARE, hardware.requestedMode)
                 assertTrue(hardware.activeDecoderName in hardwareNames)
+                assertTrue(hardware.activeDecoderName !in softwareNames)
                 assertEquals(DecoderBackendType.HARDWARE, hardware.effectiveBackend)
             } else {
                 assertTrue("Hardware absence was not reported truthfully", await(10_000L) {
+                    repository.state.value.diagnostics.lastFailure?.code == DecoderFailureCode.NO_COMPATIBLE_DECODER
+                })
+                assertTrue(repository.state.value.diagnostics.activeDecoderName !in softwareNames)
+            }
+
+            repository.requestModeForCurrentMedia(media.stableId, DecoderMode.ENHANCED_HARDWARE)
+            if (hardwareNames.isNotEmpty()) {
+                assertTrue("Enhanced Hardware leaked to software or failed to activate hardware", await(15_000L) {
+                    repository.state.value.requestedMode == DecoderMode.ENHANCED_HARDWARE &&
+                        repository.state.value.diagnostics.activeDecoderName in hardwareNames &&
+                        repository.state.value.diagnostics.effectiveBackend == DecoderBackendType.HARDWARE
+                })
+                val enhanced = repository.state.value.diagnostics
+                assertEquals(DecoderMode.ENHANCED_HARDWARE, enhanced.requestedMode)
+                assertTrue(enhanced.activeDecoderName in hardwareNames)
+                assertTrue(enhanced.activeDecoderName !in softwareNames)
+                assertEquals(DecoderBackendType.HARDWARE, enhanced.effectiveBackend)
+            } else {
+                assertTrue("Enhanced Hardware absence was not reported truthfully", await(10_000L) {
                     repository.state.value.diagnostics.lastFailure?.code == DecoderFailureCode.NO_COMPATIBLE_DECODER
                 })
                 assertTrue(repository.state.value.diagnostics.activeDecoderName !in softwareNames)
