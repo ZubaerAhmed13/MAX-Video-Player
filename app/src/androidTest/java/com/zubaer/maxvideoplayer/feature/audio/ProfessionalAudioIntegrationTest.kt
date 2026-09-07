@@ -161,8 +161,8 @@ class ProfessionalAudioIntegrationTest {
                 val playerSelected = onMain(instrumentation) {
                     connection.playerOrNull()?.currentTracks?.groups?.any { group ->
                         group.type == C.TRACK_TYPE_AUDIO &&
-                            group.mediaTrackGroup.id.startsWith("1:") &&
-                            (0 until group.length).any { group.isTrackSelected(it) }
+                            isExternalMedia3Group(group) &&
+                            (0 until group.length).any { index -> group.isTrackSelected(index) }
                     } == true
                 }
                 stateSelected && playerSelected
@@ -250,6 +250,18 @@ class ProfessionalAudioIntegrationTest {
         assertEquals(AudioRouteType.USB, AudioRouteMonitor.routeTypeForDeviceType(AudioDeviceInfo.TYPE_USB_DEVICE))
         assertEquals(AudioRouteType.HDMI, AudioRouteMonitor.routeTypeForDeviceType(AudioDeviceInfo.TYPE_HDMI))
         assertEquals(AudioRouteType.UNKNOWN, AudioRouteMonitor.routeTypeForDeviceType(Int.MAX_VALUE))
+    }
+
+    /**
+     * MergingMediaPeriod prefixes child-1 Format IDs with "1:". MediaSession may replace the
+     * TrackGroup ID with a controller-unique ID, so certification intentionally accepts either
+     * service-side group identity or the preserved merged Format identity.
+     */
+    private fun isExternalMedia3Group(group: androidx.media3.common.Tracks.Group): Boolean {
+        if (group.mediaTrackGroup.id.startsWith("1:")) return true
+        return (0 until group.length).any { index ->
+            group.getTrackFormat(index).id?.startsWith("1:") == true
+        }
     }
 
     private fun certifyFixtureStructure(file: File) {

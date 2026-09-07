@@ -254,11 +254,12 @@ class AudioPlaybackController(
             !player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
         ) return
         player.currentTracks.groups.forEach { group ->
-            // MergingMediaSource child 0 is the primary source and child 1 is the single external
-            // audio source. Media3's MergingMediaPeriod prefixes merged group/format IDs with that
-            // child index, so "1:" is an explicit contract of this factory layout rather than an
-            // arbitrary filename/label heuristic.
-            if (group.type != C.TRACK_TYPE_AUDIO || !group.mediaTrackGroup.id.startsWith("1:")) return@forEach
+            // MergingMediaSource child 0 is primary and child 1 is the selected external audio.
+            // MergingMediaPeriod prefixes both group and Format IDs with the child index. Across a
+            // MediaSession boundary Media3 may rewrite TrackGroup IDs to controller-unique IDs,
+            // while the merged Format IDs retain the child prefix. Therefore identification must
+            // accept either representation rather than relying only on TrackGroup.id.
+            if (group.type != C.TRACK_TYPE_AUDIO || !isExternalGroup(group)) return@forEach
             for (index in 0 until group.length) {
                 if (group.isTrackSupported(index)) {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
@@ -280,9 +281,9 @@ class AudioPlaybackController(
         val tracks = mutableListOf<AudioTrackInfo>()
         player.currentTracks.groups.forEachIndexed { groupIndex, group ->
             if (group.type != C.TRACK_TYPE_AUDIO) return@forEachIndexed
+            val external = isExternalGroup(group)
             for (trackIndex in 0 until group.length) {
                 val format = group.getTrackFormat(trackIndex)
-                val external = group.mediaTrackGroup.id.startsWith("1:") || format.id?.startsWith("1:") == true
                 val language = canonicalLanguage(format.language)
                 val readableLanguage = language?.let { Locale.forLanguageTag(it).getDisplayLanguage(Locale.getDefault()) }
                     ?.takeIf { it.isNotBlank() }
@@ -309,11 +310,18 @@ class AudioPlaybackController(
         repository.updateTracks(tracks)
     }
 
+    private fun isExternalGroup(group: androidx.media3.common.Tracks.Group): Boolean {
+        if (group.mediaTrackGroup.id.startsWith("1:")) return true
+        return (0 until group.length).any { index ->
+            group.getTrackFormat(index).id?.startsWith("1:") == true
+        }
+    }
+
     private fun bestDescriptorMatch(player: Player, descriptor: AudioTrackDescriptor): Pair<androidx.media3.common.Tracks.Group, Int>? {
         var best: Pair<androidx.media3.common.Tracks.Group, Int>? = null
         var bestScore = Int.MIN_VALUE
         player.currentTracks.groups.forEach { group ->
-            if (group.type != C.TRACK_TYPE_AUDIO || group.mediaTrackGroup.id.startsWith("1:")) return@forEach
+            if (group.type != C.TRACK_TYPE_AUDIO || isExternalGroup(group)) return@forEach
             for (index in 0 until group.length) {
                 if (!group.isTrackSupported(index)) continue
                 val format = group.getTrackFormat(index)

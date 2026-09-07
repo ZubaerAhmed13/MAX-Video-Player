@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.SystemClock
 import androidx.lifecycle.Lifecycle
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -60,15 +61,19 @@ class ProfessionalAudioBackgroundIntegrationTest {
             assertTrue("Background fixture did not load", await(15_000L) {
                 connection.state.value.durationMs > 0L && connection.state.value.error == null
             })
+            assertTrue("Video track was not selected before lifecycle certification", await(5_000L) {
+                onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
+            })
 
             scenario.onActivity { activity ->
                 activity.setPlayerHostState(media, autoPip = false)
                 activity.setAudioBackgroundPolicy(BackgroundPlaybackMode.CONTINUE_AUDIO, disableVideo = true)
             }
             scenario.moveToState(Lifecycle.State.CREATED)
-            assertTrue("Continue-audio background did not suppress video", await(5_000L) {
+            assertTrue("Continue-audio background did not suppress the selected video track", await(5_000L) {
                 onMain(instrumentation) {
-                    connection.playerOrNull()?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_VIDEO) == true
+                    val player = connection.playerOrNull()
+                    player?.currentMediaItem?.mediaId == mediaId && !isVideoTrackSelected(player)
                 }
             })
             assertEquals(
@@ -78,10 +83,8 @@ class ProfessionalAudioBackgroundIntegrationTest {
             )
 
             scenario.moveToState(Lifecycle.State.STARTED)
-            assertTrue("Returning foreground did not restore video", await(5_000L) {
-                onMain(instrumentation) {
-                    connection.playerOrNull()?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_VIDEO) == false
-                }
+            assertTrue("Returning foreground did not restore a selected video track", await(5_000L) {
+                onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
             })
 
             scenario.onActivity { activity ->
@@ -91,15 +94,12 @@ class ProfessionalAudioBackgroundIntegrationTest {
             assertTrue("PiP fallback did not preserve audio session and suppress video", await(5_000L) {
                 onMain(instrumentation) {
                     val player = connection.playerOrNull()
-                    player?.currentMediaItem?.mediaId == mediaId &&
-                        player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO)
+                    player?.currentMediaItem?.mediaId == mediaId && !isVideoTrackSelected(player)
                 }
             })
             scenario.moveToState(Lifecycle.State.STARTED)
             assertTrue("PiP fallback foreground return did not restore video", await(5_000L) {
-                onMain(instrumentation) {
-                    connection.playerOrNull()?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_VIDEO) == false
-                }
+                onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
             })
 
             scenario.onActivity { activity ->
@@ -132,6 +132,17 @@ class ProfessionalAudioBackgroundIntegrationTest {
             fixture.delete()
         }
     }
+
+    /**
+     * Certifies observable playback behavior rather than the controller's copied parameter bundle.
+     * MediaSession may transiently cache TrackSelectionParameters while selected Tracks already
+     * reflect the service-owned ExoPlayer state. A selected video track is the behavior users see.
+     */
+    private fun isVideoTrackSelected(player: Player?): Boolean =
+        player?.currentTracks?.groups?.any { group ->
+            group.type == C.TRACK_TYPE_VIDEO &&
+                (0 until group.length).any { index -> group.isTrackSelected(index) }
+        } == true
 
     private fun copyAsset(
         targetContext: android.content.Context,
