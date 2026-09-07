@@ -34,6 +34,7 @@ class PlayerScreenGestureInstrumentedTest {
     fun realPlayerScreenDispatchesSeekDoubleTapPinchAndRenderedAwarePan() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
+        context.getSharedPreferences("player_interaction_preferences_v1", 0).edit().clear().commit()
         val fixture = AndroidTestMediaFixture.writeShortH264Mp4(context, "player_screen_gesture_fixture.mp4")
         val database = Room.inMemoryDatabaseBuilder(context, MaxDatabase::class.java)
             .allowMainThreadQueries()
@@ -42,9 +43,12 @@ class PlayerScreenGestureInstrumentedTest {
         val preferences = PlayerPreferences(context).apply {
             setTutorialSeen(true)
             setHorizontalSeekEnabled(true)
+            setBrightnessGestureEnabled(true)
+            setVolumeGestureEnabled(true)
             setPinchZoomEnabled(true)
             setGestureSensitivity(GestureSensitivity.MEDIUM)
             setDoubleTapSeekSeconds(5)
+            setDefaultResizeMode(ResizeMode.FIT)
         }
         val subtitleRepository = SubtitleRepository(context)
         val playbackConnection = PlaybackConnection(context, subtitleRepository)
@@ -95,12 +99,16 @@ class PlayerScreenGestureInstrumentedTest {
             composeRule.runOnIdle {
                 playbackConnection.pause()
                 playbackConnection.seekTo(500L)
-                if (viewModel.state.value.controlsVisible) viewModel.onSurfaceTap()
             }
             composeRule.waitUntil(timeoutMillis = 5_000L) {
-                playbackConnection.state.value.currentPositionMs in 250L..900L &&
-                    !viewModel.state.value.controlsVisible
+                !playbackConnection.state.value.isPlaying &&
+                    !viewModel.state.value.isPlaying &&
+                    playbackConnection.state.value.currentPositionMs in 250L..900L
             }
+            composeRule.runOnIdle {
+                if (viewModel.state.value.controlsVisible) viewModel.onSurfaceTap()
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000L) { !viewModel.state.value.controlsVisible }
 
             val surface = composeRule.onNodeWithTag("video_surface").assertExists()
 
@@ -216,6 +224,7 @@ class PlayerScreenGestureInstrumentedTest {
             context.stopService(Intent(context, PlaybackService::class.java))
             database.close()
             fixture.delete()
+            context.getSharedPreferences("player_interaction_preferences_v1", 0).edit().clear().commit()
         }
     }
 }
