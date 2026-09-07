@@ -6,13 +6,13 @@ MX Player Pro is used only as a functionality/workflow reference. This repositor
 
 ## Current development status
 
-**Step 5 of 10 — Professional Audio Engine: REPOSITORY-COMPLETE**
+**Step 5 of 10 — Professional Audio Engine: REPOSITORY-COMPLETE BASELINE + CERTIFICATION HARDENING**
 
-Step 5 was merged through PR #7. The merged `main` commit is:
+Step 5 was merged through PR #7. The merged baseline `main` commit is:
 
 - `bea360164fe69cfc146dc03b55df4da4a0cb153a`
 
-Post-merge Android CI #163 (`34158185652`) passed on that exact `main` commit:
+Post-merge Android CI #163 (`34158185652`) passed on that exact baseline:
 
 - debug build + JVM/unit/DSP tests — **PASS**
 - release compilation — **PASS**
@@ -21,7 +21,9 @@ Post-merge Android CI #163 (`34158185652`) passed on that exact `main` commit:
 - API-26 legacy-thumbnail regression — **PASS**
 - API-28 legacy-thumbnail regression — **PASS**
 
-A subsequent Step-5 certification-hardening change expands the DSP signal matrix and refreshes these canonical documents; it must pass the same exact-head CI matrix before being merged.
+A follow-up audit correctly found that the canonical root documentation was still Step-4-oriented and that several exact DSP signal tests from the original Step-5 specification were missing. PR #8 corrects both findings.
+
+The corrective implementation/evidence head `826558fdd9ba5eeec1c772aed6307faef2ecb88c` passed Android CI #165 (`34159966506`) across debug/JVM/DSP, release, lint, API-35, API-26 and API-28. The documentation-complete PR head that records those results must pass the same matrix again before merge, followed by post-merge `main` CI.
 
 Physical 3 GB+/4K/HDR/device-matrix, Bluetooth/USB/HDMI acoustic latency, OEM background restrictions, battery and thermal certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
@@ -80,7 +82,7 @@ Implemented software/emulator behavior includes:
 
 The DSP is project-owned Kotlin code running through Media3 audio processing. It does not use an opaque proprietary DSP binary and does not depend on `android.media.audiofx.Equalizer` for the required professional behavior.
 
-Required signal certification covers:
+The exact Step-5 signal certification now covers:
 
 - neutral PCM16 bit transparency
 - neutral PCM-float transparency
@@ -94,16 +96,17 @@ Required signal certification covers:
 - NaN/Infinity sanitization on the active DSP path
 - stereo balance and mono/left/right routing
 - multichannel preservation
-- zero, positive and negative audio-delay semantics
+- zero, +500 ms and −500 ms audio-delay semantics at realistic sample rate/channel count
 - delay bounds and flush/seek stale-buffer rejection
 - 44.1/48/96 kHz processing
 - filter-state reset
 - live parameter revision without processor recreation
+- bounded live-change discontinuity
 - DC-offset/numerical-safety checks
-- long deterministic extreme-settings stability
+- long deterministic extreme-settings streaming stability
 - truthful unsupported-PCM rejection
 
-See `STEP_5_TEST_MATRIX.md` for the detailed certification matrix.
+These exact tests passed in CI #165 on corrective implementation head `826558fdd9ba5eeec1c772aed6307faef2ecb88c`. See `STEP_5_TEST_MATRIX.md` for the detailed assertions.
 
 ## Playback ownership
 
