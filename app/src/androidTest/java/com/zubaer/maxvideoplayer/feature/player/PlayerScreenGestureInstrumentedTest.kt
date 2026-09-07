@@ -4,8 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.test.assertExists
-import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
@@ -106,8 +104,6 @@ class PlayerScreenGestureInstrumentedTest {
 
             val surface = composeRule.onNodeWithTag("video_surface").assertExists()
 
-            // Horizontal drag must travel through PlayerScreen.pointerInput -> classifier ->
-            // PlayerViewModel.commitSeek -> the service-owned MediaController.
             surface.performTouchInput {
                 swipe(
                     start = Offset(width * 0.25f, height * 0.35f),
@@ -120,7 +116,6 @@ class PlayerScreenGestureInstrumentedTest {
             }
             assertNull("Horizontal seek gesture caused playback failure", playbackConnection.state.value.error)
 
-            // Real double-tap zone handling through the production PlayerScreen surface.
             composeRule.runOnIdle { playbackConnection.seekTo(500L) }
             composeRule.waitUntil(timeoutMillis = 5_000L) {
                 playbackConnection.state.value.currentPositionMs in 250L..900L
@@ -132,8 +127,6 @@ class PlayerScreenGestureInstrumentedTest {
                 playbackConnection.state.value.currentPositionMs >= 1_500L
             }
 
-            // Multi-pointer pinch with a rightward centroid shift. This must be handled by the
-            // production awaitEachGesture/calculateZoom/calculatePan path in PlayerScreen.
             composeRule.runOnIdle { viewModel.resetZoom() }
             surface.performTouchInput {
                 val y = height * 0.55f
@@ -152,9 +145,6 @@ class PlayerScreenGestureInstrumentedTest {
             val afterPinch = viewModel.state.value
             assertTrue("Pinch did not create horizontal pan through PlayerScreen", afterPinch.panX > 0f)
 
-            // Keep two fingers at the same separation and try to pan far down. A portrait viewport
-            // containing a 16:9 FIT video has substantial vertical letterbox area; the rendered
-            // video bound, not the viewport-scaled bound, must clamp this movement.
             surface.performTouchInput {
                 val startY = height * 0.42f
                 val endY = height * 0.78f
