@@ -3,17 +3,22 @@ package com.zubaer.maxvideoplayer.playback.engine
 import android.content.Context
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.decoder.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
 import com.zubaer.maxvideoplayer.feature.audio.AudioRepository
 import com.zubaer.maxvideoplayer.feature.audio.MaxAudioProcessor
 import com.zubaer.maxvideoplayer.feature.audio.ProfessionalMediaSourceFactory
+import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderFormatSnapshot
+import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
+import com.zubaer.maxvideoplayer.feature.decoder.runtime.ProfessionalRenderersFactory
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
@@ -21,21 +26,75 @@ class Media3PlaybackEngine(
     context: Context,
     subtitleRepository: SubtitleRepository,
     private val audioRepository: AudioRepository,
+    private val decoderRepository: DecoderRepository,
 ) : PlaybackEngine {
     val audioProcessor = MaxAudioProcessor(audioRepository)
     private val appContext = context.applicationContext
-    private val renderersFactory = object : DefaultRenderersFactory(appContext) {
-        override fun buildAudioSink(
-            context: Context,
-            enableFloatOutput: Boolean,
-            enableAudioOutputPlaybackParams: Boolean,
-        ): AudioSink = DefaultAudioSink.Builder(context)
-            // App-owned DSP requires decoded PCM. Device-dependent float/offload paths that can
-            // bypass custom processors are not silently advertised as DSP-active.
-            .setEnableFloatOutput(false)
-            .setEnableAudioOutputPlaybackParameters(false)
-            .setAudioProcessors(arrayOf(audioProcessor))
-            .build()
+    private val renderersFactory = ProfessionalRenderersFactory(appContext, decoderRepository, audioProcessor)
+
+    private val decoderAnalyticsListener = object : AnalyticsListener {
+        override fun onVideoDecoderInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long,
+        ) {
+            decoderRepository.recordDecoderInitialized(decoderName, initializationDurationMs)
+        }
+
+        override fun onVideoDecoderReleased(eventTime: AnalyticsListener.EventTime, decoderName: String) {
+            decoderRepository.recordDecoderReleased(decoderName)
+        }
+
+        override fun onVideoInputFormatChanged(
+            eventTime: AnalyticsListener.EventTime,
+            format: Format,
+            decoderReuseEvaluation: DecoderReuseEvaluation?,
+        ) {
+            decoderRepository.recordInputFormat(
+                DecoderFormatSnapshot(
+                    mimeType = format.sampleMimeType,
+                    codecs = format.codecs,
+                    width = format.width.takeIf { it > 0 },
+                    height = format.height.takeIf { it > 0 },
+                    frameRate = format.frameRate.takeIf { it > 0f },
+                    colorInfoPresent = format.colorInfo != null,
+                ),
+            )
+        }
+
+        override fun onDroppedVideoFrames(
+            eventTime: AnalyticsListener.EventTime,
+            droppedFrames: Int,
+            elapsedMs: Long,
+        ) {
+            decoderRepository.addDroppedFrames(droppedFrames)
+        }
+
+        override fun onVideoDisabled(
+            eventTime: AnalyticsListener.EventTime,
+            decoderCounters: androidx.media3.decoder.DecoderCounters,
+        ) {
+            if (C.TRACK_TYPE_VIDEO in exoPlayer.trackSelectionParameters.disabledTrackTypes) {
+                decoderRepository.markVideoDecoderInactive("Video decoder inactive — audio-only mode")
+            }
+        }
+    }
+
+    private val decoderFailureListener = object : Player.Listener {
+        override fun onPlayerError(error: PlaybackException) {
+            if (error.errorCode !in DECODER_ERROR_CODES) return
+            val runtimeFailure = error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED
+            val hasAlternative = decoderRepository.recordCodecFailure(
+                message = "${error.errorCodeName}: ${error.message ?: "video decoder failure"}",
+                runtime = runtimeFailure,
+            )
+            val mode = decoderRepository.requestedMode()
+            if (hasAlternative && mode != DecoderMode.HARDWARE) {
+                reconfigureVideoDecoder(mode)
+            }
+        }
     }
 
     private val exoPlayer = ExoPlayer.Builder(
@@ -51,6 +110,8 @@ class Media3PlaybackEngine(
                 .build()
             setAudioAttributes(attributes, true)
             setHandleAudioBecomingNoisy(true)
+            addAnalyticsListener(decoderAnalyticsListener)
+            addListener(decoderFailureListener)
         }
 
     init {
@@ -58,6 +119,33 @@ class Media3PlaybackEngine(
     }
 
     override val player: Player get() = exoPlayer
+
+    fun reconfigureVideoDecoder(mode: DecoderMode = decoderRepository.requestedMode()) {
+        if (exoPlayer.mediaItemCount == 0) return
+        if (C.TRACK_TYPE_VIDEO in exoPlayer.trackSelectionParameters.disabledTrackTypes) {
+            decoderRepository.markVideoDecoderInactive("Video decoder inactive — audio-only mode")
+            return
+        }
+
+        val items = List(exoPlayer.mediaItemCount) { exoPlayer.getMediaItemAt(it) }
+        val index = exoPlayer.currentMediaItemIndex.coerceIn(items.indices)
+        val positionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+        val playWhenReady = exoPlayer.playWhenReady
+        val repeatMode = exoPlayer.repeatMode
+        val shuffleEnabled = exoPlayer.shuffleModeEnabled
+        val playbackParameters = exoPlayer.playbackParameters
+        val trackSelectionParameters = exoPlayer.trackSelectionParameters
+
+        decoderRepository.markSwitching()
+        exoPlayer.stop()
+        exoPlayer.setMediaItems(items, index, positionMs)
+        exoPlayer.repeatMode = repeatMode
+        exoPlayer.shuffleModeEnabled = shuffleEnabled
+        exoPlayer.playbackParameters = playbackParameters
+        exoPlayer.trackSelectionParameters = trackSelectionParameters
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = playWhenReady
+    }
 
     override fun setMedia(item: MediaItem, startPositionMs: Long, playWhenReady: Boolean) {
         exoPlayer.setMediaItem(item, startPositionMs.coerceAtLeast(0L))
@@ -89,7 +177,21 @@ class Media3PlaybackEngine(
     }
 
     override fun release() {
+        exoPlayer.removeAnalyticsListener(decoderAnalyticsListener)
+        exoPlayer.removeListener(decoderFailureListener)
         exoPlayer.release()
+        decoderRepository.markVideoDecoderInactive("Playback released")
         audioRepository.setDspPipelineInstalled(false)
+    }
+
+    private companion object {
+        val DECODER_ERROR_CODES = setOf(
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+            PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED,
+        )
     }
 }
