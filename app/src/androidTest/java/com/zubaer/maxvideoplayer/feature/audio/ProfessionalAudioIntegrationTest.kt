@@ -148,8 +148,25 @@ class ProfessionalAudioIntegrationTest {
             assertNotNull("External AAC fixture was not recognized", externalDescriptor)
             instrumentation.runOnMainSync { controller.attachExternal(externalDescriptor!!) }
             assertTrue("External audio association/selection did not persist", await(10_000L) {
-                audio.state.value.selectedExternalId != null && audio.state.value.externalAudio.isNotEmpty()
+                val state = audio.state.value
+                val selectedId = state.selectedExternalId
+                selectedId != null && state.externalAudio.any { it.id == selectedId && it.preferred }
             })
+            assertTrue("External audio did not become the selected Media3 audio track", await(10_000L) {
+                val stateSelected = audio.state.value.tracks.any { it.external && it.selected }
+                val playerSelected = onMain(instrumentation) {
+                    connection.playerOrNull()?.currentTracks?.groups?.any { group ->
+                        group.type == C.TRACK_TYPE_AUDIO &&
+                            group.mediaTrackGroup.id.startsWith("1:") &&
+                            (0 until group.length).any { group.isTrackSelected(it) }
+                    } == true
+                }
+                stateSelected && playerSelected
+            })
+            assertTrue(
+                "Embedded audio remained selected after explicit external-audio selection",
+                audio.state.value.tracks.none { !it.external && it.selected },
+            )
             assertTrue(
                 "External audio replaced Step-4 subtitle association",
                 container.subtitleRepository.externalAttachmentsFor(mediaId).isNotEmpty(),
