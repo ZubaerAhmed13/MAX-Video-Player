@@ -1,5 +1,6 @@
 package com.zubaer.maxvideoplayer.feature.player
 
+import com.zubaer.maxvideoplayer.core.device.DeviceDecoderProfile
 import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderSessionState
 
@@ -110,6 +111,9 @@ data class PlayerCoordinatorState(
     val isPlaying: Boolean = false,
     val preferences: PlayerPreferencesState = PlayerPreferencesState(),
     val decoder: DecoderSessionState = DecoderSessionState(),
+    val decoderCapabilities: DeviceDecoderProfile? = null,
+    val decoderCapabilitiesLoading: Boolean = false,
+    val decoderCapabilitiesError: String? = null,
 )
 
 data class PanBounds(
