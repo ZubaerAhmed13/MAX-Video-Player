@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.io.FileNotFoundException
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -50,6 +51,7 @@ class SubtitleRepository(
     private val associations = ConcurrentHashMap<String, List<ExternalSubtitleAttachment>>()
     private val mediaDelayMs = ConcurrentHashMap<String, Long>()
     private val selectedExternalIds = ConcurrentHashMap<String, String?>()
+    private val recoverableErrors = ConcurrentHashMap<String, String>()
 
     init {
         hydrateRoomCache()
@@ -72,36 +74,40 @@ class SubtitleRepository(
         )
     }
 
-    suspend fun describeAsync(uri: Uri, sourceType: SubtitleSourceType = SubtitleSourceType.SIDELOADED_FILE): SubtitleFileDescriptor? =
-        withContext(Dispatchers.IO) {
-            val displayName = queryDisplayName(uri)
-                ?: uri.lastPathSegment?.substringAfterLast('/')
-                ?: "External subtitle"
-            val providerMime = resolver.getType(uri)
-            val size = querySize(uri)
-            if (size != null && size > MAX_SUBTITLE_BYTES) return@withContext null
-            val prefix = readPrefix(uri, MAX_PREFIX_BYTES)
-            val mimeType = SubtitleFormatPolicy.resolveMimeType(displayName, providerMime, prefix) ?: return@withContext null
-            val format = SubtitleFormatPolicy.resolveFormat(displayName, providerMime, prefix) ?: return@withContext null
-            SubtitleFileDescriptor(
-                uri = uri.toString(),
-                displayName = displayName,
-                mimeType = mimeType,
-                format = format,
-                encoding = prefix?.let(SubtitleEncodingPolicy::detect) ?: SubtitleEncoding.AUTO,
-                sizeBytes = size,
-                sourceType = sourceType,
-            )
-        }
+    suspend fun describeAsync(
+        uri: Uri,
+        sourceType: SubtitleSourceType = SubtitleSourceType.SIDELOADED_FILE,
+    ): SubtitleFileDescriptor? = withContext(Dispatchers.IO) {
+        val displayName = queryDisplayName(uri)
+            ?: uri.lastPathSegment?.substringAfterLast('/')
+            ?: "External subtitle"
+        val providerMime = resolver.getType(uri)
+        val size = querySize(uri)
+        if (size != null && size > MAX_SUBTITLE_BYTES) return@withContext null
+        val prefix = readPrefix(uri, MAX_PREFIX_BYTES)
+        val mimeType = SubtitleFormatPolicy.resolveMimeType(displayName, providerMime, prefix) ?: return@withContext null
+        val format = SubtitleFormatPolicy.resolveFormat(displayName, providerMime, prefix) ?: return@withContext null
+        SubtitleFileDescriptor(
+            uri = uri.toString(),
+            displayName = displayName,
+            mimeType = mimeType,
+            format = format,
+            encoding = prefix?.let(SubtitleEncodingPolicy::detect) ?: SubtitleEncoding.AUTO,
+            sizeBytes = size,
+            sourceType = sourceType,
+        )
+    }
 
     fun persistReadPermission(uri: Uri): Boolean = runCatching {
         resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         true
     }.getOrDefault(false)
 
-    fun canOpen(uri: Uri): Boolean = runCatching {
-        resolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
-    }.getOrDefault(false)
+    fun canOpen(uri: Uri): Boolean = probeAvailability(uri) == SubtitleAvailability.AVAILABLE
+
+    suspend fun probeDescriptor(uri: Uri): SubtitleAvailability = withContext(Dispatchers.IO) {
+        probeAvailability(uri)
+    }
 
     fun saveExternalAttachment(
         mediaId: String,
@@ -122,11 +128,7 @@ class SubtitleRepository(
             encoding = descriptor.encoding,
             sourceType = descriptor.sourceType,
             isPreferred = preferred,
-            availability = if (runCatching { canOpen(Uri.parse(descriptor.uri)) }.getOrDefault(false)) {
-                SubtitleAvailability.AVAILABLE
-            } else {
-                SubtitleAvailability.UNKNOWN
-            },
+            availability = probeAvailability(Uri.parse(descriptor.uri)),
             delayMs = if (preferred) subtitleDelayFor(mediaId) else 0L,
         )
 
@@ -137,6 +139,7 @@ class SubtitleRepository(
             current + attachment
         }
         if (preferred) selectedExternalIds[mediaId] = id
+        recoverableErrors.remove(mediaId)
         persistLegacyAttachment(mediaId, attachment)
         persistAssociationAsync(attachment, preferred)
         return attachment
@@ -150,6 +153,9 @@ class SubtitleRepository(
     fun externalAttachmentFor(mediaId: String): ExternalSubtitleAttachment? =
         externalAttachmentsFor(mediaId).firstOrNull { it.isPreferred }
             ?: externalAttachmentsFor(mediaId).firstOrNull()
+
+    fun externalAttachmentById(mediaId: String, attachmentId: String): ExternalSubtitleAttachment? =
+        externalAttachmentsFor(mediaId).firstOrNull { it.id == attachmentId }
 
     fun selectedExternalAttachmentId(mediaId: String): String? =
         selectedExternalIds[mediaId] ?: externalAttachmentFor(mediaId)?.takeIf { it.isPreferred }?.id
@@ -170,6 +176,36 @@ class SubtitleRepository(
         persistLegacyAttachment(mediaId, selected.copy(isPreferred = true))
     }
 
+    fun setExternalEncoding(mediaId: String, attachmentId: String, encoding: SubtitleEncoding): Boolean {
+        val existing = associations[mediaId].orEmpty()
+        if (existing.none { it.id == attachmentId }) return false
+        associations[mediaId] = existing.map {
+            if (it.id == attachmentId) it.copy(encoding = encoding, availability = SubtitleAvailability.UNKNOWN) else it
+        }
+        recoverableErrors.remove(mediaId)
+        database?.let { db ->
+            ioScope.launch { db.subtitleDao().setEncoding(attachmentId, encoding.name, SubtitleAvailability.UNKNOWN.name) }
+        }
+        return true
+    }
+
+    suspend fun relinkExternalAttachment(
+        mediaId: String,
+        attachmentId: String,
+        descriptor: SubtitleFileDescriptor,
+    ): ExternalSubtitleAttachment? = withContext(Dispatchers.IO) {
+        val old = externalAttachmentById(mediaId, attachmentId) ?: return@withContext null
+        val wasSelected = selectedExternalAttachmentId(mediaId) == attachmentId
+        removeExternalAttachment(mediaId, attachmentId)
+        val saved = saveExternalAttachment(mediaId, descriptor, preferred = old.isPreferred || wasSelected)
+        val restored = saved.copy(delayMs = old.delayMs, encoding = old.encoding)
+        associations[mediaId] = associations[mediaId].orEmpty().map { if (it.id == saved.id) restored else it }
+        database?.subtitleDao()?.upsertAssociation(restored.toEntity())
+        if (wasSelected) selectExternalAttachment(mediaId, restored.id)
+        recoverableErrors.remove(mediaId)
+        restored
+    }
+
     fun removeExternalAttachment(mediaId: String, attachmentId: String) {
         val remaining = associations[mediaId].orEmpty().filterNot { it.id == attachmentId }
         val wasSelected = selectedExternalIds[mediaId] == attachmentId
@@ -185,15 +221,56 @@ class SubtitleRepository(
         }
         database?.let { db -> ioScope.launch { db.subtitleDao().deleteAssociation(attachmentId) } }
         if (promoted.isEmpty()) clearLegacyAttachment(mediaId) else promoted.firstOrNull { it.isPreferred }?.let { persistLegacyAttachment(mediaId, it) }
+        if (promoted.isEmpty()) recoverableErrors.remove(mediaId)
     }
 
     fun clearExternalAttachment(mediaId: String) {
         associations.remove(mediaId)
         selectedExternalIds.remove(mediaId)
+        recoverableErrors.remove(mediaId)
         clearLegacyAttachment(mediaId)
         database?.let { db -> ioScope.launch { db.subtitleDao().deleteAssociationsForMedia(mediaId) } }
         persistMediaStateAsync(mediaId, null, subtitleDelayFor(mediaId))
     }
+
+    suspend fun refreshAvailability(mediaId: String): Boolean = withContext(Dispatchers.IO) {
+        val existing = externalAttachmentsFor(mediaId)
+        if (existing.isEmpty()) return@withContext false
+        var changed = false
+        val refreshed = existing.map { attachment ->
+            val next = when (attachment.availability) {
+                SubtitleAvailability.UNSUPPORTED, SubtitleAvailability.MALFORMED -> attachment.availability
+                else -> probeAvailability(Uri.parse(attachment.uri))
+            }
+            if (next != attachment.availability) changed = true
+            if (next != attachment.availability) {
+                database?.subtitleDao()?.setAvailability(attachment.id, next.name)
+            }
+            attachment.copy(availability = next)
+        }
+        associations[mediaId] = refreshed
+        val unavailable = refreshed.firstOrNull { it.availability != SubtitleAvailability.AVAILABLE }
+        when {
+            unavailable == null -> recoverableErrors.remove(mediaId)
+            unavailable.availability == SubtitleAvailability.PERMISSION_LOST -> recoverableErrors[mediaId] =
+                "Subtitle permission was lost. Relink the subtitle file or remove the association."
+            unavailable.availability == SubtitleAvailability.MISSING -> recoverableErrors[mediaId] =
+                "Subtitle file is missing. Video playback can continue; relink or remove the subtitle."
+        }
+        changed
+    }
+
+    fun reportExternalParseFailure(mediaId: String, attachmentId: String?, message: String?) {
+        val safeMessage = "Subtitle could not be parsed${message?.takeIf { it.isNotBlank() }?.let { ": ${it.take(160)}" }.orEmpty()}. Change encoding, relink, remove it, or try another subtitle."
+        recoverableErrors[mediaId] = safeMessage
+        if (attachmentId == null) return
+        associations[mediaId] = associations[mediaId].orEmpty().map {
+            if (it.id == attachmentId) it.copy(availability = SubtitleAvailability.MALFORMED) else it
+        }
+        database?.let { db -> ioScope.launch { db.subtitleDao().setAvailability(attachmentId, SubtitleAvailability.MALFORMED.name) } }
+    }
+
+    fun recoverableErrorFor(mediaId: String): String? = recoverableErrors[mediaId]
 
     fun subtitleDelayFor(mediaId: String): Long = SubtitleTimingPolicy.clamp(mediaDelayMs[mediaId] ?: 0L)
 
@@ -343,20 +420,25 @@ class SubtitleRepository(
         }
     }
 
-    private fun fromEntity(entity: SubtitleAssociationEntity): ExternalSubtitleAttachment = ExternalSubtitleAttachment(
-        id = entity.id,
-        mediaId = entity.stableMediaId,
-        uri = entity.subtitleUri,
-        label = entity.displayName,
-        language = entity.language,
-        mimeType = entity.mimeType,
-        format = enumOrDefault(entity.format, SubtitleFormat.UNKNOWN),
-        encoding = enumOrDefault(entity.encoding, SubtitleEncoding.AUTO),
-        sourceType = SubtitleSourceType.SIDELOADED_FILE,
-        isPreferred = entity.isPreferred,
-        availability = enumOrDefault(entity.availability, SubtitleAvailability.UNKNOWN),
-        delayMs = SubtitleTimingPolicy.clamp(entity.delayMs),
-    )
+    private fun fromEntity(entity: SubtitleAssociationEntity): ExternalSubtitleAttachment {
+        val storedAvailability = enumOrDefault(entity.availability, SubtitleAvailability.UNKNOWN)
+        return ExternalSubtitleAttachment(
+            id = entity.id,
+            mediaId = entity.stableMediaId,
+            uri = entity.subtitleUri,
+            label = entity.displayName,
+            language = entity.language,
+            mimeType = entity.mimeType,
+            format = enumOrDefault(entity.format, SubtitleFormat.UNKNOWN),
+            encoding = enumOrDefault(entity.encoding, SubtitleEncoding.AUTO),
+            sourceType = SubtitleSourceType.SIDELOADED_FILE,
+            isPreferred = entity.isPreferred,
+            // A persisted AVAILABLE result is only a previous-session observation. Re-probe it
+            // before Media3 attaches the source so stale SAF permissions never break the video.
+            availability = if (storedAvailability == SubtitleAvailability.AVAILABLE) SubtitleAvailability.UNKNOWN else storedAvailability,
+            delayMs = SubtitleTimingPolicy.clamp(entity.delayMs),
+        )
+    }
 
     private fun ExternalSubtitleAttachment.toEntity(): SubtitleAssociationEntity = SubtitleAssociationEntity(
         id = id,
@@ -460,6 +542,17 @@ class SubtitleRepository(
         }
     }.getOrNull()
 
+    private fun probeAvailability(uri: Uri): SubtitleAvailability = try {
+        resolver.openAssetFileDescriptor(uri, "r")?.use { SubtitleAvailability.AVAILABLE }
+            ?: SubtitleAvailability.MISSING
+    } catch (_: SecurityException) {
+        SubtitleAvailability.PERMISSION_LOST
+    } catch (_: FileNotFoundException) {
+        SubtitleAvailability.MISSING
+    } catch (_: Exception) {
+        SubtitleAvailability.UNKNOWN
+    }
+
     private fun inferLanguage(displayName: String): String? {
         val withoutExtension = displayName.substringBeforeLast('.', displayName)
         val token = withoutExtension.split('.', '_', '-', ' ').lastOrNull()?.lowercase(Locale.ROOT) ?: return null
@@ -492,6 +585,7 @@ class SubtitleRepository(
             mimeType = mime,
             format = SubtitleFormatPolicy.resolveFormat(label, mime) ?: SubtitleFormat.UNKNOWN,
             isPreferred = true,
+            availability = SubtitleAvailability.UNKNOWN,
         )
     }
 

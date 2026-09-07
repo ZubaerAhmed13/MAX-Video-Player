@@ -57,6 +57,9 @@ interface SubtitleDao {
     @Query("UPDATE subtitle_associations SET availability = :availability WHERE id = :id")
     suspend fun setAvailability(id: String, availability: String)
 
+    @Query("UPDATE subtitle_associations SET encoding = :encoding, availability = :availability WHERE id = :id")
+    suspend fun setEncoding(id: String, encoding: String, availability: String)
+
     @Query("UPDATE subtitle_associations SET delayMs = :delayMs WHERE id = :id")
     suspend fun setAssociationDelay(id: String, delayMs: Long)
 

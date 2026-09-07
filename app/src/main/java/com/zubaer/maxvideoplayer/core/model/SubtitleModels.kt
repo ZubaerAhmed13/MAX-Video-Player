@@ -20,6 +20,7 @@ data class ExternalSubtitleInfo(
     val language: String? = null,
     val mimeType: String,
     val format: String,
+    val encoding: String = "AUTO",
     val preferred: Boolean,
     val availability: String,
     val delayMs: Long,

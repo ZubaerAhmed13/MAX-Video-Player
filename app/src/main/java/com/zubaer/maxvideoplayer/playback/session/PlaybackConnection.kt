@@ -20,6 +20,7 @@ import com.zubaer.maxvideoplayer.core.model.SubtitlePlaybackState
 import com.zubaer.maxvideoplayer.core.model.SubtitleTrackInfo
 import com.zubaer.maxvideoplayer.feature.subtitle.ExternalSubtitleAttachment
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleAvailability
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleEncoding
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleFileDescriptor
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleMatcher
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
@@ -181,20 +182,34 @@ class PlaybackConnection(
         val parsed = parseTrackKey(trackKey) ?: return@withController
         val group = player.currentTracks.groups.getOrNull(parsed.first) ?: return@withController
         if (group.type != C.TRACK_TYPE_TEXT || parsed.second !in 0 until group.length) return@withController
-        val associationId = associationIdFromFormat(group.getTrackFormat(parsed.second))
         val mediaId = player.currentMediaItem?.mediaId
-        if (associationId != null && mediaId != null) {
+        val format = group.getTrackFormat(parsed.second)
+        val attachment = mediaId?.let { resolveExternalAttachment(format, subtitleRepository.externalAttachmentsFor(it)) }
+        if (attachment != null && mediaId != null) {
             val previousDelay = subtitleRepository.subtitleDelayFor(mediaId)
-            subtitleRepository.selectExternalAttachment(mediaId, associationId)
+            subtitleRepository.selectExternalAttachment(mediaId, attachment.id)
             val restoredDelay = subtitleRepository.subtitleDelayFor(mediaId)
             if (restoredDelay != previousDelay) {
                 pendingExternalSelectionMediaId = mediaId
-                pendingExternalSelectionId = associationId
+                pendingExternalSelectionId = attachment.id
                 rebuildCurrentMediaSource(player)
                 return@withController
             }
         }
         selectSubtitleTrackInternal(player, trackKey)
+    }
+
+    fun selectExternalSubtitleAssociation(attachmentId: String) = withController { player ->
+        val mediaId = player.currentMediaItem?.mediaId ?: return@withController
+        val attachment = subtitleRepository.externalAttachmentById(mediaId, attachmentId) ?: return@withController
+        subtitleRepository.selectExternalAttachment(mediaId, attachmentId)
+        if (attachment.availability != SubtitleAvailability.AVAILABLE) {
+            recoverableSubtitleError = subtitleRepository.recoverableErrorFor(mediaId)
+                ?: "Subtitle source is unavailable. Relink or remove it; video playback can continue."
+        }
+        pendingExternalSelectionMediaId = mediaId
+        pendingExternalSelectionId = attachmentId
+        rebuildCurrentMediaSource(player)
     }
 
     fun attachExternalSubtitle(descriptor: SubtitleFileDescriptor) = withController { player ->
@@ -204,6 +219,39 @@ class PlaybackConnection(
         pendingExternalSelectionId = attachment.id
         recoverableSubtitleError = null
         rebuildCurrentMediaSource(player)
+        if (attachment.availability != SubtitleAvailability.AVAILABLE) refreshExternalSubtitles()
+    }
+
+    fun relinkExternalSubtitle(attachmentId: String, descriptor: SubtitleFileDescriptor) = withController { player ->
+        val mediaId = player.currentMediaItem?.mediaId ?: return@withController
+        scope.launch {
+            val replacement = subtitleRepository.relinkExternalAttachment(mediaId, attachmentId, descriptor) ?: return@launch
+            if (controller?.currentMediaItem?.mediaId != mediaId) return@launch
+            recoverableSubtitleError = null
+            pendingExternalSelectionMediaId = mediaId
+            pendingExternalSelectionId = replacement.id
+            controller?.let(::rebuildCurrentMediaSource)
+        }
+    }
+
+    fun setExternalSubtitleEncoding(attachmentId: String, encoding: SubtitleEncoding) = withController { player ->
+        val mediaId = player.currentMediaItem?.mediaId ?: return@withController
+        if (!subtitleRepository.setExternalEncoding(mediaId, attachmentId, encoding)) return@withController
+        pendingExternalSelectionMediaId = mediaId
+        pendingExternalSelectionId = attachmentId
+        scope.launch {
+            subtitleRepository.refreshAvailability(mediaId)
+            if (controller?.currentMediaItem?.mediaId == mediaId) controller?.let(::rebuildCurrentMediaSource)
+        }
+    }
+
+    fun refreshExternalSubtitles() = withController { player ->
+        val mediaId = player.currentMediaItem?.mediaId ?: return@withController
+        scope.launch {
+            val changed = subtitleRepository.refreshAvailability(mediaId)
+            recoverableSubtitleError = subtitleRepository.recoverableErrorFor(mediaId)
+            if (changed && controller?.currentMediaItem?.mediaId == mediaId) controller?.let(::rebuildCurrentMediaSource)
+        }
     }
 
     fun removeExternalSubtitle(attachmentId: String) = withController { player ->
@@ -218,6 +266,7 @@ class PlaybackConnection(
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .build()
         }
+        recoverableSubtitleError = subtitleRepository.recoverableErrorFor(mediaId)
         rebuildCurrentMediaSource(player)
     }
 
@@ -226,6 +275,7 @@ class PlaybackConnection(
         subtitleRepository.clearExternalAttachment(mediaId)
         pendingExternalSelectionMediaId = null
         pendingExternalSelectionId = null
+        recoverableSubtitleError = null
         if (player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) {
             player.trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
@@ -239,6 +289,7 @@ class PlaybackConnection(
     fun setSubtitleDelay(delayMs: Long) = withController { player ->
         val mediaId = player.currentMediaItem?.mediaId ?: return@withController
         val selectedAssociation = currentExternalAssociationId(player)
+            ?: subtitleRepository.selectedExternalAttachmentId(mediaId)
         if (selectedAssociation != null) subtitleRepository.selectExternalAttachment(mediaId, selectedAssociation)
         subtitleRepository.setSubtitleDelay(mediaId, delayMs)
         pendingExternalSelectionMediaId = mediaId.takeIf { selectedAssociation != null }
@@ -313,21 +364,23 @@ class PlaybackConnection(
             error = player.playerError?.let(PlaybackErrorMapper::map),
         )
 
-        maybeDiscoverSidecars(mediaId, player)
+        maybeDiscoverSidecars(mediaId)
     }
 
-    private fun maybeDiscoverSidecars(mediaId: String?, player: Player) {
+    private fun maybeDiscoverSidecars(mediaId: String?) {
         if (mediaId == null || mediaId == lastAutoDiscoveryMediaId) return
         lastAutoDiscoveryMediaId = mediaId
         val media = knownMediaById[mediaId] ?: return
         scope.launch {
+            val availabilityChanged = subtitleRepository.refreshAvailability(mediaId)
             val created = subtitleRepository.discoverMatchingSidecars(media)
-            if (created.isNotEmpty() && controller?.currentMediaItem?.mediaId == mediaId) {
+            recoverableSubtitleError = subtitleRepository.recoverableErrorFor(mediaId)
+            if ((availabilityChanged || created.isNotEmpty()) && controller?.currentMediaItem?.mediaId == mediaId) {
                 controller?.let { current ->
-                    if (created.any { it.isPreferred }) {
-                        val preferred = created.firstOrNull { it.isPreferred }
+                    val preferred = created.firstOrNull { it.isPreferred }
+                    if (preferred != null) {
                         pendingExternalSelectionMediaId = mediaId
-                        pendingExternalSelectionId = preferred?.id
+                        pendingExternalSelectionId = preferred.id
                     }
                     rebuildCurrentMediaSource(current)
                 }
@@ -339,6 +392,7 @@ class PlaybackConnection(
         val disabled = C.TRACK_TYPE_TEXT in player.trackSelectionParameters.disabledTrackTypes
         val mediaId = player.currentMediaItem?.mediaId
         val attachments = mediaId?.let(subtitleRepository::externalAttachmentsFor).orEmpty()
+        val recoverable = recoverableSubtitleError ?: mediaId?.let(subtitleRepository::recoverableErrorFor)
         if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS)) {
             return SubtitlePlaybackState(
                 enabled = !disabled,
@@ -346,7 +400,7 @@ class PlaybackConnection(
                 externalAssociations = attachments.map(::externalInfo),
                 selectedExternalAssociationId = mediaId?.let(subtitleRepository::selectedExternalAttachmentId),
                 delayMs = mediaId?.let(subtitleRepository::subtitleDelayFor) ?: 0L,
-                recoverableError = recoverableSubtitleError,
+                recoverableError = recoverable,
             )
         }
 
@@ -356,9 +410,9 @@ class PlaybackConnection(
             for (trackIndex in 0 until group.length) {
                 val format = group.getTrackFormat(trackIndex)
                 val key = trackKey(groupIndex, trackIndex)
-                val associationId = associationIdFromFormat(format)
-                val attachment = associationId?.let { id -> attachments.firstOrNull { it.id == id } }
-                val external = associationId != null
+                val attachment = resolveExternalAttachment(format, attachments)
+                val associationId = attachment?.id ?: associationIdFromFormat(format)
+                val external = attachment != null || associationId != null
                 val forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0
                 val isDefault = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0
                 val readableLanguage = SubtitleMatcher.humanLanguageName(format.language)
@@ -400,7 +454,7 @@ class PlaybackConnection(
             externalAssociations = attachments.map(::externalInfo),
             selectedExternalAssociationId = selectedAssociationId,
             delayMs = mediaId?.let(subtitleRepository::subtitleDelayFor) ?: 0L,
-            recoverableError = recoverableSubtitleError,
+            recoverableError = recoverable,
         )
     }
 
@@ -445,7 +499,7 @@ class PlaybackConnection(
         val existingNonMax = current.localConfiguration?.subtitleConfigurations.orEmpty()
             .filterNot { it.id?.startsWith(EXTERNAL_SUBTITLE_ID_PREFIX) == true }
         val configured = existingNonMax + subtitleRepository.externalAttachmentsFor(mediaId)
-            .filter { it.availability !in BLOCKED_AVAILABILITY }
+            .filter { it.availability == SubtitleAvailability.AVAILABLE }
             .map { it.toMedia3Configuration() }
         val updated = current.buildUpon().setSubtitleConfigurations(configured).build()
         val rebuiltQueue = MutableList(player.mediaItemCount) { queueIndex -> player.getMediaItemAt(queueIndex) }
@@ -457,7 +511,7 @@ class PlaybackConnection(
 
     private fun AppMedia.toMedia3Item(): MediaItem {
         val attachments = subtitleRepository.externalAttachmentsFor(stableId)
-            .filter { it.availability !in BLOCKED_AVAILABILITY }
+            .filter { it.availability == SubtitleAvailability.AVAILABLE }
         return MediaItem.Builder()
             .setMediaId(stableId)
             .setUri(uri)
@@ -484,10 +538,30 @@ class PlaybackConnection(
         language = attachment.language,
         mimeType = attachment.mimeType,
         format = attachment.format.name,
+        encoding = attachment.encoding.name,
         preferred = attachment.isPreferred,
         availability = attachment.availability.name,
         delayMs = attachment.delayMs,
     )
+
+    /**
+     * Media3 does not guarantee that SubtitleConfiguration.id is preserved in every downstream
+     * Format. Prefer the stable id when present, then fall back to descriptor identity. This is
+     * deliberately deterministic and restores the robust behavior used by the proven Step-4 SRT path.
+     */
+    private fun resolveExternalAttachment(
+        format: Format,
+        attachments: List<ExternalSubtitleAttachment>,
+    ): ExternalSubtitleAttachment? {
+        val id = associationIdFromFormat(format)
+        if (id != null) attachments.firstOrNull { it.id == id }?.let { return it }
+        return attachments.firstOrNull { candidate ->
+            val labelMatches = format.label?.toString() == candidate.label
+            val mimeMatches = format.sampleMimeType == candidate.mimeType || format.codecs == candidate.mimeType
+            val languageMatches = candidate.language == null || format.language == candidate.language
+            labelMatches && mimeMatches && languageMatches
+        }
+    }
 
     private fun associationIdFromFormat(format: Format): String? = format.id
         ?.takeIf { it.startsWith(EXTERNAL_SUBTITLE_ID_PREFIX) }
@@ -495,10 +569,14 @@ class PlaybackConnection(
 
     private fun currentExternalAssociationId(player: Player): String? {
         if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS)) return null
+        val mediaId = player.currentMediaItem?.mediaId ?: return null
+        val attachments = subtitleRepository.externalAttachmentsFor(mediaId)
         player.currentTracks.groups.forEach { group ->
             if (group.type != C.TRACK_TYPE_TEXT) return@forEach
             for (trackIndex in 0 until group.length) {
-                if (group.isTrackSelected(trackIndex)) return associationIdFromFormat(group.getTrackFormat(trackIndex))
+                if (group.isTrackSelected(trackIndex)) {
+                    return resolveExternalAttachment(group.getTrackFormat(trackIndex), attachments)?.id
+                }
             }
         }
         return null
@@ -516,11 +594,5 @@ class PlaybackConnection(
     private companion object {
         const val EXTERNAL_SUBTITLE_ID_PREFIX = "max.external."
         val TRACK_KEY = Regex("g(\\d+)t(\\d+)")
-        val BLOCKED_AVAILABILITY = setOf(
-            SubtitleAvailability.MISSING,
-            SubtitleAvailability.PERMISSION_LOST,
-            SubtitleAvailability.UNSUPPORTED,
-            SubtitleAvailability.MALFORMED,
-        )
     }
 }
