@@ -8,7 +8,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.decoder.DecoderReuseEvaluation
+import androidx.media3.exoplayer.DecoderCounters
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import com.zubaer.maxvideoplayer.core.model.DecoderMode
@@ -73,7 +74,7 @@ class Media3PlaybackEngine(
 
         override fun onVideoDisabled(
             eventTime: AnalyticsListener.EventTime,
-            decoderCounters: androidx.media3.decoder.DecoderCounters,
+            decoderCounters: DecoderCounters,
         ) {
             if (C.TRACK_TYPE_VIDEO in exoPlayer.trackSelectionParameters.disabledTrackTypes) {
                 decoderRepository.markVideoDecoderInactive("Video decoder inactive — audio-only mode")
