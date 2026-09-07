@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [ main, step-1-professional-foundation, step-2-professional-media-library, step-5-professional-audio-engine ]
+    branches: [ main, step-1-professional-foundation, step-2-professional-media-library, step-5-professional-audio-engine, step-6-professional-decoder-engine ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
