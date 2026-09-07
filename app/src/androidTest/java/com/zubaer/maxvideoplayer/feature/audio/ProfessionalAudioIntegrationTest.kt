@@ -36,15 +36,16 @@ class ProfessionalAudioIntegrationTest {
     fun productionAudioPathSupportsTracksExternalAudioDspSyncAudioOnlyAndSubtitleCoexistence() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
+        val testContext = instrumentation.context
         val app = context.applicationContext as MaxVideoPlayerApplication
         val container = app.container
         val connection = container.playbackConnection
         val audio = container.audioRepository
         val controller = container.audioPlaybackController
 
-        val multiAudio = copyAsset(context, "step5_multi_audio.mp4")
-        val externalAudio = copyAsset(context, "step5_external_bn.m4a")
-        val externalSubtitle = copyAsset(context, "step5_external.srt")
+        val multiAudio = copyAsset(context, testContext, "step5_multi_audio.mp4")
+        val externalAudio = copyAsset(context, testContext, "step5_external_bn.m4a")
+        val externalSubtitle = copyAsset(context, testContext, "step5_external.srt")
         certifyFixtureStructure(multiAudio)
 
         val mediaId = "step5-professional-audio-${System.currentTimeMillis()}"
@@ -223,12 +224,15 @@ class ProfessionalAudioIntegrationTest {
         }
     }
 
-    private fun copyAsset(context: android.content.Context, name: String): File =
-        File(context.cacheDir, "cert-$name").apply {
-            context.assets.open(name).use { input ->
-                outputStream().use { output -> input.copyTo(output) }
-            }
+    private fun copyAsset(
+        targetContext: android.content.Context,
+        testContext: android.content.Context,
+        name: String,
+    ): File = File(targetContext.cacheDir, "cert-$name").apply {
+        testContext.assets.open(name).use { input ->
+            outputStream().use { output -> input.copyTo(output) }
         }
+    }
 
     private fun await(timeoutMs: Long, condition: () -> Boolean): Boolean {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
