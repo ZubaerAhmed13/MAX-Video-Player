@@ -18,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 
 @RunWith(AndroidJUnit4::class)
 class Step3PlaybackHostIntegrationTest {
@@ -82,7 +83,9 @@ class Step3PlaybackHostIntegrationTest {
             assertEquals("Step 3 Queue B", connection.state.value.title)
 
             instrumentation.runOnMainSync { connection.seekTo(750L) }
-            assertTrue("Pre-recreation seek failed", await(5_000L) { connection.state.value.currentPositionMs in 500L..1_100L })
+            assertTrue("Pre-recreation seek failed", await(5_000L) {
+                authoritativePosition(instrumentation, connection) in 500L..1_100L
+            })
 
             scenario.onActivity { it.setFullscreen(true) }
             instrumentation.waitForIdleSync()
@@ -97,7 +100,10 @@ class Step3PlaybackHostIntegrationTest {
                 connection.state.value.mediaId == queue[1].stableId && connection.state.value.error == null
             })
             assertEquals(3, connection.state.value.mediaItemCount)
-            assertTrue("Activity recreation reset service-owned position", connection.state.value.currentPositionMs >= 400L)
+            assertTrue(
+                "Activity recreation reset service-owned position",
+                authoritativePosition(instrumentation, connection) >= 400L,
+            )
 
             scenario.onActivity { it.enterPip(queue[1]) }
             assertTrue("PiP request did not enter PiP mode on API-35 emulator", await(5_000L) {
@@ -117,6 +123,17 @@ class Step3PlaybackHostIntegrationTest {
             context.stopService(Intent(context, PlaybackService::class.java))
             fixture.delete()
         }
+    }
+
+    private fun authoritativePosition(
+        instrumentation: android.app.Instrumentation,
+        connection: PlaybackConnection,
+    ): Long {
+        val position = AtomicLong(Long.MIN_VALUE)
+        instrumentation.runOnMainSync {
+            position.set(connection.playerOrNull()?.currentPosition ?: Long.MIN_VALUE)
+        }
+        return position.get()
     }
 
     private fun await(timeoutMs: Long, condition: () -> Boolean): Boolean {
