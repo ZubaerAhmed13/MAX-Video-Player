@@ -122,6 +122,7 @@ fun ProfessionalAudioPlayerHost(
             state = audio,
             onDismiss = { audioDialogVisible = false },
             onAuto = audioController::selectAuto,
+            onPreferredLanguage = audioController::setPreferredLanguage,
             onTrack = audioController::selectTrack,
             onExternal = audioController::selectExternal,
             onLoadExternal = { audioPicker.launch(arrayOf("audio/*", "application/ogg")) },
@@ -162,6 +163,7 @@ fun ProfessionalAudioDialog(
     state: AudioEngineState,
     onDismiss: () -> Unit,
     onAuto: () -> Unit,
+    onPreferredLanguage: (String) -> Unit,
     onTrack: (String) -> Unit,
     onExternal: (String) -> Unit,
     onLoadExternal: () -> Unit,
@@ -201,6 +203,14 @@ fun ProfessionalAudioDialog(
                 SectionTitle("Audio track")
                 TextButton(onClick = onAuto, modifier = Modifier.fillMaxWidth()) {
                     Text(if (state.selectionMode == AudioSelectionMode.AUTO && state.selectedExternalId == null) "✓ Auto" else "Auto")
+                }
+                Text("Preferred language for Auto", style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    AUDIO_LANGUAGE_OPTIONS.forEach { (code, label) ->
+                        TextButton(onClick = { onPreferredLanguage(code) }) {
+                            Text((if (state.preferredLanguages.firstOrNull() == code) "✓ " else "") + label)
+                        }
+                    }
                 }
                 state.tracks.filterNot { it.external }.forEach { track ->
                     TextButton(
@@ -389,6 +399,17 @@ private fun AudioSlider(label: String, value: Float, range: ClosedFloatingPointR
         )
     }
 }
+
+private val AUDIO_LANGUAGE_OPTIONS = listOf(
+    "en" to "English",
+    "bn" to "Bangla",
+    "hi" to "Hindi",
+    "de" to "German",
+    "es" to "Spanish",
+    "fr" to "French",
+    "ja" to "Japanese",
+    "ar" to "Arabic",
+)
 
 private fun signedDb(value: Float): String = when {
     value > 0.005f -> "+${"%.1f".format(value)} dB"
