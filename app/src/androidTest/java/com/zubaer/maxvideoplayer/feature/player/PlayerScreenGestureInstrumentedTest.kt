@@ -4,9 +4,11 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
