@@ -27,6 +27,23 @@ class SubtitleFormatPolicyTest {
     }
 
     @Test
+    fun arbitraryXmlIsNotSilentlyClassifiedAsTtml() {
+        val arbitraryXml = "<notes><item>not captions</item></notes>".toByteArray()
+        val ttml = "<tt xmlns=\"http://www.w3.org/ns/ttml\"><body/></tt>".toByteArray()
+
+        assertNull(SubtitleFormatPolicy.resolveMimeType("notes.xml", "application/xml", arbitraryXml))
+        assertEquals(MimeTypes.APPLICATION_TTML, SubtitleFormatPolicy.resolveMimeType("captions.xml", "application/xml", ttml))
+    }
+
+    @Test
+    fun detectsUnicodeBomAndUtf8WithoutGuessingLegacyEncoding() {
+        assertEquals(SubtitleEncoding.UTF_8, SubtitleEncodingPolicy.detect(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte(), 0x31)))
+        assertEquals(SubtitleEncoding.UTF_16LE, SubtitleEncodingPolicy.detect(byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0x31, 0x00)))
+        assertEquals(SubtitleEncoding.UTF_16BE, SubtitleEncodingPolicy.detect(byteArrayOf(0xFE.toByte(), 0xFF.toByte(), 0x00, 0x31)))
+        assertEquals(SubtitleEncoding.UTF_8, SubtitleEncodingPolicy.detect("বাংলা English Deutsch العربية 日本語".toByteArray()))
+    }
+
+    @Test
     fun rejectsUnknownFileWhenProviderDoesNotIdentifySubtitleFormat() {
         assertNull(SubtitleFormatPolicy.resolveMimeType("notes.txt", "text/plain"))
         assertNull(SubtitleFormatPolicy.resolveMimeType("captions.xyz", "application/octet-stream"))

@@ -9,6 +9,20 @@ data class SubtitleTrackInfo(
     val selected: Boolean = false,
     val supported: Boolean = true,
     val external: Boolean = false,
+    val forced: Boolean = false,
+    val default: Boolean = false,
+    val externalAssociationId: String? = null,
+)
+
+data class ExternalSubtitleInfo(
+    val id: String,
+    val label: String,
+    val language: String? = null,
+    val mimeType: String,
+    val format: String,
+    val preferred: Boolean,
+    val availability: String,
+    val delayMs: Long,
 )
 
 /** Snapshot of text-track state published by the service-owned playback connection. */
@@ -18,4 +32,8 @@ data class SubtitlePlaybackState(
     val selectedTrackKey: String? = null,
     val externalAttached: Boolean = false,
     val externalLabel: String? = null,
+    val externalAssociations: List<ExternalSubtitleInfo> = emptyList(),
+    val selectedExternalAssociationId: String? = null,
+    val delayMs: Long = 0L,
+    val recoverableError: String? = null,
 )

@@ -23,7 +23,7 @@ class AppContainer(context: Context) {
     val metadataExtractor: MediaMetadataExtractor by lazy { MediaMetadataExtractor(appContext) }
     val uriAvailabilityChecker: UriAvailabilityChecker by lazy { UriAvailabilityChecker(appContext.contentResolver) }
     val deviceCapabilityProvider: DeviceCapabilityProvider by lazy { DeviceCapabilityProvider(appContext) }
-    val subtitleRepository: SubtitleRepository by lazy { SubtitleRepository(appContext) }
+    val subtitleRepository: SubtitleRepository by lazy { SubtitleRepository(appContext, database) }
     val playbackConnection: PlaybackConnection by lazy { PlaybackConnection(appContext, subtitleRepository) }
     val safTreeScanner: SafTreeScanner by lazy { SafTreeScanner(appContext.contentResolver) }
     val libraryRepository: LibraryRepository by lazy { LibraryRepository(database, mediaStoreRepository, safTreeScanner, historyRepository) }

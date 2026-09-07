@@ -2,6 +2,7 @@ package com.zubaer.maxvideoplayer.playback.session
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
@@ -15,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackService : MediaSessionService() {
     private lateinit var engine: Media3PlaybackEngine
     private lateinit var mediaSession: MediaSession
@@ -41,7 +43,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        engine = Media3PlaybackEngine(this)
+        val container = (application as MaxVideoPlayerApplication).container
+        engine = Media3PlaybackEngine(this, container.subtitleRepository)
         engine.player.addListener(listener)
         mediaSession = MediaSession.Builder(this, engine.player).build()
     }
