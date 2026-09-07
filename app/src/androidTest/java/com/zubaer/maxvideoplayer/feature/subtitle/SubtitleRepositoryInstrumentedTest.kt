@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.core.database.MaxDatabase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -125,12 +127,33 @@ class SubtitleRepositoryInstrumentedTest {
             assertEquals(bangla.id, recreated.selectedExternalAttachmentId("media-A"))
             assertEquals(750L, recreated.subtitleDelayFor("media-A"))
 
-            // Snapshot writes are intentionally asynchronous. Give any already-enqueued idempotent
-            // reconciliation writes a chance to drain before this test-owned in-memory DB closes,
-            // preventing a test-lifetime close from surfacing as an unrelated later test failure.
-            delay(300L)
+            // save/select/delay APIs intentionally enqueue idempotent Room reconciliation work.
+            // Waiting until the DB happens to contain the expected row is not sufficient: older
+            // reconciliation coroutines may still be queued behind the repository mutex. Drain the
+            // repository-owned persistence children deterministically before closing this test-owned
+            // in-memory DB so an unrelated later instrumentation test cannot inherit an exception.
+            withTimeout(5_000L) {
+                first.awaitPersistenceChildrenForTest()
+            }
         } finally {
             db.close()
+        }
+    }
+
+    /**
+     * Test-only lifetime barrier. SubtitleRepository deliberately owns a long-lived SupervisorJob
+     * in production, so there is no product shutdown API to call for an injected test DB. Reflecting
+     * the private scope here keeps that lifecycle concern out of the production surface while making
+     * the test deterministic: no repository persistence child may still reference DB before close.
+     */
+    private suspend fun SubtitleRepository.awaitPersistenceChildrenForTest() {
+        val field = SubtitleRepository::class.java.getDeclaredField("ioScope").apply { isAccessible = true }
+        val scope = field.get(this) as CoroutineScope
+        val parent = scope.coroutineContext[Job] ?: return
+        while (true) {
+            val children = parent.children.toList()
+            if (children.isEmpty()) return
+            children.forEach { it.join() }
         }
     }
 }
