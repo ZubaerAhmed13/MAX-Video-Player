@@ -26,23 +26,14 @@ class AudioRouteMonitor(
 
     private fun publish() {
         val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).filter { it.isSink }
-        val preferred = outputs.maxByOrNull { priority(it.type) }
+        val preferred = outputs.maxByOrNull { priorityForDeviceType(it.type) }
         onRoute(preferred?.toRoute() ?: AudioRouteInfo())
     }
 
     private fun AudioDeviceInfo.toRoute(): AudioRouteInfo {
-        val type = when (type) {
-            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> AudioRouteType.SPEAKER
-            AudioDeviceInfo.TYPE_WIRED_HEADSET -> AudioRouteType.WIRED_HEADSET
-            AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> AudioRouteType.WIRED_HEADPHONES
-            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> AudioRouteType.BLUETOOTH_A2DP
-            26, 27 -> AudioRouteType.BLUETOOTH_LE // BLE headset/speaker constants on newer APIs.
-            AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY -> AudioRouteType.USB
-            AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC -> AudioRouteType.HDMI
-            else -> AudioRouteType.UNKNOWN
-        }
+        val routeType = routeTypeForDeviceType(type)
         val product = productName?.toString()?.takeIf { it.isNotBlank() }
-        val fallback = when (type) {
+        val fallback = when (routeType) {
             AudioRouteType.SPEAKER -> "Built-in speaker"
             AudioRouteType.WIRED_HEADSET -> "Wired headset"
             AudioRouteType.WIRED_HEADPHONES -> "Wired headphones"
@@ -52,15 +43,29 @@ class AudioRouteMonitor(
             AudioRouteType.HDMI -> "HDMI audio"
             AudioRouteType.UNKNOWN -> "Unknown output"
         }
-        return AudioRouteInfo(type, product ?: fallback)
+        return AudioRouteInfo(routeType, product ?: fallback)
     }
 
-    private fun priority(type: Int): Int = when (type) {
-        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, 26, 27 -> 70
-        AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY -> 60
-        AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> 50
-        AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC -> 40
-        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> 10
-        else -> 0
+    companion object {
+        /** Pure classification surface used by API-35 instrumentation; no physical Bluetooth required. */
+        internal fun routeTypeForDeviceType(type: Int): AudioRouteType = when (type) {
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> AudioRouteType.SPEAKER
+            AudioDeviceInfo.TYPE_WIRED_HEADSET -> AudioRouteType.WIRED_HEADSET
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> AudioRouteType.WIRED_HEADPHONES
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> AudioRouteType.BLUETOOTH_A2DP
+            26, 27 -> AudioRouteType.BLUETOOTH_LE
+            AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY -> AudioRouteType.USB
+            AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC -> AudioRouteType.HDMI
+            else -> AudioRouteType.UNKNOWN
+        }
+
+        internal fun priorityForDeviceType(type: Int): Int = when (type) {
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, 26, 27 -> 70
+            AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY -> 60
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> 50
+            AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC -> 40
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> 10
+            else -> 0
+        }
     }
 }

@@ -20,7 +20,7 @@ import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 class Media3PlaybackEngine(
     context: Context,
     subtitleRepository: SubtitleRepository,
-    audioRepository: AudioRepository,
+    private val audioRepository: AudioRepository,
 ) : PlaybackEngine {
     val audioProcessor = MaxAudioProcessor(audioRepository)
     private val appContext = context.applicationContext
@@ -30,8 +30,8 @@ class Media3PlaybackEngine(
             enableFloatOutput: Boolean,
             enableAudioOutputPlaybackParams: Boolean,
         ): AudioSink = DefaultAudioSink.Builder(context)
-            // User-defined AudioProcessors are a PCM path; keep processing deterministic instead of
-            // silently enabling device-dependent float/offload paths that bypass the chain.
+            // App-owned DSP requires decoded PCM. Device-dependent float/offload paths that can
+            // bypass custom processors are not silently advertised as DSP-active.
             .setEnableFloatOutput(false)
             .setEnableAudioOutputPlaybackParameters(false)
             .setAudioProcessors(arrayOf(audioProcessor))
@@ -52,6 +52,10 @@ class Media3PlaybackEngine(
             setAudioAttributes(attributes, true)
             setHandleAudioBecomingNoisy(true)
         }
+
+    init {
+        audioRepository.setDspPipelineInstalled(true)
+    }
 
     override val player: Player get() = exoPlayer
 
@@ -84,5 +88,8 @@ class Media3PlaybackEngine(
         }
     }
 
-    override fun release() = exoPlayer.release()
+    override fun release() {
+        exoPlayer.release()
+        audioRepository.setDspPipelineInstalled(false)
+    }
 }

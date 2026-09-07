@@ -40,7 +40,7 @@ class AudioRepository(
 
     private val _state = MutableStateFlow(loadGlobalState())
     val state: StateFlow<AudioEngineState> = _state.asStateFlow()
-    val realtimeParameters = AtomicReference(toDspParameters(_state.value, 0L))
+    val realtimeParameters = AtomicReference(toDspParameters(_state.value, _state.value.effectiveAudioDelayMs))
 
     init { hydrateRoomCache() }
 
@@ -148,6 +148,16 @@ class AudioRepository(
         return item
     }
 
+    fun relinkExternal(mediaId: String, oldId: String, descriptor: ExternalAudioDescriptor): ExternalAudioInfo? {
+        val old = associations[mediaId].orEmpty().firstOrNull { it.id == oldId } ?: return null
+        val wasSelected = mediaState[mediaId]?.selectedExternalId == oldId
+        associations[mediaId] = associations[mediaId].orEmpty().filterNot { it.id == oldId }
+        val replacement = saveExternal(mediaId, descriptor, preferred = old.preferred || wasSelected)
+        if (wasSelected) selectExternal(mediaId, replacement.id)
+        persistMediaAsync(mediaId)
+        return replacement
+    }
+
     fun externalFor(mediaId: String): List<ExternalAudioInfo> = associations[mediaId].orEmpty()
         .sortedWith(compareByDescending<ExternalAudioInfo> { it.preferred }.thenBy { it.displayName.lowercase() })
 
@@ -179,7 +189,7 @@ class AudioRepository(
         val current = associations[mediaId].orEmpty()
         val wasSelected = mediaState[mediaId]?.selectedExternalId == id
         val remaining = current.filterNot { it.id == id }
-        associations[mediaId] = remaining
+        if (remaining.isEmpty()) associations.remove(mediaId) else associations[mediaId] = remaining
         if (wasSelected) rememberAuto(mediaId) else persistMediaAsync(mediaId)
         if (activeMediaId == mediaId) activateMedia(mediaId)
     }
@@ -187,7 +197,7 @@ class AudioRepository(
     fun refreshExternalAvailability(mediaId: String) {
         ioScope.launch {
             val refreshed = associations[mediaId].orEmpty().map { it.copy(availability = probe(Uri.parse(it.uri))) }
-            associations[mediaId] = refreshed
+            if (refreshed.isEmpty()) associations.remove(mediaId) else associations[mediaId] = refreshed
             persistMediaNow(mediaId)
             if (activeMediaId == mediaId) activateMedia(mediaId)
         }
@@ -237,7 +247,35 @@ class AudioRepository(
 
     fun setAudioOnly(enabled: Boolean) { _state.value = _state.value.copy(audioOnlyMode = enabled) }
 
-    fun setRoute(route: AudioRouteInfo) { _state.value = _state.value.copy(currentRoute = route) }
+    fun setBackgroundMode(mode: BackgroundPlaybackMode) =
+        updateGlobal(KEY_BACKGROUND_MODE, mode.name) { it.copy(backgroundMode = mode) }
+
+    fun setDisableVideoInBackground(enabled: Boolean) =
+        updateGlobal(KEY_DISABLE_VIDEO_BACKGROUND, enabled) { it.copy(disableVideoInBackground = enabled) }
+
+    fun routeCompensationFor(type: AudioRouteType): Long = AudioPolicy.clampDelay(
+        prefs.getLong(routeCompensationKey(type), 0L),
+    )
+
+    fun setRouteCompensation(type: AudioRouteType, valueMs: Long): Long {
+        val safe = AudioPolicy.clampDelay(valueMs)
+        prefs.edit().putLong(routeCompensationKey(type), safe).apply()
+        if (_state.value.currentRoute.type == type) {
+            _state.value = _state.value.copy(routeCompensationMs = safe)
+            publishRealtime()
+        }
+        return safe
+    }
+
+    fun setRoute(route: AudioRouteInfo) {
+        val compensation = routeCompensationFor(route.type)
+        _state.value = _state.value.copy(currentRoute = route, routeCompensationMs = compensation)
+        publishRealtime()
+    }
+
+    fun setDspPipelineInstalled(installed: Boolean) {
+        _state.value = _state.value.copy(dspPipelineInstalled = installed)
+    }
 
     fun setDspAvailability(available: Boolean, reason: String? = null) {
         _state.value = _state.value.copy(dspAvailable = available, dspBypassReason = if (available) null else reason)
@@ -248,6 +286,7 @@ class AudioRepository(
         when (value) {
             is Boolean -> editor.putBoolean(key, value)
             is Float -> editor.putFloat(key, value)
+            is Long -> editor.putLong(key, value)
             is String -> editor.putString(key, value)
             else -> return
         }
@@ -258,7 +297,7 @@ class AudioRepository(
 
     private fun publishRealtime() {
         val state = _state.value
-        realtimeParameters.set(toDspParameters(state, state.audioDelayMs))
+        realtimeParameters.set(toDspParameters(state, state.effectiveAudioDelayMs))
     }
 
     private fun toDspParameters(state: AudioEngineState, delayMs: Long) = AudioDspParameters(
@@ -275,9 +314,15 @@ class AudioRepository(
     private fun loadGlobalState(): AudioEngineState {
         val bands = prefs.getString(KEY_BANDS, null)?.split(',')?.mapNotNull { it.toFloatOrNull() }
             ?.takeIf { it.size == 10 }?.map(AudioPolicy::clampBand) ?: List(10) { 0f }
-        val preset = runCatching { EqualizerPreset.valueOf(prefs.getString(KEY_PRESET, EqualizerPreset.FLAT.name)!!) }.getOrDefault(EqualizerPreset.FLAT)
-        val mode = runCatching { AudioChannelMode.valueOf(prefs.getString(KEY_CHANNEL_MODE, AudioChannelMode.STEREO.name)!!) }.getOrDefault(AudioChannelMode.STEREO)
+        val preset = runCatching { EqualizerPreset.valueOf(prefs.getString(KEY_PRESET, EqualizerPreset.FLAT.name)!!) }
+            .getOrDefault(EqualizerPreset.FLAT)
+        val channelMode = runCatching { AudioChannelMode.valueOf(prefs.getString(KEY_CHANNEL_MODE, AudioChannelMode.STEREO.name)!!) }
+            .getOrDefault(AudioChannelMode.STEREO)
+        val backgroundMode = runCatching {
+            BackgroundPlaybackMode.valueOf(prefs.getString(KEY_BACKGROUND_MODE, BackgroundPlaybackMode.CONTINUE_AUDIO.name)!!)
+        }.getOrDefault(BackgroundPlaybackMode.CONTINUE_AUDIO)
         val languages = prefs.getString(KEY_LANGUAGES, "en")!!.split(',').mapNotNull(::canonicalLanguage).distinct().ifEmpty { listOf("en") }
+        val initialRoute = AudioRouteInfo()
         return AudioEngineState(
             preferredLanguages = languages,
             equalizerEnabled = prefs.getBoolean(KEY_EQ_ENABLED, false),
@@ -285,11 +330,18 @@ class AudioRepository(
             equalizerPreset = preset,
             preampDb = AudioPolicy.clampPreamp(prefs.getFloat(KEY_PREAMP, 0f)),
             boostDb = AudioPolicy.clampBoost(prefs.getFloat(KEY_BOOST, 0f)),
-            channelMode = mode,
+            channelMode = channelMode,
             balance = AudioPolicy.clampBalance(prefs.getFloat(KEY_BALANCE, 0f)),
             pitch = AudioPolicy.clampPitch(prefs.getFloat(KEY_PITCH, 1f)),
+            backgroundMode = backgroundMode,
+            disableVideoInBackground = prefs.getBoolean(KEY_DISABLE_VIDEO_BACKGROUND, false),
+            currentRoute = initialRoute,
+            routeCompensationMs = routeCompensationForInitial(initialRoute.type),
         )
     }
+
+    private fun routeCompensationForInitial(type: AudioRouteType): Long =
+        AudioPolicy.clampDelay(prefs.getLong(routeCompensationKey(type), 0L))
 
     private fun hydrateRoomCache() {
         val db = database ?: return
@@ -389,6 +441,8 @@ class AudioRepository(
         else -> "External audio is currently unavailable."
     }
 
+    private fun routeCompensationKey(type: AudioRouteType): String = "$KEY_ROUTE_COMPENSATION_PREFIX${type.name}"
+
     companion object {
         private const val PREFS_NAME = "professional_audio_v1"
         private const val KEY_LANGUAGES = "preferred_languages"
@@ -400,6 +454,9 @@ class AudioRepository(
         private const val KEY_CHANNEL_MODE = "channel_mode"
         private const val KEY_BALANCE = "balance"
         private const val KEY_PITCH = "pitch"
+        private const val KEY_BACKGROUND_MODE = "background_mode"
+        private const val KEY_DISABLE_VIDEO_BACKGROUND = "disable_video_background"
+        private const val KEY_ROUTE_COMPENSATION_PREFIX = "route_compensation_ms_"
     }
 }
 

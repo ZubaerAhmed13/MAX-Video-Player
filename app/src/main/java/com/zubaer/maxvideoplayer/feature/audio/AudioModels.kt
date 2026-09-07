@@ -7,6 +7,7 @@ enum class AudioAvailability { AVAILABLE, MISSING, PERMISSION_LOST, UNSUPPORTED,
 enum class AudioRouteType { SPEAKER, WIRED_HEADSET, WIRED_HEADPHONES, BLUETOOTH_A2DP, BLUETOOTH_LE, USB, HDMI, UNKNOWN }
 enum class EqualizerPreset { FLAT, BASS, VOCAL, TREBLE, ROCK, CLASSICAL, ELECTRONIC, CUSTOM }
 enum class AudioSelectionMode { AUTO, MANUAL }
+enum class BackgroundPlaybackMode { PAUSE, CONTINUE_AUDIO, PIP_WHEN_POSSIBLE }
 
 data class AudioTrackInfo(
     val key: String,
@@ -70,7 +71,10 @@ data class AudioEngineState(
     val preferredLanguages: List<String> = listOf("en"),
     val externalAudio: List<ExternalAudioInfo> = emptyList(),
     val selectedExternalId: String? = null,
+    /** Per-media offset only. Positive means audio plays later. */
     val audioDelayMs: Long = 0L,
+    /** Global compensation profile for the currently detected output route. */
+    val routeCompensationMs: Long = 0L,
     val equalizerEnabled: Boolean = false,
     val equalizerBandsDb: List<Float> = List(EQ_FREQUENCIES_HZ.size) { 0f },
     val equalizerPreset: EqualizerPreset = EqualizerPreset.FLAT,
@@ -80,11 +84,17 @@ data class AudioEngineState(
     val balance: Float = 0f,
     val pitch: Float = 1f,
     val audioOnlyMode: Boolean = false,
+    val backgroundMode: BackgroundPlaybackMode = BackgroundPlaybackMode.CONTINUE_AUDIO,
+    val disableVideoInBackground: Boolean = false,
     val currentRoute: AudioRouteInfo = AudioRouteInfo(),
+    val dspPipelineInstalled: Boolean = false,
     val dspAvailable: Boolean = true,
     val dspBypassReason: String? = null,
     val recoverableError: String? = null,
-)
+) {
+    val effectiveAudioDelayMs: Long
+        get() = AudioPolicy.effectiveDelay(audioDelayMs, routeCompensationMs)
+}
 
 val EQ_FREQUENCIES_HZ = intArrayOf(31, 62, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000)
 
@@ -101,6 +111,16 @@ object AudioPolicy {
     const val MAX_PITCH = 2f
 
     fun clampDelay(value: Long): Long = value.coerceIn(MIN_DELAY_MS, MAX_DELAY_MS)
+    fun effectiveDelay(mediaDelayMs: Long, routeCompensationMs: Long): Long {
+        val media = clampDelay(mediaDelayMs)
+        val route = clampDelay(routeCompensationMs)
+        val sum = when {
+            route > 0L && media > Long.MAX_VALUE - route -> Long.MAX_VALUE
+            route < 0L && media < Long.MIN_VALUE - route -> Long.MIN_VALUE
+            else -> media + route
+        }
+        return clampDelay(sum)
+    }
     fun clampBand(value: Float): Float = if (value.isFinite()) value.coerceIn(MIN_EQ_DB, MAX_EQ_DB) else 0f
     fun clampPreamp(value: Float): Float = if (value.isFinite()) value.coerceIn(MIN_PREAMP_DB, MAX_PREAMP_DB) else 0f
     fun clampBoost(value: Float): Float = if (value.isFinite()) value.coerceIn(MIN_BOOST_DB, MAX_BOOST_DB) else 0f

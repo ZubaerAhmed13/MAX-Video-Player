@@ -59,6 +59,7 @@ fun ProfessionalAudioPlayerHost(
     onFullscreenChanged: (Boolean) -> Unit,
     onOrientationModeChanged: (OrientationMode) -> Unit,
     onPlayerHostStateChanged: (AppMedia?, Boolean) -> Unit,
+    onAudioBackgroundPolicyChanged: (BackgroundPlaybackMode, Boolean) -> Unit,
 ) {
     val coordinator by viewModel.state.collectAsStateWithLifecycle()
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
@@ -76,8 +77,8 @@ fun ProfessionalAudioPlayerHost(
             if (descriptor == null) {
                 pickerError = "This file is not recognized as a supported external audio source. Choose AAC, M4A, MP3, FLAC, WAV, OGG, Opus, or another audio format supported by Media3 on this device."
             } else {
-                if (targetRelink != null) audioController.removeExternal(targetRelink)
-                audioController.attachExternal(descriptor)
+                if (targetRelink != null) audioController.relinkExternal(targetRelink, descriptor)
+                else audioController.attachExternal(descriptor)
                 pickerError = null
             }
         }
@@ -85,6 +86,9 @@ fun ProfessionalAudioPlayerHost(
 
     LaunchedEffect(playback.connected, playback.mediaId, playback.currentMediaItemIndex) {
         if (playback.connected) audioController.bind()
+    }
+    LaunchedEffect(audio.backgroundMode, audio.disableVideoInBackground) {
+        onAudioBackgroundPolicyChanged(audio.backgroundMode, audio.disableVideoInBackground)
     }
     DisposableEffect(audioController) { onDispose { audioController.unbind() } }
 
@@ -135,6 +139,10 @@ fun ProfessionalAudioPlayerHost(
             onPitch = audioController::setPitch,
             onPitchReset = audioController::resetPitch,
             onAudioOnly = audioController::setAudioOnly,
+            onBackgroundMode = audioController::setBackgroundMode,
+            onDisableVideoBackground = audioController::setDisableVideoInBackground,
+            onRouteCompensationDelta = audioController::adjustRouteCompensation,
+            onRouteCompensationReset = audioController::resetRouteCompensation,
             onRefreshExternal = audioController::refreshExternalAvailability,
         )
     }
@@ -171,6 +179,10 @@ fun ProfessionalAudioDialog(
     onPitch: (Float) -> Unit,
     onPitchReset: () -> Unit,
     onAudioOnly: (Boolean) -> Unit,
+    onBackgroundMode: (BackgroundPlaybackMode) -> Unit,
+    onDisableVideoBackground: (Boolean) -> Unit,
+    onRouteCompensationDelta: (Long) -> Unit,
+    onRouteCompensationReset: () -> Unit,
     onRefreshExternal: () -> Unit,
 ) {
     AlertDialog(
@@ -200,6 +212,7 @@ fun ProfessionalAudioDialog(
                             track.codec ?: track.mimeType?.substringAfter('/'),
                             track.channelCount?.let(::channelLabel),
                             track.sampleRate?.let { "${it / 1000f} kHz" },
+                            track.bitrate?.let { "${it / 1000} kb/s" },
                         ).joinToString(" · ")
                         Text((if (track.selected && state.selectedExternalId == null) "✓ " else "") + track.label + if (meta.isBlank()) "" else "\n$meta")
                     }
@@ -260,12 +273,17 @@ fun ProfessionalAudioDialog(
                 SectionTitle("Gain")
                 AudioSlider("Preamp", state.preampDb, AudioPolicy.MIN_PREAMP_DB..AudioPolicy.MAX_PREAMP_DB, onPreamp)
                 AudioSlider("Digital boost", state.boostDb, AudioPolicy.MIN_BOOST_DB..AudioPolicy.MAX_BOOST_DB, onBoost)
-                if (!state.dspAvailable) Text(state.dspBypassReason ?: "Audio processing unavailable", color = MaterialTheme.colorScheme.error)
+                val dspStatus = when {
+                    !state.dspPipelineInstalled -> "DSP unavailable — playback service audio pipeline is not active"
+                    state.dspAvailable -> "DSP active"
+                    else -> state.dspBypassReason ?: "DSP bypassed for this output format"
+                }
+                Text(dspStatus, style = MaterialTheme.typography.bodySmall, color = if (state.dspPipelineInstalled && state.dspAvailable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
 
                 SectionTitle("Audio synchronization")
-                Text("Current: ${signedMs(state.audioDelayMs)}")
+                Text("Media: ${signedMs(state.audioDelayMs)}")
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    listOf(-500L, -100L, -50L, 50L, 100L, 500L).forEach { delta ->
+                    listOf(-500L, -250L, -100L, -50L, -10L, 10L, 50L, 100L, 250L, 500L).forEach { delta ->
                         TextButton(onClick = { onDelayDelta(delta) }) { Text(if (delta > 0) "+$delta" else "$delta") }
                     }
                     TextButton(onClick = onDelayReset) { Text("Reset") }
@@ -285,7 +303,10 @@ fun ProfessionalAudioDialog(
                     value = state.balance,
                     onValueChange = onBalance,
                     valueRange = -1f..1f,
-                    modifier = Modifier.semantics { contentDescription = "Left right audio balance" },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Left right audio balance"
+                        stateDescription = balanceLabel(state.balance)
+                    },
                 )
 
                 SectionTitle("Pitch")
@@ -294,7 +315,10 @@ fun ProfessionalAudioDialog(
                     value = state.pitch,
                     onValueChange = onPitch,
                     valueRange = AudioPolicy.MIN_PITCH..AudioPolicy.MAX_PITCH,
-                    modifier = Modifier.semantics { contentDescription = "Playback pitch" },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Playback pitch"
+                        stateDescription = "${"%.2f".format(state.pitch)} times"
+                    },
                 )
                 TextButton(onClick = onPitchReset) { Text("Reset pitch") }
 
@@ -307,9 +331,38 @@ fun ProfessionalAudioDialog(
                     Switch(checked = state.audioOnlyMode, onCheckedChange = onAudioOnly)
                 }
 
+                SectionTitle("When leaving player")
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    BackgroundPlaybackMode.entries.forEach { mode ->
+                        TextButton(onClick = { onBackgroundMode(mode) }) {
+                            val label = when (mode) {
+                                BackgroundPlaybackMode.PAUSE -> "Pause"
+                                BackgroundPlaybackMode.CONTINUE_AUDIO -> "Continue audio"
+                                BackgroundPlaybackMode.PIP_WHEN_POSSIBLE -> "PiP when possible"
+                            }
+                            Text((if (state.backgroundMode == mode) "✓ " else "") + label)
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Disable video in background")
+                        Text("Keeps the same MediaSession timeline and restores video on return. PiP remains video.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = state.disableVideoInBackground, onCheckedChange = onDisableVideoBackground)
+                }
+
                 SectionTitle("Audio output")
                 Text(state.currentRoute.label)
-                Text("Use Android's media-notification output control to switch between the device speaker and connected Bluetooth/output devices.", style = MaterialTheme.typography.bodySmall)
+                Text("Route compensation: ${signedMs(state.routeCompensationMs)}")
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    listOf(-250L, -100L, -50L, 50L, 100L, 250L).forEach { delta ->
+                        TextButton(onClick = { onRouteCompensationDelta(delta) }) { Text(if (delta > 0) "+$delta" else "$delta") }
+                    }
+                    TextButton(onClick = onRouteCompensationReset) { Text("Reset route") }
+                }
+                Text("Effective sync: ${signedMs(state.audioDelayMs)} media + ${signedMs(state.routeCompensationMs)} route = ${signedMs(state.effectiveAudioDelayMs)}", style = MaterialTheme.typography.bodySmall)
+                Text("Route profiles are separate from per-video sync. Use Android's media output control to switch connected outputs.", style = MaterialTheme.typography.bodySmall)
             }
         },
     )

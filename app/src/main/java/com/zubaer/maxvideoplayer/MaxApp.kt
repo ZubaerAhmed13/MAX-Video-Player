@@ -9,6 +9,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
+import com.zubaer.maxvideoplayer.feature.audio.BackgroundPlaybackMode
 import com.zubaer.maxvideoplayer.feature.audio.ProfessionalAudioPlayerHost
 import com.zubaer.maxvideoplayer.feature.library.LibraryScreen
 import com.zubaer.maxvideoplayer.feature.library.LibraryViewModel
@@ -27,6 +28,7 @@ fun MaxApp(
     onFullscreenChanged: (Boolean) -> Unit,
     onOrientationModeChanged: (OrientationMode) -> Unit,
     onPlayerHostStateChanged: (AppMedia?, Boolean) -> Unit,
+    onAudioBackgroundPolicyChanged: (BackgroundPlaybackMode, Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val navigationViewModel: AppNavigationViewModel = viewModel()
@@ -124,6 +126,7 @@ fun MaxApp(
                 onFullscreenChanged = onFullscreenChanged,
                 onOrientationModeChanged = onOrientationModeChanged,
                 onPlayerHostStateChanged = onPlayerHostStateChanged,
+                onAudioBackgroundPolicyChanged = onAudioBackgroundPolicyChanged,
             )
         }
     }
