@@ -109,6 +109,7 @@ fun MaxApp(
                         historyRepository = container.historyRepository,
                         playbackConnection = container.playbackConnection,
                         preferences = container.playerPreferences,
+                        decoderRepository = container.decoderRepository,
                         queue = playbackLaunch.queue,
                         startIndex = playbackLaunch.startIndex,
                     )
