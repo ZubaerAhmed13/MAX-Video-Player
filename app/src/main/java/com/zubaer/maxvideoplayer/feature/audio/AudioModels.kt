@@ -94,6 +94,16 @@ data class AudioEngineState(
 ) {
     val effectiveAudioDelayMs: Long
         get() = AudioPolicy.effectiveDelay(audioDelayMs, routeCompensationMs)
+
+    /**
+     * Channel-mode and left/right balance are deliberately stereo-only. The DSP preserves
+     * multichannel layouts instead of pretending LEFT/RIGHT/MONO semantics are valid for 5.1/7.1.
+     */
+    val selectedChannelCount: Int?
+        get() = tracks.firstOrNull { it.selected }?.channelCount
+
+    val stereoChannelControlsAvailable: Boolean
+        get() = selectedChannelCount == 2
 }
 
 val EQ_FREQUENCIES_HZ = intArrayOf(31, 62, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000)
