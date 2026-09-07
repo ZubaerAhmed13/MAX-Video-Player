@@ -251,19 +251,20 @@ class PlaybackConnection(
                 val externalById = format.id?.startsWith(EXTERNAL_SUBTITLE_ID_PREFIX) == true
                 val externalByDescriptor = attachment?.let { candidate ->
                     format.label?.toString() == candidate.label &&
-                        format.sampleMimeType == candidate.mimeType &&
+                        (format.sampleMimeType == candidate.mimeType || format.codecs == candidate.mimeType) &&
                         (candidate.language == null || format.language == candidate.language)
                 } == true
+                val external = externalById || externalByDescriptor
                 tracks += SubtitleTrackInfo(
                     key = key,
                     label = format.label?.toString()
                         ?: format.language?.uppercase()
                         ?: "Subtitle ${tracks.size + 1}",
                     language = format.language,
-                    mimeType = format.sampleMimeType,
+                    mimeType = if (external && attachment != null) attachment.mimeType else format.sampleMimeType,
                     selected = group.isTrackSelected(trackIndex),
                     supported = group.isTrackSupported(trackIndex),
-                    external = externalById || externalByDescriptor,
+                    external = external,
                 )
             }
         }
