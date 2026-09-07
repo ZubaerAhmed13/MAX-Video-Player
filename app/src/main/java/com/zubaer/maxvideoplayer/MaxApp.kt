@@ -110,6 +110,7 @@ fun MaxApp(
                         playbackConnection = container.playbackConnection,
                         preferences = container.playerPreferences,
                         decoderRepository = container.decoderRepository,
+                        deviceCapabilityProvider = container.deviceCapabilityProvider,
                         queue = playbackLaunch.queue,
                         startIndex = playbackLaunch.startIndex,
                     )
