@@ -6,26 +6,20 @@ MX Player Pro is used only as a functionality/workflow reference. This repositor
 
 ## Current development status
 
-**Step 5 of 10 — Professional Audio Engine: REPOSITORY-COMPLETE BASELINE + CERTIFICATION HARDENING**
+**Step 6 of 10 — Professional Decoder Engine: IMPLEMENTED; FINAL EXACT-HEAD CERTIFICATION IN PROGRESS**
 
-Step 5 was merged through PR #7. The merged baseline `main` commit is:
+Step 6 extends the existing service-owned Media3 player with real, materially distinct video decoder policies:
 
-- `bea360164fe69cfc146dc03b55df4da4a0cb153a`
+- **Auto** — hardware-first, with controlled compatible fallback across available backends
+- **Hardware** — strict preferred hardware decoder only
+- **Enhanced Hardware** — hardware-only multi-candidate fallback
+- **Software** — software-only platform decoder candidates, with truthful unavailable state when none exists
 
-Post-merge Android CI #163 (`34158185652`) passed on that exact baseline:
+The requested mode and the decoder that actually initializes are tracked separately. Step 6 does not add a second ExoPlayer, fake decoder labels, an Activity-owned playback engine, a proprietary decoder pack or a bundled FFmpeg/native video decoder.
 
-- debug build + JVM/unit/DSP tests — **PASS**
-- release compilation — **PASS**
-- Android lint — **PASS**
-- API-35 full instrumentation — **PASS**
-- API-26 legacy-thumbnail regression — **PASS**
-- API-28 legacy-thumbnail regression — **PASS**
+The Step-6 branch is `step-6-professional-decoder-engine`. It must not be called complete until the exact final branch head passes debug/JVM/release/lint/API-35/API-26/API-28 CI, is merged to `main`, and the exact merge head passes the configured `main` workflow again.
 
-A follow-up audit correctly found that the canonical root documentation was still Step-4-oriented and that several exact DSP signal tests from the original Step-5 specification were missing. PR #8 corrects both findings.
-
-The corrective implementation/evidence head `826558fdd9ba5eeec1c772aed6307faef2ecb88c` passed Android CI #165 (`34159966506`) across debug/JVM/DSP, release, lint, API-35, API-26 and API-28. The documentation-complete PR head that records those results must pass the same matrix again before merge, followed by post-merge `main` CI.
-
-Physical 3 GB+/4K/HDR/device-matrix, Bluetooth/USB/HDMI acoustic latency, OEM background restrictions, battery and thermal certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
+Physical 3 GB+/4K/HDR/device-matrix, Snapdragon/Exynos/MediaTek/Tensor behavior, OEM codec quirks, battery and thermal certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
 ## Platform baseline
 
@@ -34,7 +28,7 @@ Physical 3 GB+/4K/HDR/device-matrix, Bluetooth/USB/HDMI acoustic latency, OEM ba
 - AndroidX
 - Media3 / ExoPlayer 1.11.0
 - MediaSession + MediaSessionService
-- Room 2.8.4
+- Room 2.8.4, schema version 5
 - Coroutines + Flow / StateFlow
 - minSdk 23
 - targetSdk 36
@@ -45,75 +39,14 @@ Physical 3 GB+/4K/HDR/device-matrix, Bluetooth/USB/HDMI acoustic latency, OEM ba
 
 This is a fully native Android application. It does not use WebView, Capacitor, Cordova, React Native, Flutter or TWA as its application architecture.
 
-## Step-5 professional audio engine
+## Step-6 professional decoder engine
 
-Step 5 keeps the single service-owned Media3 player and adds a real audio-processing layer rather than cosmetic controls.
-
-Implemented software/emulator behavior includes:
-
-- embedded audio-track discovery from Media3 `Tracks`
-- Off/Auto/manual track policy with persisted preferred audio language
-- durable external-audio associations per stable media ID
-- multiple external-audio associations, select/relink/remove/recovery behavior
-- external audio merged into the same Media3 timeline rather than a second player
-- actual external Media3 audio-track selection certification on API 35
-- coexistence with Step-4 side-loaded subtitles
-- app-owned PCM DSP installed in the production `DefaultAudioSink`
-- PCM 16-bit and PCM-float processing paths
-- professional 10-band EQ at 31/62/125/250/500 Hz and 1/2/4/8/16 kHz
-- original Flat/Bass/Vocal/Treble/Rock/Classical/Electronic presets plus Custom
-- ±12 dB EQ bands
-- preamp and digital boost with bounded soft limiting
-- positive and negative per-media audio delay
-- separate output-route compensation; effective sync is media delay + route compensation
-- stereo/mono/left/right modes and left/right balance
-- truthful multichannel handling: stereo-only controls are disabled for non-stereo selected tracks; 5.1/7.1 layouts are not falsely remapped
-- independent pitch control through Media3 playback parameters
-- Play as Audio using real video-track disable/restore on the same session
-- background policies: Pause, Continue audio and PiP when possible
-- optional background video suppression with foreground restoration
-- real API-35 PiP certification
-- audio focus and becoming-noisy behavior retained from the service-owned Media3 configuration
-- route awareness for speaker, wired, Bluetooth, USB and HDMI families
-- Room database version 4 with explicit `MIGRATION_3_4`
-- preservation of Step-1–4 Room data through migration
-
-## DSP quality and certification policy
-
-The DSP is project-owned Kotlin code running through Media3 audio processing. It does not use an opaque proprietary DSP binary and does not depend on `android.media.audiofx.Equalizer` for the required professional behavior.
-
-The exact Step-5 signal certification now covers:
-
-- neutral PCM16 bit transparency
-- neutral PCM-float transparency
-- EQ-enabled Flat transparency
-- measured EQ response at 62 Hz, 1 kHz and 8 kHz
-- cross-band selectivity so EQ cannot be a disguised global gain
-- Nyquist-safe band handling
-- preamp −6/0/+6 dB behavior
-- real digital boost
-- integer and float limiter bounds
-- NaN/Infinity sanitization on the active DSP path
-- stereo balance and mono/left/right routing
-- multichannel preservation
-- zero, +500 ms and −500 ms audio-delay semantics at realistic sample rate/channel count
-- delay bounds and flush/seek stale-buffer rejection
-- 44.1/48/96 kHz processing
-- filter-state reset
-- live parameter revision without processor recreation
-- bounded live-change discontinuity
-- DC-offset/numerical-safety checks
-- long deterministic extreme-settings streaming stability
-- truthful unsupported-PCM rejection
-
-These exact tests passed in CI #165 on corrective implementation head `826558fdd9ba5eeec1c772aed6307faef2ecb88c`. See `STEP_5_TEST_MATRIX.md` for the detailed assertions.
-
-## Playback ownership
+### One authoritative playback graph
 
 ```text
-Compose Player / Library UI
-   ↓
-AudioPlaybackController / PlaybackConnection
+Compose UI
+   ↓ requested decoder policy
+PlayerViewModel / DecoderRepository / PlaybackConnection
    ↓
 MediaController
    ↓
@@ -125,57 +58,172 @@ Media3PlaybackEngine
    ↓
 ExoPlayer
    ↓
-DefaultAudioSink + MaxAudioProcessor
-   ↓
-Android audio output
+ProfessionalRenderersFactory
+   ├─ Video → ProfessionalMediaCodecSelector → Android/Media3 MediaCodec
+   └─ Audio → DefaultAudioSink → MaxAudioProcessor
 ```
 
-There is no Activity-owned second ExoPlayer. External audio, embedded audio, video and Step-4 subtitles remain on the one authoritative service-owned timeline.
+There is still one service-owned ExoPlayer and one MediaSession. Embedded/external audio, video and Step-4 subtitles remain on the same Media3 timeline.
 
-## Persistence and Room v4
+### Real decoder routing
 
-Room v4 retains all earlier tables and adds Step-5 audio state:
+The four decoder options are policies, not cosmetic state:
 
-- `audio_associations` — external audio relationship/URI/metadata/preferred/availability
-- `audio_media_state` — Auto/manual selection, selected external or embedded descriptor and per-media audio delay
+- **Auto** exposes the compatible candidate pool in deterministic hardware-first order and allows controlled fallback.
+- **Hardware** exposes only the preferred hardware-accelerated candidate, so it cannot silently fall through to software or another hardware decoder.
+- **Enhanced Hardware** exposes compatible hardware candidates only, allowing hardware-to-hardware initialization fallback.
+- **Software** exposes software-only platform MediaCodec candidates and never intentionally routes to hardware.
 
-`MIGRATION_3_4` is explicit. `fallbackToDestructiveMigration()` is not used. Migration instrumentation verifies Step-1 history/large `Long` values, Step-2 favourites/playlists/library state and Step-4 subtitle state survive upgrades.
+On API 29+, Android/Media3 hardware/software/vendor flags are authoritative. Older-API fallback is conservative: known software families can be recognized, while ambiguous codec names remain `UNKNOWN` instead of being guessed as hardware.
 
-Global lightweight audio preferences such as EQ/preset/boost/pitch/background/route compensation use the existing preference layer; relational per-media state remains in Room.
+### Format-aware capability handling
+
+The selector is queried with the actual MIME, secure-decoder and tunneling requirements. Media3 performs format-support ordering before decoder initialization. The Step-6 device capability inventory additionally reports Android-exposed information per video decoder/MIME, including where available:
+
+- hardware/software/unknown classification
+- vendor status
+- adaptive playback
+- secure playback
+- tunneled playback
+- low-latency capability
+- profile/level pairs
+- color formats
+- 720p / 1080p / 1440p / 2160p size/rate probes at 30 and 60 fps
+
+The inventory is explicitly device-specific and is not presented as universal Android codec support.
+
+### Runtime switching without a second player
+
+Changing decoder mode reconfigures the same `Media3PlaybackEngine`/ExoPlayer. Before re-prepare the engine snapshots and restores:
+
+- queue/media items
+- current media index
+- playback position
+- play/pause intent
+- repeat mode
+- shuffle state
+- playback parameters, including speed and pitch
+- track-selection parameters, preserving Step-4 subtitles and Step-5 audio selection
+
+The Step-5 `MaxAudioProcessor` remains installed in the existing `DefaultAudioSink` regardless of the active video decoder.
+
+### Failure handling and diagnostics
+
+Step 6 observes actual decoder lifecycle/error events from Media3. Failed candidates are session-blacklisted and retry is bounded to candidates that remain valid for the active mode.
+
+The UI can report:
+
+- requested decoder mode
+- effective backend/mode
+- actual initialized decoder name
+- hardware/software/vendor/secure status where known
+- input MIME / codec string / resolution / frame rate where known
+- decoder initialization duration
+- dropped frames
+- switching state
+- structured last failure
+- bounded fallback history/count
+
+This prevents Hardware/Software labels from claiming success merely because the user tapped them.
+
+### Device Decoder Capabilities panel
+
+The Decoder dialog includes an expandable advanced capability panel. `DeviceCapabilityProvider.collectDecoderProfile()` caches an immutable process-level snapshot, and both initial collection and manual refresh run off the main thread.
+
+CI also generates a real API-35 emulator capability report. That report is evidence for the tested emulator only, not a universal Android compatibility claim.
+
+## Persistence and Room v5
+
+Room v5 retains all earlier tables and adds:
+
+- `decoder_media_state` — stable media ID, requested per-media decoder mode and update time
+
+`MIGRATION_4_5` is explicit and non-destructive. Migration instrumentation verifies prior history, favourites, playlists, library data, subtitle state and Step-5 audio state survive the upgrade.
+
+Global lightweight decoder preferences include:
+
+- default decoder mode
+- remember decoder per video
+- show decoder diagnostics
+
+## Step-5 professional audio engine — preserved
+
+The production audio path remains project-owned and deterministic:
+
+```text
+Decoded PCM
+   ↓
+Stereo channel mode / balance
+   ↓
+10-band peaking EQ
+   ↓
+Preamp + digital boost
+   ↓
+Soft limiter / numerical protection
+   ↓
+Per-media + route audio delay
+   ↓
+Media3 AudioSink
+```
+
+Step 6 does not replace or bypass embedded/external audio selection, the 10-band EQ, channel controls, preamp, digital boost, limiter, audio delay, pitch, route compensation, audio-only mode, background audio, audio focus or becoming-noisy behavior.
 
 ## Step-4 subtitle engine — preserved
 
-Step 5 preserves embedded/external subtitle selection, SRT/WebVTT/SSA/ASS/TTML parsing, encoding handling, sidecar discovery, styling, per-media subtitle delay and Room subtitle persistence. Audio delay and subtitle delay are intentionally separate.
+Embedded/external subtitle selection, SRT/WebVTT/SSA/ASS/TTML parsing, encoding handling, sidecar discovery, styling, per-media subtitle delay and Room subtitle persistence remain intact. Decoder switching restores track-selection parameters rather than creating a parallel subtitle/player path.
 
-Production instrumentation verifies external audio can be attached/selected while an external subtitle relationship remains present.
+## Step-3 player experience — preserved
 
-## Step-3 player — preserved
+Controls/auto-hide, seeking, double-tap, brightness, Android media-volume gesture, zoom/pan, aspect/resize/rotation/orientation/fullscreen, lock, 0.25×–4× speed, queue controls, repeat/shuffle, PiP and accessibility handling remain preserved.
 
-Controls/auto-hide, seeking, double-tap, brightness, actual Android media-volume gesture, zoom/pan, aspect/resize/rotation/orientation/fullscreen, lock, 0.25×–4× speed, queue controls, repeat/shuffle, PiP and accessibility handling remain preserved.
-
-Seek-frame thumbnail preview remains **PARTIAL — architecture/foundation only**; Step 5 does not fabricate it.
+Seek-frame thumbnail preview remains **PARTIAL — architecture/foundation only**; Step 6 does not fabricate it.
 
 ## Step-2 library — preserved
 
 Videos/folders/Continue Watching/Recent/History/Favourites/Playlists, search/sort/filter, MediaStore, user-approved SAF folders, Room index/cache, relink, rename/delete and bounded thumbnails remain preserved. API-26/API-28 thumbnail regressions remain mandatory CI gates.
 
-## Large-media and quality policy
+## Step-1 foundations — preserved
 
-Media, subtitle and external-audio sources remain URI/reference based. Step 5 does not:
+Service-owned playback, MediaSession background foundation, resume/history, URI-based source handling, long-safe media/timing values and the original device-capability foundation remain authoritative.
+
+## Large-media, quality and security policy
+
+Media, subtitle and external-audio sources remain URI/reference based. Step 6 does not:
 
 - copy whole videos into application storage just to play them
 - read entire source media into RAM
+- pre-decode whole media
 - transcode video/audio for playback
-- create a second synchronized audio player
+- create a second synchronized player
 - introduce a 3 GB file ceiling
 - introduce a 1080p resolution ceiling
-- alter video colour/HDR/scaling/decoder selection
+- intentionally recolor, resize or rewrite HDR metadata
+- bypass secure-decoder/DRM requirements
+- upload media for decoder selection or diagnostics
 
-Physical large-file/4K/HDR performance remains Step-10 certification rather than inferred PASS.
+Physical large-file/4K/HDR/high-bitrate performance remains Step-10 certification rather than inferred PASS.
+
+## Step-6 software/emulator certification
+
+The final exact-head gate requires:
+
+- `:app:assembleDebug`
+- `:app:testDebugUnitTest`
+- `:app:assembleRelease`
+- `:app:lintDebug`
+- complete API-35 `connectedDebugAndroidTest`
+- real Auto/Software/Hardware/Enhanced-Hardware production routing assertions
+- API-35 decoder-capability inventory/export
+- Room v4→v5 migration preservation
+- retained Step-1–5 instrumentation
+- API-26 thumbnail regression
+- API-28 thumbnail regression
+
+No `Assume`/skip is used to convert a missing emulator backend into a decoder-mode pass. Capability-aware tests require a truthful unavailable state when that backend is absent.
 
 ## Documentation
 
-Canonical project documents now cover Step 5:
+Canonical documents through Step 6:
 
 - `README.md`
 - `ARCHITECTURE.md`
@@ -184,16 +232,18 @@ Canonical project documents now cover Step 5:
 
 Step-specific evidence:
 
-- `STEP_5_ARCHITECTURE.md`
-- `STEP_5_DEPENDENCIES.md`
-- `STEP_5_TEST_MATRIX.md`
-- `STEP_5_COMPLETION_REPORT.md`
-- earlier Step-1–4 completion reports
+- `STEP_6_ARCHITECTURE.md`
+- `STEP_6_DEPENDENCIES.md`
+- `STEP_6_TEST_MATRIX.md`
+- `STEP_6_COMPLETION_REPORT.md` after final exact-head and post-merge evidence is known
+- earlier Step-1–5 completion reports and certification documents
 - `LARGE_MEDIA_AUDIT.md`
 
 ## Roadmap boundary
 
-Step 5 does **not** implement Step 6 decoder modes. Hardware/enhanced-hardware/software decoder control, custom codec fallback and FFmpeg/software-decoder work remain Step 6.
+Step 6 does **not** begin Step 7. Any later feature scope remains untouched until Step 6 satisfies its exact-head branch and post-merge `main` gates.
+
+A future bundled native software-video decoder would require a separate explicit dependency/license/ABI review. Step 6 deliberately does not claim one exists.
 
 ## Contribution principle
 
