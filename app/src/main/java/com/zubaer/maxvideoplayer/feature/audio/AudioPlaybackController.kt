@@ -87,6 +87,15 @@ class AudioPlaybackController(
         if (hadExternal) rebuildCurrentMediaSource(player) else publishTracks(player)
     }
 
+    /** Global preference used only by Auto selection; manual per-video choices remain authoritative. */
+    fun setPreferredLanguage(language: String) {
+        repository.setPreferredLanguages(listOf(language))
+        val state = repository.state.value
+        if (state.selectionMode == AudioSelectionMode.AUTO && state.selectedExternalId == null) {
+            selectAuto()
+        }
+    }
+
     fun selectTrack(trackKey: String) = withPlayer { player ->
         if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS) ||
             !player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
