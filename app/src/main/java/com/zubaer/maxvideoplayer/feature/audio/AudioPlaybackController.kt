@@ -192,10 +192,14 @@ class AudioPlaybackController(
         applyVideoTrackPolicy(player)
     }
 
-    /** Lifecycle-only video suppression. User-selected audio-only remains authoritative. */
-    fun setBackgroundVideoDisabled(enabled: Boolean) = withPlayer { player ->
+    /**
+     * Lifecycle-only video suppression. The policy flag is updated before attempting to bind so
+     * foreground/background state remains authoritative even if the MediaController is briefly
+     * unavailable. User-selected audio-only remains authoritative through applyVideoTrackPolicy().
+     */
+    fun setBackgroundVideoDisabled(enabled: Boolean) {
         backgroundVideoDisabled = enabled
-        applyVideoTrackPolicy(player)
+        withPlayer { player -> applyVideoTrackPolicy(player) }
     }
 
     fun refreshExternalAvailability() = withPlayer { player ->
@@ -250,15 +254,21 @@ class AudioPlaybackController(
             !player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
         ) return
         player.currentTracks.groups.forEach { group ->
+            // MergingMediaSource child 0 is the primary source and child 1 is the single external
+            // audio source. Media3's MergingMediaPeriod prefixes merged group/format IDs with that
+            // child index, so "1:" is an explicit contract of this factory layout rather than an
+            // arbitrary filename/label heuristic.
             if (group.type != C.TRACK_TYPE_AUDIO || !group.mediaTrackGroup.id.startsWith("1:")) return@forEach
             for (index in 0 until group.length) {
                 if (group.isTrackSupported(index)) {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                         .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                         .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
                         .build()
-                    pendingExternalMediaId = null
-                    publishTracks(player)
+                    // Keep pending until Media3 reports the external track as selected. This avoids
+                    // claiming success merely because an override command was sent.
+                    if (group.isTrackSelected(index)) pendingExternalMediaId = null
                     return
                 }
             }
