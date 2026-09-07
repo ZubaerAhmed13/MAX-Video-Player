@@ -1,5 +1,7 @@
 package com.zubaer.maxvideoplayer.feature.player
 
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
+
 enum class PlayerGestureKind {
     NONE,
     SEEK,
@@ -13,6 +15,7 @@ enum class PlayerMenu {
     NONE,
     SPEED,
     PLAYBACK,
+    DECODER,
     DISPLAY,
     ORIENTATION,
     SETTINGS,
@@ -75,6 +78,9 @@ data class PlayerPreferencesState(
     val rememberedPlaybackSpeed: Float = 1f,
     val autoPip: Boolean = false,
     val tutorialSeen: Boolean = false,
+    val defaultDecoderMode: DecoderMode = DecoderMode.AUTO,
+    val rememberDecoderPerVideo: Boolean = true,
+    val showDecoderDiagnostics: Boolean = false,
 )
 
 data class PlayerCoordinatorState(
