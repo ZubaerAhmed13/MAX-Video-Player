@@ -41,6 +41,7 @@ class PlaybackService : MediaSessionService() {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val container = (application as MaxVideoPlayerApplication).container
             container.audioRepository.activateMedia(mediaItem?.mediaId)
+            container.decoderRepository.activateMedia(mediaItem?.mediaId)
             if (mediaItem != null) container.audioRepository.refreshExternalAvailability(mediaItem.mediaId)
             persistCurrent()
         }
@@ -49,9 +50,20 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val container = (application as MaxVideoPlayerApplication).container
-        engine = Media3PlaybackEngine(this, container.subtitleRepository, container.audioRepository)
+        engine = Media3PlaybackEngine(
+            this,
+            container.subtitleRepository,
+            container.audioRepository,
+            container.decoderRepository,
+        )
         engine.player.addListener(listener)
         container.audioRepository.activateMedia(engine.player.currentMediaItem?.mediaId)
+        container.decoderRepository.activateMedia(engine.player.currentMediaItem?.mediaId)
+        serviceScope.launch {
+            container.decoderRepository.modeRequests.collect { mode ->
+                if (::engine.isInitialized) engine.reconfigureVideoDecoder(mode)
+            }
+        }
         routeMonitor = AudioRouteMonitor(this, container.audioRepository::setRoute).also { it.start() }
         mediaSession = MediaSession.Builder(this, engine.player).build()
     }
