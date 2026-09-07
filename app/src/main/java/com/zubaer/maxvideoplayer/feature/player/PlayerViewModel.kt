@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zubaer.maxvideoplayer.core.database.PlaybackHistoryRepository
 import com.zubaer.maxvideoplayer.core.model.AppMedia
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import com.zubaer.maxvideoplayer.core.model.ResumeAction
+import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,6 +24,7 @@ class PlayerViewModel(
     private val historyRepository: PlaybackHistoryRepository,
     private val playbackConnection: PlaybackConnection,
     private val preferences: PlayerPreferences,
+    private val decoderRepository: DecoderRepository,
     private val queue: List<AppMedia> = listOf(media),
     private val startIndex: Int = 0,
 ) : ViewModel() {
@@ -48,6 +51,11 @@ class PlayerViewModel(
                 )
                 tutorialChecked = true
                 scheduleAutoHideIfNeeded()
+            }
+        }
+        viewModelScope.launch {
+            decoderRepository.state.collect { decoder ->
+                _state.value = _state.value.copy(decoder = decoder)
             }
         }
         viewModelScope.launch {
@@ -309,6 +317,23 @@ class PlayerViewModel(
     fun setRememberPlaybackSpeed(enabled: Boolean) {
         preferences.setRememberPlaybackSpeed(enabled)
     }
+
+    fun setDecoderMode(mode: DecoderMode) {
+        val activeMediaId = playbackConnection.state.value.mediaId ?: media.stableId
+        decoderRepository.requestModeForCurrentMedia(activeMediaId, mode)
+        showControls()
+    }
+
+    fun useGlobalDecoderForCurrentMedia() {
+        val activeMediaId = playbackConnection.state.value.mediaId ?: media.stableId
+        decoderRepository.useGlobalForCurrentMedia(activeMediaId)
+        showControls()
+    }
+
+    fun setDefaultDecoderMode(mode: DecoderMode) = decoderRepository.setGlobalDefault(mode)
+    fun setRememberDecoderPerVideo(enabled: Boolean) = decoderRepository.setRememberPerVideo(enabled)
+    fun setShowDecoderDiagnostics(enabled: Boolean) = decoderRepository.setShowDiagnostics(enabled)
+    fun resetDecoderPreferences() = decoderRepository.resetDecoderPreferences()
 
     fun setDoubleTapSeekSeconds(seconds: Int) = preferences.setDoubleTapSeekSeconds(seconds)
     fun setGestureSensitivity(value: GestureSensitivity) = preferences.setGestureSensitivity(value)
