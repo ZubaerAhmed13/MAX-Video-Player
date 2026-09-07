@@ -14,8 +14,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.core.database.MaxDatabase
 import com.zubaer.maxvideoplayer.core.database.PlaybackHistoryRepository
+import com.zubaer.maxvideoplayer.core.device.DeviceCapabilityProvider
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
+import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 import com.zubaer.maxvideoplayer.playback.AndroidTestMediaFixture
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
@@ -52,6 +54,8 @@ class PlayerScreenGestureInstrumentedTest {
             setDoubleTapSeekSeconds(5)
             setDefaultResizeMode(ResizeMode.FIT)
         }
+        val decoderRepository = DecoderRepository(database.decoderMediaStateDao(), preferences)
+        val deviceCapabilityProvider = DeviceCapabilityProvider(context)
         val subtitleRepository = SubtitleRepository(context)
         val playbackConnection = PlaybackConnection(context, subtitleRepository)
         val media = AppMedia(
@@ -72,6 +76,8 @@ class PlayerScreenGestureInstrumentedTest {
             historyRepository = historyRepository,
             playbackConnection = playbackConnection,
             preferences = preferences,
+            decoderRepository = decoderRepository,
+            deviceCapabilityProvider = deviceCapabilityProvider,
         )
 
         try {
