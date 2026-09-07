@@ -23,6 +23,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 /**
@@ -96,7 +97,9 @@ class ProfessionalAudioIntegrationTest {
             }
             assertEquals("bn", audio.state.value.preferredLanguages.firstOrNull())
             assertTrue("Preferred Auto language did not reach Media3", await(3_000L) {
-                connection.playerOrNull()?.trackSelectionParameters?.preferredAudioLanguages?.firstOrNull() == "bn"
+                onMain(instrumentation) {
+                    connection.playerOrNull()?.trackSelectionParameters?.preferredAudioLanguages?.firstOrNull() == "bn"
+                }
             })
 
             val secondTrack = embedded[1]
@@ -125,7 +128,9 @@ class ProfessionalAudioIntegrationTest {
 
             instrumentation.runOnMainSync { controller.setPitch(1.2f) }
             assertTrue("Pitch did not reach playback parameters", await(3_000L) {
-                connection.playerOrNull()?.playbackParameters?.pitch?.let { abs(it - 1.2f) < 0.01f } == true
+                onMain(instrumentation) {
+                    connection.playerOrNull()?.playbackParameters?.pitch?.let { abs(it - 1.2f) < 0.01f } == true
+                }
             })
 
             val subtitleDescriptor = SubtitleFileDescriptor(
@@ -149,27 +154,34 @@ class ProfessionalAudioIntegrationTest {
                 "External audio replaced Step-4 subtitle association",
                 container.subtitleRepository.externalAttachmentsFor(mediaId).isNotEmpty(),
             )
-            assertEquals(mediaId, connection.playerOrNull()?.currentMediaItem?.mediaId)
+            assertEquals(mediaId, onMain(instrumentation) { connection.playerOrNull()?.currentMediaItem?.mediaId })
 
-            val positionBefore = connection.playerOrNull()?.currentPosition ?: 0L
+            val positionBefore = onMain(instrumentation) { connection.playerOrNull()?.currentPosition ?: 0L }
             instrumentation.runOnMainSync { controller.setAudioOnly(true) }
             assertTrue("Audio-only did not disable the video track", await(3_000L) {
-                connection.playerOrNull()?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_VIDEO) == true
+                onMain(instrumentation) {
+                    connection.playerOrNull()?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_VIDEO) == true
+                }
             })
             instrumentation.runOnMainSync { controller.setAudioOnly(false) }
             assertTrue("Video track was not restored", await(3_000L) {
-                connection.playerOrNull()?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_VIDEO) == false
+                onMain(instrumentation) {
+                    connection.playerOrNull()?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_VIDEO) == false
+                }
             })
-            assertEquals(mediaId, connection.playerOrNull()?.currentMediaItem?.mediaId)
+            assertEquals(mediaId, onMain(instrumentation) { connection.playerOrNull()?.currentMediaItem?.mediaId })
+            val positionAfterAudioOnly = onMain(instrumentation) { connection.playerOrNull()?.currentPosition ?: 0L }
             assertTrue(
                 "Audio-only unexpectedly restarted from zero",
-                (connection.playerOrNull()?.currentPosition ?: 0L) >= (positionBefore - 500L).coerceAtLeast(0L),
+                positionAfterAudioOnly >= (positionBefore - 500L).coerceAtLeast(0L),
             )
 
             scenario.recreate()
             instrumentation.waitForIdleSync()
             assertTrue("Playback session was lost across Activity recreation", await(5_000L) {
-                connection.state.value.connected && connection.playerOrNull()?.currentMediaItem?.mediaId == mediaId
+                connection.state.value.connected && onMain(instrumentation) {
+                    connection.playerOrNull()?.currentMediaItem?.mediaId == mediaId
+                }
             })
             assertTrue("Audio state was lost across Activity recreation", audio.state.value.equalizerEnabled)
             assertEquals(250L, audio.state.value.audioDelayMs)
@@ -244,6 +256,15 @@ class ProfessionalAudioIntegrationTest {
         testContext.assets.open(name).use { input ->
             outputStream().use { output -> input.copyTo(output) }
         }
+    }
+
+    private fun <T> onMain(
+        instrumentation: android.app.Instrumentation,
+        block: () -> T,
+    ): T {
+        val result = AtomicReference<T>()
+        instrumentation.runOnMainSync { result.set(block()) }
+        return result.get()
     }
 
     private fun await(timeoutMs: Long, condition: () -> Boolean): Boolean {
