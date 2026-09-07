@@ -33,7 +33,7 @@ class AppContainer(context: Context) {
         DecoderRepository(database.decoderMediaStateDao(), playerPreferences)
     }
     val playbackConnection: PlaybackConnection by lazy {
-        PlaybackConnection(appContext, subtitleRepository, decoderRepository)
+        PlaybackConnection(appContext, subtitleRepository)
     }
     val audioPlaybackController: AudioPlaybackController by lazy { AudioPlaybackController(audioRepository, playbackConnection) }
     val safTreeScanner: SafTreeScanner by lazy { SafTreeScanner(appContext.contentResolver) }
