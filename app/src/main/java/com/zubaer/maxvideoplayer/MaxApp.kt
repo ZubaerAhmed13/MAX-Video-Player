@@ -9,10 +9,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
+import com.zubaer.maxvideoplayer.feature.audio.ProfessionalAudioPlayerHost
 import com.zubaer.maxvideoplayer.feature.library.LibraryScreen
 import com.zubaer.maxvideoplayer.feature.library.LibraryViewModel
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
-import com.zubaer.maxvideoplayer.feature.player.PlayerScreen
 import com.zubaer.maxvideoplayer.feature.player.PlayerViewModel
 import com.zubaer.maxvideoplayer.ui.MaxTheme
 import kotlinx.coroutines.launch
@@ -112,11 +112,13 @@ fun MaxApp(
                     )
                 },
             )
-            PlayerScreen(
+            ProfessionalAudioPlayerHost(
                 media = media,
                 viewModel = playerViewModel,
                 playbackConnection = container.playbackConnection,
                 subtitleRepository = container.subtitleRepository,
+                audioRepository = container.audioRepository,
+                audioController = container.audioPlaybackController,
                 onBack = navigationViewModel::clearSelection,
                 onEnterPip = onEnterPip,
                 onFullscreenChanged = onFullscreenChanged,

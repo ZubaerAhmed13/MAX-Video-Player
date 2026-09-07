@@ -4,6 +4,7 @@ import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -15,8 +16,11 @@ import kotlin.math.sqrt
 
 /** App-owned deterministic PCM DSP. No I/O, Room, coroutines or UI work occurs in queueInput. */
 class MaxAudioProcessor(
-    private val repository: AudioRepository,
+    private val parameterSource: AtomicReference<AudioDspParameters>,
+    private val availability: (Boolean, String?) -> Unit = { _, _ -> },
 ) : BaseAudioProcessor() {
+    constructor(repository: AudioRepository) : this(repository.realtimeParameters, repository::setDspAvailability)
+
     private var sampleRate = 0
     private var channels = 0
     private var encoding = C.ENCODING_INVALID
@@ -33,14 +37,14 @@ class MaxAudioProcessor(
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         val supported = inputAudioFormat.encoding == C.ENCODING_PCM_16BIT || inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT
         if (!supported || inputAudioFormat.channelCount <= 0 || inputAudioFormat.sampleRate <= 0) {
-            repository.setDspAvailability(false, "Audio processing unavailable for this PCM/output format")
+            availability(false, "Audio processing unavailable for this PCM/output format")
             return AudioProcessor.AudioFormat.NOT_SET
         }
         sampleRate = inputAudioFormat.sampleRate
         channels = inputAudioFormat.channelCount
         encoding = inputAudioFormat.encoding
         bytesPerSample = if (encoding == C.ENCODING_PCM_FLOAT) 4 else 2
-        repository.setDspAvailability(true)
+        availability(true, null)
         return inputAudioFormat
     }
 
@@ -80,8 +84,7 @@ class MaxAudioProcessor(
             return
         }
         val completeFrames = inputBuffer.remaining() / frameBytes
-        val maxOutputBytes = completeFrames * frameBytes
-        val output = replaceOutputBuffer(maxOutputBytes)
+        val output = replaceOutputBuffer(completeFrames * frameBytes)
         var frameIndex = 0
         while (frameIndex < completeFrames) {
             for (ch in 0 until channels) frame[ch] = readSample(inputBuffer)
@@ -110,8 +113,7 @@ class MaxAudioProcessor(
 
     override fun onQueueEndOfStream() {
         if (delayRing.isEmpty() || delayFilled == 0) return
-        val bytes = delayFilled * bytesPerSample
-        val output = replaceOutputBuffer(bytes)
+        val output = replaceOutputBuffer(delayFilled * bytesPerSample)
         val count = delayFilled
         val start = if (delayFilled == delayRing.size) delayWrite else 0
         for (i in 0 until count) {
@@ -124,7 +126,7 @@ class MaxAudioProcessor(
     }
 
     private fun applyLatestParameters(force: Boolean) {
-        val latest = repository.realtimeParameters.get()
+        val latest = parameterSource.get()
         if (!force && latest.revision == seenRevision) return
         val delayChanged = latest.delayMs != params.delayMs
         params = latest.copy(
@@ -172,7 +174,7 @@ class MaxAudioProcessor(
         val byteCountLong = sampleCountLong * 4L
         if (byteCountLong > MAX_DELAY_BUFFER_BYTES || sampleCountLong > Int.MAX_VALUE) {
             delayRing = FloatArray(0)
-            repository.setDspAvailability(false, "Audio delay unavailable for this high-rate/channel format")
+            availability(false, "Audio delay unavailable for this high-rate/channel format")
             return
         }
         delayRing = FloatArray(sampleCountLong.toInt())
@@ -218,11 +220,8 @@ class MaxAudioProcessor(
 
     private fun writeSample(buffer: ByteBuffer, sample: Float) {
         val safe = if (sample.isFinite()) sample.coerceIn(-1f, 1f) else 0f
-        if (encoding == C.ENCODING_PCM_FLOAT) {
-            buffer.putFloat(safe)
-        } else {
-            buffer.putShort((safe * 32767f).roundToInt().coerceIn(-32768, 32767).toShort())
-        }
+        if (encoding == C.ENCODING_PCM_FLOAT) buffer.putFloat(safe)
+        else buffer.putShort((safe * 32767f).roundToInt().coerceIn(-32768, 32767).toShort())
     }
 
     private fun softLimit(value: Float): Float {
@@ -230,7 +229,8 @@ class MaxAudioProcessor(
         val magnitude = abs(value)
         if (magnitude <= LIMITER_THRESHOLD) return value
         val excess = (magnitude - LIMITER_THRESHOLD) / (1f - LIMITER_THRESHOLD)
-        val limited = LIMITER_THRESHOLD + (1f - LIMITER_THRESHOLD) * (1f - exp(-excess))
+        val shaped = (1.0 - exp(-excess.toDouble())).toFloat()
+        val limited = LIMITER_THRESHOLD + (1f - LIMITER_THRESHOLD) * shaped
         return if (value < 0f) -limited.coerceAtMost(1f) else limited.coerceAtMost(1f)
     }
 
