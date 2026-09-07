@@ -88,9 +88,13 @@ Step 4 subtitle fixture
                 connection.play()
             }
             assertTrue("Side-loaded SRT cue was not rendered by the service-owned player", await(8_000L) {
-                connection.playerOrNull()?.currentCues?.cues?.any {
-                    it.text?.toString()?.contains("Step 4 subtitle fixture") == true
-                } == true
+                var rendered = false
+                instrumentation.runOnMainSync {
+                    rendered = connection.playerOrNull()?.currentCues?.cues?.any {
+                        it.text?.toString()?.contains("Step 4 subtitle fixture") == true
+                    } == true
+                }
+                rendered
             })
 
             instrumentation.runOnMainSync { connection.setSubtitlesEnabled(false) }
