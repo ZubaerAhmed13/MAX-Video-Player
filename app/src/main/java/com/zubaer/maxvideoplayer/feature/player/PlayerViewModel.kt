@@ -207,19 +207,30 @@ class PlayerViewModel(
             viewportWidthPx = viewportWidthPx,
             viewportHeightPx = viewportHeightPx,
         )
-        val bounds = PlayerInteractionPolicy.panBounds(
+        val baseFrame = RenderedVideoGeometry.baseRenderedFrame(
             viewportWidthPx = viewportWidthPx,
             viewportHeightPx = viewportHeightPx,
+            sourceWidth = activeMedia.width,
+            sourceHeight = activeMedia.height,
+            sourceRotationDegrees = activeMedia.rotationDegrees,
+            resizeMode = current.resizeMode,
+        )
+        val bounds = RenderedVideoGeometry.panBounds(
+            viewportWidthPx = viewportWidthPx,
+            viewportHeightPx = viewportHeightPx,
+            renderedWidthPx = baseFrame.widthPx,
+            renderedHeightPx = baseFrame.heightPx,
             scaleX = renderedTransform.scaleX,
             scaleY = renderedTransform.scaleY,
+            rotationDegrees = renderedTransform.rotationDegrees,
         )
         val (nextX, nextY) = PlayerInteractionPolicy.clampPan(current.panX + panDx, current.panY + panDy, bounds)
         _state.value = current.copy(
             interactionInProgress = true,
             gestureKind = if (zoomMultiplier != 1f) PlayerGestureKind.ZOOM else PlayerGestureKind.PAN,
             zoom = nextZoom,
-            panX = if (nextZoom <= 1.001f) 0f else nextX,
-            panY = if (nextZoom <= 1.001f) 0f else nextY,
+            panX = nextX,
+            panY = nextY,
             hud = PlayerHudState.Zoom(nextZoom),
         )
     }

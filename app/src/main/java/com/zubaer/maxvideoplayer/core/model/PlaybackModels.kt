@@ -63,5 +63,6 @@ data class PlaybackUiState(
     val mediaItemCount: Int = 0,
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val shuffleEnabled: Boolean = false,
+    val subtitles: SubtitlePlaybackState = SubtitlePlaybackState(),
     val error: PlaybackError? = null,
 )

@@ -5,11 +5,21 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleAwareMediaSourceFactory
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
-class Media3PlaybackEngine(context: Context) : PlaybackEngine {
-    private val exoPlayer = ExoPlayer.Builder(context.applicationContext)
+@UnstableApi
+class Media3PlaybackEngine(
+    context: Context,
+    subtitleRepository: SubtitleRepository,
+) : PlaybackEngine {
+    private val exoPlayer = ExoPlayer.Builder(
+        context.applicationContext,
+        SubtitleAwareMediaSourceFactory(context.applicationContext, subtitleRepository),
+    )
         .build()
         .apply {
             val attributes = AudioAttributes.Builder()
