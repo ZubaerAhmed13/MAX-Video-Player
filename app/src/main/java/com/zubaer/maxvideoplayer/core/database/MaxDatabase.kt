@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateDao
+import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateEntity
 
 @Database(
     entities = [
@@ -22,8 +24,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SubtitleMediaStateEntity::class,
         AudioAssociationEntity::class,
         AudioMediaStateEntity::class,
+        DecoderMediaStateEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class MaxDatabase : RoomDatabase() {
@@ -37,6 +40,7 @@ abstract class MaxDatabase : RoomDatabase() {
     abstract fun libraryPreferenceDao(): LibraryPreferenceDao
     abstract fun subtitleDao(): SubtitleDao
     abstract fun audioDao(): AudioDao
+    abstract fun decoderMediaStateDao(): DecoderMediaStateDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -76,9 +80,15 @@ abstract class MaxDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `decoder_media_state` (`stableMediaId` TEXT NOT NULL, `requestedMode` TEXT NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`stableMediaId`))")
+            }
+        }
+
         fun create(context: Context): MaxDatabase =
             Room.databaseBuilder(context, MaxDatabase::class.java, "max-video-player.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
     }
 }
