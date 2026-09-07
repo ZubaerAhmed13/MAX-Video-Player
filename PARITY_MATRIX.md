@@ -30,21 +30,21 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | EQ | Presets | PASS | Flat/Bass/Vocal/Treble/Rock/Classical/Electronic original ten-band curves |
 | EQ | Custom | PASS | Manual band edits persist as custom state |
 | EQ | Nyquist safety | PASS | Unsafe high band is disabled rather than constructing unstable filter |
-| EQ | Signal response | PASS | Existing target-vs-distant signal test; expanded certification adds measured +6 dB response at 62 Hz/1 kHz/8 kHz |
-| Gain | Preamp | PASS | Real PCM gain; expanded certification checks −6/0/+6 dB expected linear behavior |
+| EQ | Signal response | PASS | CI #165 measures +6 dB response at 62 Hz/1 kHz/8 kHz and cross-band selectivity |
+| Gain | Preamp | PASS | CI #165 verifies −6/0/+6 dB expected linear behavior |
 | Gain | Digital boost | PASS | Real PCM amplitude increase separate from Android system volume |
-| Gain | Limiter | PASS | Soft limiter bounds output; integer and float certification |
+| Gain | Limiter | PASS | Integer and float output bounds under extreme legal gain |
 | Channels | Stereo | PASS | Stereo path preserved |
 | Channels | Mono | PASS | Deterministic L/R downmix |
-| Channels | Left | PASS | Left duplicated to both stereo outputs |
-| Channels | Right | PASS | Right duplicated to both stereo outputs |
+| Channels | Left | PASS | Left duplicated to both stereo outputs without inversion |
+| Channels | Right | PASS | Right duplicated to both stereo outputs without inversion |
 | Channels | Balance | PASS | Equal-power left/right attenuation policy |
 | Channels | Multichannel truthfulness | PASS | 5.1/7.1 not falsely remapped; stereo-only controls disabled for non-stereo selected track |
-| Sync | Zero audio delay | PASS | Expanded deterministic signal certification requires no insertion/removal |
-| Sync | Positive audio delay | PASS | Bounded PCM delay buffering; +500 ms/48 kHz stereo certification |
-| Sync | Negative audio delay | PASS | Deterministic leading-frame trimming; negative 48 kHz stereo certification |
+| Sync | Zero audio delay | PASS | Exact DSP certification proves no sample insertion/removal |
+| Sync | Positive audio delay | PASS | +500 ms / 48 kHz stereo exact 24,000-frame delay certification |
+| Sync | Negative audio delay | PASS | −500 ms / 48 kHz stereo exact 24,000-frame trimming certification |
 | Sync | Bounds | PASS | ±10,000 ms policy clamp including enormous input values |
-| Sync | Flush/seek stale-buffer rejection | PASS | Expanded processor test flushes delayed audio and proves old samples do not leak |
+| Sync | Flush/seek stale-buffer rejection | PASS | Delayed pre-seek samples cannot appear after processor flush |
 | Sync | Per-media persistence | PASS | Room v4 audio media state |
 | Sync | Route compensation separation | PASS | Global route compensation remains separate from per-media delay |
 | Pitch | Independent control | PASS | Media3 `PlaybackParameters` pitch assertion |
@@ -67,12 +67,12 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | Performance | No whole-media audio extraction | PASS | Streaming Media3 PCM path; URI/reference source model preserved |
 | Performance | Realtime callback isolation | PASS | No Room/coroutine/UI/network work in `queueInput` |
 | Performance | Delay-memory bound | PASS | Positive-delay ring capped at 40 MiB; unavailable state instead of unbounded allocation |
-| Numerical safety | NaN/Infinity | PASS | Processor guards non-finite active-DSP input/state; expanded direct signal certification |
-| Numerical safety | Filter stability | PASS | Biquad defensive reset + long extreme-settings certification |
-| Numerical safety | DC offset / bounded output | PASS | Expanded signal certification checks mean offset and legal output range |
-| Sample rates | 44.1 kHz | PASS | Expanded exact DSP certification |
-| Sample rates | 48 kHz | PASS | Production/default and signal certification |
-| Sample rates | 96 kHz | PASS | Expanded exact DSP certification |
+| Numerical safety | NaN/Infinity | PASS | Active-DSP signal certification sanitizes non-finite values |
+| Numerical safety | Filter stability | PASS | Biquad defensive reset + 30-second extreme-settings streaming certification |
+| Numerical safety | DC offset / bounded output | PASS | Direct mean-offset and legal-range signal tests |
+| Sample rates | 44.1 kHz | PASS | Exact DSP certification in CI #165 |
+| Sample rates | 48 kHz | PASS | Production/default and exact signal certification |
+| Sample rates | 96 kHz | PASS | Exact DSP certification in CI #165 |
 | Privacy | Local audio processing | PASS | No upload service and no microphone permission required |
 
 ## Step-4 professional subtitle engine — preserved through Step 5
@@ -112,7 +112,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | Storage | MediaStore/SAF/persisted permissions | PASS | Existing source architecture retained |
 | Storage | Missing source/relink | PASS | Existing media relink remains separate from subtitle/audio relink |
 | Files | Rename/delete | PASS | Existing provider-aware flows retained |
-| Media | Thumbnails | PASS | API-26/API-28 regressions remain green on merged Step-5 main |
+| Media | Thumbnails | PASS | API-26/API-28 regressions retained |
 
 ## Step-1 foundations preserved through Step 5
 
@@ -127,19 +127,25 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 
 ## Step-5 certification evidence
 
-Merged Step-5 main baseline:
+Merged Step-5 baseline:
 
 - PR #7
 - merge commit: `bea360164fe69cfc146dc03b55df4da4a0cb153a`
 - Android CI #163 / run `34158185652`
-- debug + JVM/unit/DSP — **PASS**
+- complete matrix — **PASS**
+
+Corrective canonical-document + exact-DSP implementation gate:
+
+- PR #8 implementation/evidence SHA: `826558fdd9ba5eeec1c772aed6307faef2ecb88c`
+- Android CI #165 / run `34159966506`
+- debug/JVM/DSP — **PASS**
 - release compilation — **PASS**
 - lint — **PASS**
 - API-35 instrumentation — **PASS**
 - API-26 regression — **PASS**
 - API-28 regression — **PASS**
 
-The canonical-document/DSP-certification hardening branch adds the exact remaining signal tests identified by the original Step-5 specification. It must pass the identical exact-head matrix before merge; no older green run substitutes for that gate.
+The final documentation-complete PR #8 head must pass the identical matrix before merge because recording this evidence changes the SHA. Post-merge `main` CI is also mandatory.
 
 ## Physical certification deferred to Step 10
 
@@ -159,6 +165,6 @@ The following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
 
 ## Step-5 overall result
 
-**PASS for implemented software/emulator functionality on the merged Step-5 baseline.**
+**PASS for implemented software/emulator functionality.** The corrective exact-DSP suite itself passed CI #165; only the documentation-complete PR #8 exact-head gate and required post-merge `main` gate remain before the two follow-up audit findings are repository-closed.
 
-The additional exact DSP certification hardening in the current correction branch is a required quality gate before that branch can be merged. Step 6 remains **NOT IMPLEMENTED**.
+Step 6 remains **NOT IMPLEMENTED**.
