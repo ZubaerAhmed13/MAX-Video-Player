@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.zubaer.maxvideoplayer.feature.decoder.selection
 
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
