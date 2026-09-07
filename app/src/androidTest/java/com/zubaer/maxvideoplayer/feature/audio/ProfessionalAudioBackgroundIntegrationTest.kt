@@ -82,7 +82,11 @@ class ProfessionalAudioBackgroundIntegrationTest {
                 onMain(instrumentation) { connection.playerOrNull()?.currentMediaItem?.mediaId },
             )
 
-            scenario.moveToState(Lifecycle.State.STARTED)
+            // ActivityScenario forces STARTED by briefly resuming MainActivity and then covering it
+            // with a floating test Activity. That is not a real foreground state and can legitimately
+            // detach/release the video renderer again. Foreground restoration is therefore certified
+            // at RESUMED, where MainActivity is actually visible and interactive to the user.
+            scenario.moveToState(Lifecycle.State.RESUMED)
             assertTrue("Returning foreground did not restore a selected video track", await(5_000L) {
                 onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
             })
@@ -97,7 +101,7 @@ class ProfessionalAudioBackgroundIntegrationTest {
                     player?.currentMediaItem?.mediaId == mediaId && !isVideoTrackSelected(player)
                 }
             })
-            scenario.moveToState(Lifecycle.State.STARTED)
+            scenario.moveToState(Lifecycle.State.RESUMED)
             assertTrue("PiP fallback foreground return did not restore video", await(5_000L) {
                 onMain(instrumentation) { isVideoTrackSelected(connection.playerOrNull()) }
             })
