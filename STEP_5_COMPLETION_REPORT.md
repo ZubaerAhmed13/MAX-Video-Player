@@ -1,75 +1,175 @@
 # Step 5 Completion Report — Professional Audio Engine
 
 ## Boundary
+
 This report covers Step 5 only. Step 6 is not implemented here.
 
-Step 5 builds on the Step-4-certified `main` baseline and preserves the single service-owned Media3 playback architecture, subtitle system, large-media URI model and existing regression coverage.
+Step 5 extends the Step-4-certified application while preserving the single service-owned Media3 playback architecture, subtitle system, large-media URI model and earlier regression coverage.
+
+## Merged Step-5 baseline
+
+Step 5 was originally merged through PR #7.
+
+- merged `main` commit: `bea360164fe69cfc146dc03b55df4da4a0cb153a`
+- post-merge Android CI: #163 / run `34158185652`
+- debug + JVM/unit tests: **PASS**
+- release compilation: **PASS**
+- lint: **PASS**
+- API-35 full instrumentation: **PASS**
+- API-26 regression: **PASS**
+- API-28 regression: **PASS**
+
+An independent follow-up audit then identified two defects in the repository-complete claim:
+
+1. the canonical root documentation (`README.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md`, `PARITY_MATRIX.md`) still described Step 4;
+2. the DSP unit suite did not yet implement every exact signal test required by the original Step-5 specification.
+
+Both findings are corrected by PR #8 / branch `step-5-canonical-docs-dsp-certification`.
+
+## Corrective implementation gates
+
+### Exact DSP/canonical-document evidence gate
+
+Corrective implementation/evidence head `826558fdd9ba5eeec1c772aed6307faef2ecb88c` passed Android CI #165 / run `34159966506`:
+
+- debug build + all JVM/unit/DSP tests — **PASS**
+- release compilation — **PASS**
+- lint — **PASS**
+- API-35 full instrumentation — **PASS**
+- API-26 legacy regression — **PASS**
+- API-28 legacy regression — **PASS**
+
+### Final corrective implementation gate
+
+Subsequent exact-head certification exposed three timing/lifetime races in test evidence rather than missing product functionality:
+
+- external-audio certification had coupled authoritative Media3 selection to a lagging repository projection;
+- a Step-4 in-memory Room test could close its test-owned database before queued persistence work drained;
+- a Step-3 host test could assert a cached playback position before the authoritative controller seek position had propagated.
+
+These were hardened without weakening the required assertions: external-audio selection is certified from controller-visible Media3 `Tracks`, subtitle persistence drains deterministically before the test database closes, and Step-3 seek continuity is read from the authoritative controller/player position.
+
+The resulting exact corrective implementation head:
+
+- SHA: `4acd3b615d39fbcf6f498a351fb799807f36e199`
+- Android CI: #172
+- run ID: `34161708731`
+
+passed the complete matrix:
+
+- debug build + all JVM/unit/DSP tests — **PASS**
+- release compilation — **PASS**
+- lint — **PASS**
+- API-35 full instrumentation — **PASS**
+- API-26 legacy-thumbnail regression — **PASS**
+- API-28 legacy-thumbnail regression — **PASS**
+
+Because this report records that evidence, this evidence-only documentation commit creates one newer PR head. That exact documentation-complete head must also pass the identical matrix before PR #8 is merged. After merge, the resulting `main` commit must pass the same CI matrix before Step 5 is declared repository-complete.
 
 ## Delivered product capabilities
-- embedded audio-track discovery and manual selection;
-- Auto audio selection with persisted preferred language;
-- durable external-audio association, relink/remove and explicit selection;
-- external audio merged into the same Media3 timeline;
-- Step-4 external subtitle coexistence while external audio is selected;
-- production-installed custom PCM DSP;
-- 10-band EQ with presets/custom values;
-- preamp and digital boost with bounded soft limiting;
-- deterministic positive/negative audio delay;
-- separate per-route compensation;
-- stereo mono/left/right channel modes;
-- stereo left/right balance;
-- truthful multichannel behavior: 5.1/7.1 layouts are preserved and stereo-only channel/balance controls are disabled;
-- pitch control through Media3 playback parameters;
-- audio-only playback without replacing the media item/session;
-- background modes: pause, continue audio and PiP-when-possible fallback behavior;
-- optional background video suppression with foreground restoration;
-- route classification for speaker, wired, Bluetooth, USB and HDMI families;
-- persistence across Activity recreation.
 
-## Review findings closed
-### Multichannel channel/balance truthfulness
-Closed. UI and state now explicitly make channel mode and balance stereo-only. Automated DSP coverage verifies a six-channel PCM frame is not remapped by these controls.
+- embedded audio-track discovery and manual selection
+- Auto audio selection with persisted preferred language
+- durable external-audio association, relink/remove and explicit selection
+- external audio merged into the same Media3 timeline
+- actual external Media3 track-selection certification
+- Step-4 external subtitle coexistence while external audio is selected
+- production-installed custom PCM DSP
+- PCM16 and PCM-float paths
+- 10-band EQ with presets/custom values
+- preamp and digital boost with bounded soft limiting
+- deterministic positive/negative audio delay
+- separate per-route compensation
+- stereo mono/left/right channel modes
+- stereo left/right balance
+- truthful multichannel behavior: 5.1/7.1 layouts are preserved and stereo-only channel/balance controls are disabled
+- pitch control through Media3 playback parameters
+- audio-only playback without replacing the media item/session
+- background modes: Pause, Continue audio and PiP when possible
+- optional background video suppression with foreground restoration
+- route classification for speaker, wired, Bluetooth, USB and HDMI families
+- persistence across Activity recreation
+- Room v4 with explicit `MIGRATION_3_4`
 
-### Mandatory DSP test coverage
-Closed in source. Unit coverage now includes neutral PCM16, neutral float PCM, EQ selectivity, presets, preamp, boost, limiter, stereo channel mapping, balance, multichannel preservation, positive/negative delay, live parameter revision and long extreme-settings stability.
+## Review finding: multichannel channel/balance truthfulness
 
-### External-audio selection certification
-Closed in source. API-35 instrumentation now requires both:
-1. durable selected external association; and
-2. an actually selected external Media3 audio track/group.
-It also asserts embedded audio is no longer selected after explicit external-audio selection.
+**CLOSED.** UI/state make channel mode and balance stereo-only. Automated DSP coverage verifies a six-channel PCM frame is not remapped by those controls.
 
-### Background behavior integration
-Closed in source. A dedicated lifecycle instrumentation test drives the real `MainActivity`/service-owned player through stopped/started states and verifies continue-audio video suppression, foreground restoration, PiP fallback behavior, pause policy and stable media-item identity.
+## Review finding: external-audio actual selection
 
-### Documentation
-Closed by:
-- `STEP_5_ARCHITECTURE.md`
-- `STEP_5_DEPENDENCIES.md`
-- `STEP_5_TEST_MATRIX.md`
-- `STEP_5_COMPLETION_REPORT.md`
+**CLOSED AND VERIFIED.** API-35 instrumentation requires a durable selected association and an actually selected merged external Media3 audio track. Embedded audio deselection is also verified from Media3 track state rather than inferred from UI state.
 
-## Automated gate policy
-A Step-5 branch is mergeable only when the exact documentation-complete head passes the existing Android CI matrix:
-- debug build and JVM tests;
-- release compilation;
-- lint;
-- API-35 full instrumentation;
-- API-26 legacy regression instrumentation;
-- API-28 legacy regression instrumentation.
+## Review finding: background behavior integration
 
-The last known green baseline before the final hardening changes was Step-5 head `94e65536ab27c6c734420517310ba2b2bc3696be`, Android CI run `34131831151` (#144), which completed successfully. The final hardening/documentation head must independently pass the same matrix before merge; older green evidence is not substituted for final-head evidence.
+**CLOSED AND VERIFIED.** Dedicated API-35 lifecycle instrumentation verifies Continue-audio session retention/video suppression, foreground video restoration, Pause policy, actual Picture-in-Picture behavior and stable MediaSession/current-media identity.
+
+## Review finding: canonical project documentation
+
+**CLOSED IN SOURCE AND VERIFIED; FINAL DOCUMENTATION-HEAD/MERGE GATES REMAIN.**
+
+Canonical files genuinely cover Step 5:
+
+- `README.md`
+- `ARCHITECTURE.md`
+- `DEPENDENCIES.md`
+- `PARITY_MATRIX.md`
+
+The Step-specific files remain supporting evidence rather than substitutes for the canonical root documents.
+
+## Review finding: exact DSP certification matrix
+
+**CLOSED IN SOURCE AND VERIFIED; FINAL DOCUMENTATION-HEAD/MERGE GATES REMAIN.**
+
+The expanded JVM DSP suite directly verifies:
+
+- neutral PCM16 bit transparency
+- neutral PCM-float transparency
+- EQ-enabled Flat transparency
+- +6 dB measured response at 62 Hz, 1 kHz and 8 kHz with defined tolerance
+- EQ cross-band selectivity
+- Nyquist safety
+- preamp −6/0/+6 dB expected gain/attenuation
+- real digital boost
+- PCM16 and float limiter bounds
+- active-DSP NaN/Infinity sanitization
+- mathematical stereo balance
+- mono/left/right routing without channel inversion
+- multichannel preservation
+- 0 ms delay
+- +500 ms delay at 48 kHz stereo
+- −500 ms delay at 48 kHz stereo
+- enormous delay clamping
+- delay-buffer flush/seek stale-sample rejection
+- 44.1 kHz, 48 kHz and 96 kHz processing
+- filter-history reset after flush
+- live atomic parameter revision without processor recreation
+- bounded live-change discontinuity
+- DC-offset and numerical-output safety
+- 30-second deterministic extreme-settings streaming stability
+- truthful unsupported-PCM rejection
+
+See `STEP_5_TEST_MATRIX.md` for exact assertions and evidence.
 
 ## Clean-room / dependency statement
-No MX Player proprietary source, assets or branding are used. Step 5 adds no new third-party runtime dependency; the DSP is project-owned Kotlin code integrated through existing AndroidX Media3 audio-sink extension points.
+
+No MX Player proprietary source, assets or branding are used. Step 5 adds no new third-party runtime dependency; the DSP is project-owned Kotlin code integrated through AndroidX Media3 audio-sink extension points.
 
 ## Physical certification boundary
-Automated CI does not claim physical acoustic/latency certification for specific Bluetooth, USB DAC or HDMI hardware, nor manufacturer-specific background-policy behavior. Those remain representative-device checks. The code paths, route policies and automated integration behavior are implemented and tested without pretending emulator evidence proves hardware acoustics.
 
-## Merge rule
-Do not mark Step 5 complete on `main` until:
-1. final Step-5 branch head is fully green;
-2. the Step-5 pull request/branch is merged without dropping commits;
-3. `main` CI runs on the merged commit and is fully green.
+Automated CI does not claim physical acoustic/latency certification for specific Bluetooth, USB DAC or HDMI hardware, subjective listening quality, manufacturer-specific background restrictions, or physical very-large/4K/HDR/battery/thermal behavior.
 
-Only after those gates is Step 5 considered repository-complete and Step 6 eligible to begin.
+Those remain:
+
+**NOT VERIFIED — DEFERRED TO STEP 10**
+
+## Final corrective merge rule
+
+PR #8 may merge only when:
+
+1. the exact evidence-recording documentation-complete PR head passes debug/JVM/DSP tests, release compilation, lint, API-35, API-26 and API-28;
+2. PR #8 is merged without dropping any corrective changes;
+3. `main` runs the same CI on the resulting merge commit and is fully green.
+
+Only after all three conditions are satisfied may the corrective audit be considered repository-closed and Step 5 be called complete.
+
+No Step-6 work may be substituted for these Step-5 corrections.

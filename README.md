@@ -2,36 +2,39 @@
 
 MAX Video Player is an original, native Android media-player project intended to grow toward MX Player Pro-class feature depth, reliability and usability through a **clean-room implementation**.
 
-MX Player Pro is used only as a functionality, workflow and feature-depth reference. This repository does **not** copy MX Player source code, decompiled code, binaries, proprietary decoder implementations, package names, branding, logos, fonts, certificates, API keys or copyrighted assets.
+MX Player Pro is used only as a functionality/workflow reference. This repository does **not** copy MX Player source code, decompiled code, binaries, proprietary decoders, package names, branding, logos, certificates, API keys or copyrighted assets.
 
 ## Current development status
 
-**Step 4 of 10 — Professional Subtitle Engine: SOFTWARE/EMULATOR PASS**
+**Step 5 of 10 — Professional Audio Engine: REPOSITORY-COMPLETE BASELINE + CERTIFICATION HARDENING**
 
-Step-4 branch: `step-4-professional-subtitles`
+Step 5 was merged through PR #7. The merged baseline `main` commit is:
 
-Authoritative Step-4 implementation gate before documentation finalization:
+- `bea360164fe69cfc146dc03b55df4da4a0cb153a`
 
-- implementation SHA: `94aa7af146e342f8405c6032f8d29bfe9250d780`
-- GitHub Actions workflow: `Android CI`
-- run: `34100525570` (#129)
-- debug build + JVM tests: **PASS**
-- release compilation: **PASS**
-- lint: **PASS**
-- API-35 full instrumentation: **PASS**
-- API-26 legacy-thumbnail regression: **PASS**
-- API-28 legacy-thumbnail regression: **PASS**
+Post-merge Android CI #163 (`34158185652`) passed on that exact baseline:
 
-The documentation-complete PR head must also pass the same CI matrix before merge. Physical 3 GB+, 4K/HDR, OEM/provider, hardware-routing, cutout/foldable, battery, thermal and broad device-matrix certification remains **NOT VERIFIED — DEFERRED TO STEP 10**.
+- debug build + JVM/unit/DSP tests — **PASS**
+- release compilation — **PASS**
+- Android lint — **PASS**
+- API-35 full instrumentation — **PASS**
+- API-26 legacy-thumbnail regression — **PASS**
+- API-28 legacy-thumbnail regression — **PASS**
+
+A follow-up audit correctly found that the canonical root documentation was still Step-4-oriented and that several exact DSP signal tests from the original Step-5 specification were missing. PR #8 corrects both findings.
+
+The corrective implementation/evidence head `826558fdd9ba5eeec1c772aed6307faef2ecb88c` passed Android CI #165 (`34159966506`) across debug/JVM/DSP, release, lint, API-35, API-26 and API-28. The documentation-complete PR head that records those results must pass the same matrix again before merge, followed by post-merge `main` CI.
+
+Physical 3 GB+/4K/HDR/device-matrix, Bluetooth/USB/HDMI acoustic latency, OEM background restrictions, battery and thermal certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
 ## Platform baseline
 
 - Kotlin
 - Jetpack Compose
 - AndroidX
-- Media3 / ExoPlayer
+- Media3 / ExoPlayer 1.11.0
 - MediaSession + MediaSessionService
-- Room
+- Room 2.8.4
 - Coroutines + Flow / StateFlow
 - minSdk 23
 - targetSdk 36
@@ -42,149 +45,156 @@ The documentation-complete PR head must also pass the same CI matrix before merg
 
 This is a fully native Android application. It does not use WebView, Capacitor, Cordova, React Native, Flutter or TWA as its application architecture.
 
-## Step-4 professional subtitle engine
+## Step-5 professional audio engine
 
-Step 4 adds a real subtitle layer without replacing the Step-1 service-owned player or the Step-2/3 library/player architecture.
+Step 5 keeps the single service-owned Media3 player and adds a real audio-processing layer rather than cosmetic controls.
 
 Implemented software/emulator behavior includes:
 
-- embedded Media3 text-track discovery and manual selection
-- explicit subtitle **Off**, **Auto** and manual track selection
-- external side-loaded subtitle loading through Android `OpenDocument` / SAF by URI reference
-- multiple external subtitle associations per stable media ID
-- SRT, WebVTT, SSA/ASS and TTML/DFXP text subtitle policy
-- direct Android instrumentation proving the real Media3 subtitle parsers emit cues for SRT, WebVTT, ASS, SSA and TTML
-- multilingual Unicode fixture coverage including English, Bangla, Arabic/RTL and Japanese text
-- deterministic external-track identity: custom Media3 ID when preserved, with label/MIME/language fallback when `Format.id` is not propagated
-- persisted per-media preferred external subtitle and subtitle delay
-- positive/negative subtitle synchronization using `Long` timing with a bounded ±600,000 ms policy
-- automatic matching sidecar discovery for user-approved SAF folders using filename scoring and preferred-language ordering
-- preferred subtitle language settings
-- encoding detection/override for Auto, UTF-8, UTF-16 LE, UTF-16 BE and Windows-1252; external text can be normalized to UTF-8 before Media3 parsing
-- durable subtitle associations, selection, availability, encoding and delay in Room v3
-- explicit database `MIGRATION_2_3` while preserving Step-1/2 data and without destructive migration fallback
-- availability/recovery states for missing, permission-lost, unsupported and malformed external subtitle sources
-- external subtitle relinking while preserving the media relationship, selected state and synchronization delay
-- malformed/unavailable external subtitle isolation so a subtitle failure does not become a video-playback failure
-- asynchronous production subtitle-file probing; no whole-video read, copy or re-encode
-- subtitle appearance controls for text size, text colour, background, edge style/colour, bottom margin and embedded cue styling/font-size behavior
-- scroll-safe subtitle controls suitable for narrow player surfaces
+- embedded audio-track discovery from Media3 `Tracks`
+- Off/Auto/manual track policy with persisted preferred audio language
+- durable external-audio associations per stable media ID
+- multiple external-audio associations, select/relink/remove/recovery behavior
+- external audio merged into the same Media3 timeline rather than a second player
+- actual external Media3 audio-track selection certification on API 35
+- coexistence with Step-4 side-loaded subtitles
+- app-owned PCM DSP installed in the production `DefaultAudioSink`
+- PCM 16-bit and PCM-float processing paths
+- professional 10-band EQ at 31/62/125/250/500 Hz and 1/2/4/8/16 kHz
+- original Flat/Bass/Vocal/Treble/Rock/Classical/Electronic presets plus Custom
+- ±12 dB EQ bands
+- preamp and digital boost with bounded soft limiting
+- positive and negative per-media audio delay
+- separate output-route compensation; effective sync is media delay + route compensation
+- stereo/mono/left/right modes and left/right balance
+- truthful multichannel handling: stereo-only controls are disabled for non-stereo selected tracks; 5.1/7.1 layouts are not falsely remapped
+- independent pitch control through Media3 playback parameters
+- Play as Audio using real video-track disable/restore on the same session
+- background policies: Pause, Continue audio and PiP when possible
+- optional background video suppression with foreground restoration
+- real API-35 PiP certification
+- audio focus and becoming-noisy behavior retained from the service-owned Media3 configuration
+- route awareness for speaker, wired, Bluetooth, USB and HDMI families
+- Room database version 4 with explicit `MIGRATION_3_4`
+- preservation of Step-1–4 Room data through migration
 
-The Android system-caption-style toggle is intentionally **not** exposed as a fake control because Step 4 does not yet apply that setting through `SubtitleView`.
+## DSP quality and certification policy
 
-## Playback ownership — preserved
+The DSP is project-owned Kotlin code running through Media3 audio processing. It does not use an opaque proprietary DSP binary and does not depend on `android.media.audiofx.Equalizer` for the required professional behavior.
+
+The exact Step-5 signal certification now covers:
+
+- neutral PCM16 bit transparency
+- neutral PCM-float transparency
+- EQ-enabled Flat transparency
+- measured EQ response at 62 Hz, 1 kHz and 8 kHz
+- cross-band selectivity so EQ cannot be a disguised global gain
+- Nyquist-safe band handling
+- preamp −6/0/+6 dB behavior
+- real digital boost
+- integer and float limiter bounds
+- NaN/Infinity sanitization on the active DSP path
+- stereo balance and mono/left/right routing
+- multichannel preservation
+- zero, +500 ms and −500 ms audio-delay semantics at realistic sample rate/channel count
+- delay bounds and flush/seek stale-buffer rejection
+- 44.1/48/96 kHz processing
+- filter-state reset
+- live parameter revision without processor recreation
+- bounded live-change discontinuity
+- DC-offset/numerical-safety checks
+- long deterministic extreme-settings streaming stability
+- truthful unsupported-PCM rejection
+
+These exact tests passed in CI #165 on corrective implementation head `826558fdd9ba5eeec1c772aed6307faef2ecb88c`. See `STEP_5_TEST_MATRIX.md` for the detailed assertions.
+
+## Playback ownership
 
 ```text
 Compose Player / Library UI
    ↓
-PlaybackConnection
+AudioPlaybackController / PlaybackConnection
    ↓
 MediaController
    ↓
-MediaSessionService
+PlaybackService : MediaSessionService
    ↓
 MediaSession
    ↓
-PlaybackEngine
+Media3PlaybackEngine
    ↓
-Media3 / ExoPlayer
+ExoPlayer
+   ↓
+DefaultAudioSink + MaxAudioProcessor
+   ↓
+Android audio output
 ```
 
-Step 4 does not create an Activity-owned ExoPlayer. External subtitles are attached by rebuilding the current MediaItem/source through the existing service-owned controller while preserving queue index, position and play state.
+There is no Activity-owned second ExoPlayer. External audio, embedded audio, video and Step-4 subtitles remain on the one authoritative service-owned timeline.
 
-`Media3PlaybackEngine` uses a subtitle-aware media-source factory so synchronization offsets are applied by a subtitle parser wrapper rather than by rewriting video/audio media.
+## Persistence and Room v4
 
-## Subtitle storage and recovery model
+Room v4 retains all earlier tables and adds Step-5 audio state:
 
-Room database version 3 adds:
+- `audio_associations` — external audio relationship/URI/metadata/preferred/availability
+- `audio_media_state` — Auto/manual selection, selected external or embedded descriptor and per-media audio delay
 
-- `subtitle_associations` — stable media relationship, URI, label, language, MIME/format, encoding, preferred flag, availability and per-association delay
-- `subtitle_media_state` — selected external association and per-media delay
+`MIGRATION_3_4` is explicit. `fallbackToDestructiveMigration()` is not used. Migration instrumentation verifies Step-1 history/large `Long` values, Step-2 favourites/playlists/library state and Step-4 subtitle state survive upgrades.
 
-The subtitle repository keeps a small synchronous cache for MediaItem construction while persistence and file/provider probing stay on I/O dispatchers. Existing MediaStore/SAF media and large files remain reference-based.
+Global lightweight audio preferences such as EQ/preset/boost/pitch/background/route compensation use the existing preference layer; relational per-media state remains in Room.
 
-Persisted external subtitle access is revalidated. If a subtitle disappears or permission is lost, the association remains recoverable, the unavailable subtitle is not attached to Media3, and the video path remains independent. `Relink` binds a replacement subtitle file back to the same media relationship.
+## Step-4 subtitle engine — preserved
 
-## Format and encoding policy
+Step 5 preserves embedded/external subtitle selection, SRT/WebVTT/SSA/ASS/TTML parsing, encoding handling, sidecar discovery, styling, per-media subtitle delay and Room subtitle persistence. Audio delay and subtitle delay are intentionally separate.
 
-Supported Step-4 text subtitle families:
+Production instrumentation verifies external audio can be attached/selected while an external subtitle relationship remains present.
 
-- SRT / SubRip
-- WebVTT
-- SSA
-- ASS
-- TTML / DFXP
+## Step-3 player — preserved
 
-Provider MIME aliases and filename extensions are normalized by `SubtitleFormatPolicy`. XML is accepted only when bounded prefix inspection identifies TTML-like content.
+Controls/auto-hide, seeking, double-tap, brightness, actual Android media-volume gesture, zoom/pan, aspect/resize/rotation/orientation/fullscreen, lock, 0.25×–4× speed, queue controls, repeat/shuffle, PiP and accessibility handling remain preserved.
 
-`SubtitleEncodingPolicy` recognizes UTF-8/UTF-16 BOMs, validates UTF-8 and exposes Windows-1252 fallback/override. Encoding normalization is applied only to external subtitle text; embedded tracks are left to Media3.
+Seek-frame thumbnail preview remains **PARTIAL — architecture/foundation only**; Step 5 does not fabricate it.
 
-## Synchronization policy
+## Step-2 library — preserved
 
-Subtitle delay is `Long`-safe and clamped to ±600 seconds. Positive values show cues later and negative values show cues earlier. Negative shifts crossing time zero are clipped safely rather than producing invalid negative cue time.
-
-A fresh subtitle parser factory is created per MediaItem so queue prefetching cannot accidentally inherit another media item's delay.
-
-## Step-3 professional player — preserved
-
-Step 4 retains the Step-3 player experience: controls/auto-hide, seek/double-tap/brightness/volume/zoom/pan gestures, resize/aspect/rotation/orientation/fullscreen, lock, 0.25×–4.0× speed, queues, repeat/shuffle, PiP, accessibility handling, tutorial and Long-safe display/seek math.
-
-Seek-frame thumbnail preview remains **PARTIAL — architecture/foundation only**; Step 4 does not fabricate that capability.
-
-## Step-2 professional library — preserved
-
-Videos, folders, Continue Watching, Recent, History, Favourites, Playlists, search/sort/filter, MediaStore, user-approved SAF folders, Room media index/cache, relink, rename/delete and bounded thumbnails remain preserved. API-26/API-28 thumbnail regression jobs stay in the Step-4 CI matrix.
+Videos/folders/Continue Watching/Recent/History/Favourites/Playlists, search/sort/filter, MediaStore, user-approved SAF folders, Room index/cache, relink, rename/delete and bounded thumbnails remain preserved. API-26/API-28 thumbnail regressions remain mandatory CI gates.
 
 ## Large-media and quality policy
 
-Normal playback, library and subtitle operations remain URI/reference based. File sizes, durations, positions, subtitle timing and seek targets remain `Long`-safe where applicable.
+Media, subtitle and external-audio sources remain URI/reference based. Step 5 does not:
 
-Step 4 does not:
+- copy whole videos into application storage just to play them
+- read entire source media into RAM
+- transcode video/audio for playback
+- create a second synchronized audio player
+- introduce a 3 GB file ceiling
+- introduce a 1080p resolution ceiling
+- alter video colour/HDR/scaling/decoder selection
 
-- copy or transcode the video to add subtitles
-- load whole videos into RAM
-- generate full-video frame sequences
-- alter source colour characteristics
-- add an artificial media resolution/file-size limit
-
-Real 3 GB+, 4K/HDR and OEM/device performance remain Step-10 physical certification items rather than inferred PASS claims.
-
-## Verification
-
-Step-4 automated evidence includes:
-
-- JVM tests for format policy, filename/language matching, encoding and subtitle timing
-- Room migration/persistence instrumentation, including v1 → v3 and v2 → v3 preservation
-- repository tests for multiple associations, selection and delay persistence
-- parser instrumentation for SRT/WebVTT/ASS/SSA/TTML and multilingual Unicode
-- recovery instrumentation for missing subtitle → recoverable state → relink, delay preservation and encoding persistence
-- real service-owned MP4 + side-loaded SRT cue integration on API 35
-- retained Step-1/2/3 integration and API-26/API-28 regression suites
-
-Core CI commands:
-
-```bash
-gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
-gradle --no-daemon :app:assembleRelease
-gradle --no-daemon :app:lintDebug
-gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
-```
+Physical large-file/4K/HDR performance remains Step-10 certification rather than inferred PASS.
 
 ## Documentation
 
-- `ARCHITECTURE.md` — architecture through Step 4
-- `DEPENDENCIES.md` — dependency/license decisions through Step 4
-- `PARITY_MATRIX.md` — evidence-backed capability matrix through Step 4
-- `LARGE_MEDIA_AUDIT.md` — large-media/integer safety boundary
-- `STEP_1_COMPLETION_REPORT.md`
-- `STEP_2_COMPLETION_REPORT.md`
-- `STEP_3_COMPLETION_REPORT.md`
-- `STEP_4_COMPLETION_REPORT.md`
+Canonical project documents now cover Step 5:
+
+- `README.md`
+- `ARCHITECTURE.md`
+- `DEPENDENCIES.md`
+- `PARITY_MATRIX.md`
+
+Step-specific evidence:
+
+- `STEP_5_ARCHITECTURE.md`
+- `STEP_5_DEPENDENCIES.md`
+- `STEP_5_TEST_MATRIX.md`
+- `STEP_5_COMPLETION_REPORT.md`
+- earlier Step-1–4 completion reports
+- `LARGE_MEDIA_AUDIT.md`
 
 ## Roadmap boundary
 
-Step 4 does **not** begin Step 5 audio DSP/equalizer work, Step 6 software-decoder/FFmpeg routing, later network/cloud/cast work or Step-10 physical certification.
+Step 5 does **not** implement Step 6 decoder modes. Hardware/enhanced-hardware/software decoder control, custom codec fallback and FFmpeg/software-decoder work remain Step 6.
 
 ## Contribution principle
 
-Do not solve difficult architectural problems by deleting requirements. Preserve working behavior, implement independently, document genuine limitations, keep user data through schema changes and never fabricate verification results.
+Do not solve difficult architectural problems by deleting requirements. Preserve working behavior, implement independently, document genuine limitations, retain user data through schema changes and never fabricate verification results.

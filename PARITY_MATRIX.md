@@ -1,141 +1,170 @@
-# MAX Video Player — Parity Matrix through Step 4
+# MAX Video Player — Parity Matrix through Step 5
 
 Status vocabulary: `PASS`, `PARTIAL`, `FAIL`, `NOT VERIFIED`, `NOT IMPLEMENTED`, `NOT APPLICABLE`.
 
-A `PASS` requires implementation, integration, a real functional flow, error handling and automated evidence where feasible. Physical-device requirements are never inferred from emulator/software evidence.
+A `PASS` requires implementation, a real product flow, error handling and automated evidence where feasible. Physical-device requirements are never inferred from emulator/software evidence.
 
-## Step-4 professional subtitle engine
-
-| Area | Capability | Status | Evidence / boundary |
-|---|---|---|---|
-| Subtitle tracks | Embedded text-track discovery | PASS | Media3 `currentTracks` text groups mapped into playback state |
-| Subtitle tracks | Off | PASS | Text track type can be disabled through Media3 track-selection parameters |
-| Subtitle tracks | Auto | PASS | Clears manual text overrides, applies preferred languages and undetermined-text policy |
-| Subtitle tracks | Manual embedded selection | PASS | Real Media3 track-group override by published track key |
-| Subtitle tracks | External manual selection | PASS | Durable association + rebuilt MediaItem + Media3 override |
-| Subtitle tracks | External identity robustness | PASS | Custom ID when preserved; deterministic label/MIME/language fallback otherwise; API-35 integration gate green |
-| External files | OpenDocument / SAF loading | PASS | URI/reference-based external loading with persistable permission where available |
-| External files | Asynchronous production probing | PASS | Descriptor/availability probing runs through coroutine/I/O path in professional subtitle panel |
-| External files | Multiple subtitle associations per media | PASS | Room-backed list with preferred/selected relationship and instrumentation coverage |
-| External files | Select / remove | PASS | Per-association select/remove plus remove-all path |
-| External files | Missing-file state | PASS | Availability refresh marks missing source without turning it into video failure |
-| External files | Permission-loss state | PASS | Distinct recoverable availability state; unavailable association excluded from MediaItem |
-| External files | Relink | PASS | Replacement URI re-associated while selected state and delay are preserved; instrumentation coverage |
-| Format | SRT | PASS | Policy + direct real Media3 parser instrumentation + real service-owned MP4/SRT cue integration |
-| Format | WebVTT | PASS | Policy + direct real Media3 parser instrumentation |
-| Format | SSA | PASS | Policy + direct real Media3 parser instrumentation |
-| Format | ASS | PASS | Policy + direct real Media3 parser instrumentation |
-| Format | TTML / DFXP | PASS | Policy + TTML content detection + direct real Media3 parser instrumentation |
-| Format | Arbitrary XML subtitles | NOT APPLICABLE | Generic XML is rejected unless bounded prefix inspection identifies TTML-like content |
-| Language | Preferred languages | PASS | Canonical codes persisted and ordered for Auto/sidecar policy |
-| Language | Filename language suffix detection | PASS | Matcher covers common aliases/codes with deterministic JVM tests |
-| Language | Multilingual Unicode / RTL | PASS | Parser fixture includes Bangla, English, Arabic and Japanese text |
-| Sidecars | Automatic same-folder matching | PASS | User-approved SAF sibling query, filename scoring and language priority off main thread |
-| Sidecars | Unrelated/generic false-match protection | PASS | Matcher scoring/threshold/generic-stem policy with JVM tests |
-| Encoding | Auto detection | PASS | BOM/valid UTF-8 detection with bounded prefix policy |
-| Encoding | UTF-8 | PASS | Supported and directly covered by parser fixtures |
-| Encoding | UTF-16 LE | PASS | Detection/override + normalization tests |
-| Encoding | UTF-16 BE | PASS | Detection/override + normalization tests |
-| Encoding | Windows-1252 | PASS | Per-file override/persistence and normalization tests |
-| Encoding | Per-association override | PASS | Room `encoding` state updated and retained; recovery instrumentation |
-| Sync | Positive delay | PASS | Long-safe parser timing shift; JVM tests |
-| Sync | Negative delay | PASS | Long-safe earlier shift with zero clipping; JVM tests |
-| Sync | Bounded adjustment | PASS | ±600,000 ms clamp; UI provides ±50/100/500 ms and reset |
-| Sync | Per-media persistence | PASS | `subtitle_media_state` stores selected external ID/delay |
-| Sync | Queue isolation | PASS | Fresh per-MediaItem parser factory snapshots delay so prefetch cannot inherit prior item delay |
-| Appearance | Text size | PASS | Persistent scale applied through `SubtitleView` |
-| Appearance | Text colour | PASS | Persistent foreground colour applied through caption style |
-| Appearance | Background | PASS | Persistent background colour applied through caption style |
-| Appearance | Edge style | PASS | None/outline/drop-shadow/raised/depressed mapped to Media3 caption style |
-| Appearance | Edge colour | PASS | Persistent edge colour applied |
-| Appearance | Bottom/vertical margin | PASS | Persistent bottom-padding fraction applied |
-| Appearance | Embedded cue styling toggle | PASS | `SubtitleView.setApplyEmbeddedStyles` |
-| Appearance | Embedded cue font-size toggle | PASS | `SubtitleView.setApplyEmbeddedFontSizes` |
-| Appearance | Android system caption style toggle | NOT IMPLEMENTED | Intentionally not exposed because current renderer does not apply that setting |
-| Recovery | Malformed external subtitle isolation | PASS | Resilient external parser path reports recoverable subtitle state instead of generic video failure |
-| Recovery | Unsupported external source | PASS | Unsupported format rejected before attachment or represented as blocked availability |
-| Persistence | Room v3 subtitle associations | PASS | Dedicated association/media-state tables and DAO instrumentation |
-| Persistence | v2 → v3 migration | PASS | Explicit migration; Step-2 favourites/playlists/library/index/preferences preserved |
-| Persistence | v1 → v3 migration | PASS | Sequential v1→v2→v3 migration; Step-1 history and multi-GB Long values preserved |
-| Performance | No whole-video subtitle processing | PASS | External subtitles are URI references; no source-video copy/re-encode/full-read added |
-| Performance | Bounded subtitle probing | PASS | Prefix/metadata size guards; sidecar discovery limited to sibling documents in approved tree |
-| Privacy | Local subtitle metadata/state | PASS | No upload/provider network path introduced in Step 4 |
-
-## Step-3 professional player experience — preserved through Step 4
+## Step-5 professional audio engine
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
-| Player UI | Controls / auto-hide / buffering / error recovery | PASS | Retained Step-3 Compose/service integration; Step-4 full API-35 suite green |
-| Gestures | Single/double tap, horizontal seek, brightness, volume | PASS | Retained Step-3 implementation and tests |
-| Gestures | Pinch zoom / pan / conflict ownership | PASS | Retained pure-policy + integration architecture |
-| Display | Fit / Fill / Crop / Original / aspect presets / custom | PASS | Retained Step-3 display-transform path |
-| Display | Rotation / orientation / fullscreen / immersive | PASS | Retained host/player integration |
-| Player | Screen lock | PASS | Retained genuine touch suppression/unlock path |
-| Player | Playback speed | PASS | 0.25×–4.0× retained through service-owned player |
-| Player | Previous / Next / Repeat / Shuffle | PASS | Existing MediaSession queue retained |
-| PiP | Dynamic ratio / same-session continuity | PASS | Retained Step-3 behavior |
-| Accessibility | Semantics / touch-exploration protection | PASS | Retained Step-3 behavior |
-| Seek preview | Frame thumbnail preview | PARTIAL | Architecture/foundation only; Step 4 does not fabricate rendered thumbnails |
+| Tracks | Embedded discovery | PASS | Media3 `currentTracks` audio groups mapped to professional audio state; API-35 fixture has ≥2 embedded audio tracks |
+| Tracks | Auto selection | PASS | Clears manual override and applies preferred languages |
+| Tracks | Manual selection | PASS | `TrackSelectionOverride` through service-owned MediaController |
+| Tracks | Preferred languages | PASS | Persisted global preference reaches Media3; API-35 assertion |
+| Tracks | Metadata labels | PASS | Language/label/MIME/codec/channels/sample-rate/bitrate metadata surfaced when available |
+| Tracks | Descriptive restore | PASS | Persisted descriptor avoids relying on unstable group index |
+| External audio | SAF/OpenDocument import | PASS | URI/reference based; no full media copy |
+| External audio | Persistence | PASS | Room v4 `audio_associations` + media state |
+| External audio | Multiple associations | PASS | Repository supports multiple associations per stable media ID |
+| External audio | Relink/remove | PASS | Recoverable relationship management in professional audio UI/controller |
+| External audio | Missing/permission recovery | PASS | Unavailable source does not make valid video unplayable; embedded/Auto fallback remains |
+| External audio | Actual Media3 selection | PASS | API-35 certification requires selected merged external track and embedded audio deselection |
+| External audio | Subtitle coexistence | PASS | External subtitle association survives external-audio merge/selection |
+| DSP | Production PCM processing | PASS | App-owned `MaxAudioProcessor` installed in production `DefaultAudioSink` |
+| DSP | PCM 16-bit | PASS | Processing + neutral transparency unit coverage |
+| DSP | PCM float | PASS | Processing + neutral transparency unit coverage |
+| DSP | Unsupported-format truthfulness | PASS | Unsupported PCM is rejected/bypassed instead of byte reinterpretation |
+| EQ | 10-band | PASS | 31/62/125/250/500 Hz + 1/2/4/8/16 kHz peaking bands |
+| EQ | Live adjustment | PASS | Atomic revision updates processor without recreation |
+| EQ | Presets | PASS | Flat/Bass/Vocal/Treble/Rock/Classical/Electronic original ten-band curves |
+| EQ | Custom | PASS | Manual band edits persist as custom state |
+| EQ | Nyquist safety | PASS | Unsafe high band is disabled rather than constructing unstable filter |
+| EQ | Signal response | PASS | CI #165 measures +6 dB response at 62 Hz/1 kHz/8 kHz and cross-band selectivity |
+| Gain | Preamp | PASS | CI #165 verifies −6/0/+6 dB expected linear behavior |
+| Gain | Digital boost | PASS | Real PCM amplitude increase separate from Android system volume |
+| Gain | Limiter | PASS | Integer and float output bounds under extreme legal gain |
+| Channels | Stereo | PASS | Stereo path preserved |
+| Channels | Mono | PASS | Deterministic L/R downmix |
+| Channels | Left | PASS | Left duplicated to both stereo outputs without inversion |
+| Channels | Right | PASS | Right duplicated to both stereo outputs without inversion |
+| Channels | Balance | PASS | Equal-power left/right attenuation policy |
+| Channels | Multichannel truthfulness | PASS | 5.1/7.1 not falsely remapped; stereo-only controls disabled for non-stereo selected track |
+| Sync | Zero audio delay | PASS | Exact DSP certification proves no sample insertion/removal |
+| Sync | Positive audio delay | PASS | +500 ms / 48 kHz stereo exact 24,000-frame delay certification |
+| Sync | Negative audio delay | PASS | −500 ms / 48 kHz stereo exact 24,000-frame trimming certification |
+| Sync | Bounds | PASS | ±10,000 ms policy clamp including enormous input values |
+| Sync | Flush/seek stale-buffer rejection | PASS | Delayed pre-seek samples cannot appear after processor flush |
+| Sync | Per-media persistence | PASS | Room v4 audio media state |
+| Sync | Route compensation separation | PASS | Global route compensation remains separate from per-media delay |
+| Pitch | Independent control | PASS | Media3 `PlaybackParameters` pitch assertion |
+| Speed | Speed + pitch separation | PASS | Pitch changes preserve current speed; Step-3 speed remains service-owned |
+| Audio-only | Video-track disable | PASS | Same MediaSession/media item; video selection disabled rather than hiding only UI |
+| Audio-only | Video restore | PASS | Video track returns without playback restart |
+| Background | Continue audio | PASS | API-35 lifecycle integration retains session/media and optionally suppresses video |
+| Background | Foreground restoration | PASS | API-35 lifecycle integration verifies selected video returns at real RESUMED foreground state |
+| Background | Pause | PASS | API-35 lifecycle integration pauses service-owned player without replacing item |
+| Background | PiP when possible | PASS | API-35 test enters real PiP and preserves session/playback/video selection |
+| Android audio | Audio focus | PASS | Existing Media3 audio-focus configuration retained |
+| Android audio | Becoming noisy | PASS | `setHandleAudioBecomingNoisy(true)` retained |
+| Routes | Classification | PASS | Speaker/wired/Bluetooth A2DP/LE/USB/HDMI/unknown mapping tests |
+| Routes | Output UI | PASS | Current route displayed truthfully; system routing UI preferred over private hacks |
+| Routes | Per-route sync foundation | PASS | Route-family compensation persistence + effective media+route delay policy |
+| Persistence | Global audio preferences | PASS | Existing lightweight preference layer |
+| Persistence | Per-media audio state | PASS | Room v4 |
+| Database | `MIGRATION_3_4` | PASS | Explicit migration; no destructive fallback |
+| Database | Step-1–4 preservation | PASS | Migration instrumentation covers v1/v2/v3 → v4 and prior rows |
+| Performance | No whole-media audio extraction | PASS | Streaming Media3 PCM path; URI/reference source model preserved |
+| Performance | Realtime callback isolation | PASS | No Room/coroutine/UI/network work in `queueInput` |
+| Performance | Delay-memory bound | PASS | Positive-delay ring capped at 40 MiB; unavailable state instead of unbounded allocation |
+| Numerical safety | NaN/Infinity | PASS | Active-DSP signal certification sanitizes non-finite values |
+| Numerical safety | Filter stability | PASS | Biquad defensive reset + 30-second extreme-settings streaming certification |
+| Numerical safety | DC offset / bounded output | PASS | Direct mean-offset and legal-range signal tests |
+| Sample rates | 44.1 kHz | PASS | Exact DSP certification in CI #165 |
+| Sample rates | 48 kHz | PASS | Production/default and exact signal certification |
+| Sample rates | 96 kHz | PASS | Exact DSP certification in CI #165 |
+| Privacy | Local audio processing | PASS | No upload service and no microphone permission required |
 
-## Step-2 professional media library — preserved through Step 4
+## Step-4 professional subtitle engine — preserved through Step 5
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
-| Library | Videos / Folders / Continue / Recent / History | PASS | Existing Step-2 library retained |
-| Library | Favourites / Playlists / queues | PASS | Room relationships and queue planner retained |
-| Library | Search / sort / filter | PASS | Existing deterministic derivation retained |
-| Storage | MediaStore / SAF folders / persisted permissions | PASS | Existing source architecture retained |
-| Storage | Missing source / relink | PASS | Existing media relink remains separate from subtitle relink |
-| Files | Rename / delete | PASS | Existing provider-aware flows retained |
-| Media | Thumbnails | PASS | API-26/API-28 legacy regression jobs green in Step-4 implementation gate |
-| Performance | Large library | PASS | Existing lazy UI, bounded Room chunks and off-main work retained |
-| Database | v1 → v2 migration | PASS | Retained and additionally exercised through v1 → v3 migration path |
+| Subtitle tracks | Embedded / Off / Auto / manual | PASS | Existing Media3 text-track engine retained under Step-5 source composition |
+| External subtitles | SAF load / multiple associations / relink / recovery | PASS | Room v3 state preserved through Room v4 migration |
+| Formats | SRT / WebVTT / SSA / ASS / TTML | PASS | Existing parser instrumentation retained |
+| Encoding | UTF-8 / UTF-16 LE/BE / Windows-1252 | PASS | Existing normalization/persistence tests retained |
+| Sidecars | Same-folder filename/language matching | PASS | Existing Step-4 matcher retained |
+| Sync | Positive / negative / per-media subtitle delay | PASS | Separate from Step-5 audio delay |
+| Appearance | Size/colour/background/edge/bottom margin | PASS | Existing Media3 SubtitleView path retained |
+| Android system caption style toggle | NOT IMPLEMENTED | Still intentionally not exposed as a fake control |
 
-## Step-1 foundations preserved through Step 4
+## Step-3 player experience — preserved through Step 5
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
-| Player | Service-owned playback architecture | PASS | `PlaybackConnection -> MediaController -> MediaSessionService -> MediaSession -> PlaybackEngine -> Media3` retained |
-| Player | Local playback / play / pause / seek | PASS | Existing API-35 real local media integration retained |
-| Player | Resume/history | PASS | Existing policy/Room history retained through v3 migration |
-| Player | Background/session architecture | PASS | Service ownership unchanged by subtitle work |
+| Player UI | Controls / auto-hide / buffering / error recovery | PASS | Full API-35 regression suite retained |
+| Gestures | Seek/double-tap/brightness/system volume | PASS | Existing gesture instrumentation retained; system volume remains separate from DSP boost |
+| Gestures | Pinch zoom / pan | PASS | Existing Step-3 behavior retained |
+| Display | Resize/aspect/rotation/orientation/fullscreen | PASS | Existing surface-transform path retained |
+| Player | Screen lock | PASS | Existing touch suppression/unlock path retained |
+| Player | Playback speed | PASS | 0.25×–4× service-owned playback retained |
+| Player | Previous/Next/Repeat/Shuffle | PASS | Existing MediaSession queue retained |
+| PiP | Same-session continuity | PASS | Existing PiP plus Step-5 real API-35 PiP certification |
+| Seek preview | Frame thumbnail preview | PARTIAL | Architecture/foundation only; Step 5 does not fabricate thumbnails |
+
+## Step-2 library — preserved through Step 5
+
+| Area | Capability | Status | Evidence / boundary |
+|---|---|---|---|
+| Library | Videos/Folders/Continue/Recent/History | PASS | Existing Step-2 library retained |
+| Library | Favourites/Playlists/queues | PASS | Room relationships retained through v4 migration |
+| Library | Search/sort/filter | PASS | Existing deterministic derivation retained |
+| Storage | MediaStore/SAF/persisted permissions | PASS | Existing source architecture retained |
+| Storage | Missing source/relink | PASS | Existing media relink remains separate from subtitle/audio relink |
+| Files | Rename/delete | PASS | Existing provider-aware flows retained |
+| Media | Thumbnails | PASS | API-26/API-28 regressions retained |
+
+## Step-1 foundations preserved through Step 5
+
+| Area | Capability | Status | Evidence / boundary |
+|---|---|---|---|
+| Player | Service-owned playback architecture | PASS | Single `PlaybackService -> MediaSession -> ExoPlayer` ownership retained |
+| Player | Local playback / play / pause / seek | PASS | Existing real Media3 integration retained |
+| Player | Resume/history | PASS | Room history retained through v4 migration |
+| Player | Background/session foundation | PASS | Extended, not replaced, by Step-5 background audio policy |
 | Media | Large-file-safe application types | PASS | Long-safe media/timing values retained |
-| Decoder | Software decoder | NOT IMPLEMENTED | Correctly remains Step 6 work |
-| Audio | Equalizer / boost / advanced DSP | NOT IMPLEMENTED | Correctly remains Step 5 work |
+| Decoder | Software decoder | NOT IMPLEMENTED | Correctly remains Step 6 |
 
-## Automated Step-4 certification
+## Step-5 certification evidence
 
-Authoritative implementation gate before final documentation commit:
+Merged Step-5 baseline:
 
-- workflow: `Android CI`
-- CI run: `34100525570` (#129)
-- implementation SHA: `94aa7af146e342f8405c6032f8d29bfe9250d780`
-- debug build + JVM tests — **PASS**
+- PR #7
+- merge commit: `bea360164fe69cfc146dc03b55df4da4a0cb153a`
+- Android CI #163 / run `34158185652`
+- complete matrix — **PASS**
+
+Corrective canonical-document + exact-DSP implementation gate:
+
+- PR #8 implementation/evidence SHA: `826558fdd9ba5eeec1c772aed6307faef2ecb88c`
+- Android CI #165 / run `34159966506`
+- debug/JVM/DSP — **PASS**
 - release compilation — **PASS**
 - lint — **PASS**
-- API-35 full instrumentation — **PASS**
-- API-26 legacy-thumbnail regression — **PASS**
-- API-28 legacy-thumbnail regression — **PASS**
+- API-35 instrumentation — **PASS**
+- API-26 regression — **PASS**
+- API-28 regression — **PASS**
 
-The API-35 suite contains the Step-4 repository/parser/recovery tests and the real service-owned MP4 + side-loaded SRT cue path in addition to retained earlier-step coverage.
-
-A final identical CI gate is required on the documentation-complete PR head before merge.
+The final documentation-complete PR #8 head must pass the identical matrix before merge because recording this evidence changes the SHA. Post-merge `main` CI is also mandatory.
 
 ## Physical certification deferred to Step 10
 
 The following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
 
-- real 3 GB+ / 5 GB+ / 10 GB+ playback with subtitles
-- physical 3840×2160 4K and HDR playback/colour certification with subtitle overlay
-- OEM document-provider/SAF permission behavior
-- real SD-card and USB/OTG behavior
-- physical Bluetooth/headset controls/routing
-- cutouts, foldables and external displays
+- real 3 GB+/5 GB+/10 GB playback under representative devices
+- physical 4K/HDR colour/performance
+- OEM/provider/SAF variations
+- SD-card and USB/OTG device behavior
+- actual Bluetooth latency and route switching quality
+- USB DAC / HDMI receiver behavior
+- subjective EQ/limiter acoustic quality
+- manufacturer-specific background restrictions
+- cutouts/foldables/external displays
 - battery, thermal and long-run physical testing
-- broad phone/tablet device matrix
+- broad phone/tablet matrix
 
-## Step-4 overall matrix result
+## Step-5 overall result
 
-**PASS — all required Step-4 software/emulator subtitle-engine criteria are implemented and the implementation gate is green.**
+**PASS for implemented software/emulator functionality.** The corrective exact-DSP suite itself passed CI #165; only the documentation-complete PR #8 exact-head gate and required post-merge `main` gate remain before the two follow-up audit findings are repository-closed.
 
-This result does not upgrade Step-10 physical certification, the Step-3 seek-preview PARTIAL row, or later Step-5+ audio/decoder/network/security work.
+Step 6 remains **NOT IMPLEMENTED**.

@@ -1,288 +1,279 @@
-# MAX Video Player — Architecture through Step 4
+# MAX Video Player — Architecture through Step 5
 
 ## Clean-room boundary
 
-MAX Video Player is an original native Android implementation. MX Player Pro is used only as a behavioral and feature-depth reference. No proprietary code, binaries, assets, package names, branding, certificates, API keys, database schemas, gesture implementations, decoder implementations or copyrighted layouts are reused.
+MAX Video Player is an original native Android implementation. MX Player Pro is used only as a behavioral/workflow/feature-depth reference. No proprietary code, decompiled logic, decoder binaries, DSP algorithms, EQ presets, assets, branding, package names, certificates or credentials are reused.
 
-## Playback ownership model
+## Authoritative playback ownership
 
-Playback remains **service-owned**, not Activity-owned.
+Playback remains service-owned:
 
 ```text
 Compose UI
     ↓
-PlaybackConnection
+AudioPlaybackController / PlaybackConnection
     ↓
 MediaController
     ↓
-MediaSessionService
+PlaybackService : MediaSessionService
     ↓
 MediaSession
     ↓
-PlaybackEngine
+Media3PlaybackEngine
     ↓
-Media3 / ExoPlayer
+ExoPlayer
+    ↓
+DefaultAudioSink + MaxAudioProcessor
+    ↓
+Android audio output
 ```
 
-Steps 1–4 preserve this ownership. Step 4 does not create a second player to handle subtitles.
+Steps 1–5 preserve this ownership. Step 5 does not create an Activity-owned or second audio player. Embedded audio, selected external audio, video and Step-4 subtitles share one authoritative Media3 timeline.
 
-## Logical layers through Step 4
+## Logical layers through Step 5
 
-- `core.model` — stable media/domain models and playback/subtitle UI state
-- `core.database` — Room entities/DAOs/migrations, playback history, library state and subtitle persistence
+- `core.model` — stable media/domain/playback state
+- `core.database` — Room entities/DAOs/migrations through version 4
 - `core.media` — MediaStore, SAF, metadata and URI availability
 - `core.device` — runtime device/codec capability profile
-- `playback.engine` — playback abstraction and Media3 implementation
-- `playback.session` — service/session/controller integration and queue/player state
+- `playback.engine` — Media3 engine, subtitle-aware source composition and custom audio-sink integration
+- `playback.session` — service/session/controller ownership, queues and playback state
 - `feature.library` — library/index/queue/thumbnail/file actions
-- `feature.player` — player UI, gestures, display transforms, orientation, PiP and subtitle host integration
-- `feature.subtitle` — Step-4 subtitle format/encoding policy, persistence, matching, timing, recovery and controls
+- `feature.player` — player UI, gestures, display transforms, orientation and PiP
+- `feature.subtitle` — Step-4 subtitle engine
+- `feature.audio` — Step-5 audio tracks, external audio, DSP, sync, routing and professional controls
 - `ui` — application theme
 
-# Step-4 professional subtitle architecture
+# Step-5 professional audio architecture
 
-## Data flow
+## Control/data flow
 
 ```text
-SubtitleDialog / Player UI
+ProfessionalAudioUi
         ↓ user intent
-PlaybackConnection ────────────────┐
-        ↓                          │
-MediaController                    │
-        ↓                          │
-MediaSessionService                │
-        ↓                          │
-Media3PlaybackEngine               │
-        ↓                          │
-SubtitleAwareMediaSourceFactory    │
-        ↓                          │
-Offset/Resilient subtitle parser   │
-                                   │
-SubtitleRepository ── Room v3 ─────┘
+AudioPlaybackController ──────────────┐
+        ↓                             │
+PlaybackConnection / MediaController  │
+        ↓                             │
+PlaybackService / MediaSession        │
+        ↓                             │
+Media3PlaybackEngine                  │
+        ↓                             │
+DefaultAudioSink + MaxAudioProcessor  │
+                                      │
+AudioRepository ── Room v4 / prefs ───┘
         ↓
-SAF / ContentResolver URI references
+ContentResolver / SAF + AudioRouteMonitor
 ```
 
-The UI never owns a second ExoPlayer. External subtitle attachment updates the current `MediaItem` through the existing controller and rebuilds the queue entry while retaining active queue index, position and `playWhenReady`.
+`AudioPlaybackController` translates user intent into commands on the existing service-owned MediaController. It never creates another ExoPlayer.
 
-## Subtitle state ownership
+## Embedded audio tracks
 
-`PlaybackConnection` publishes `SubtitlePlaybackState` as part of `PlaybackUiState`. It includes:
+Media3 `currentTracks` is authoritative for real audio groups. Step 5 publishes readable descriptors including available label/language, MIME/codec, channel count, sample rate, bitrate, commentary role, support and selected state.
 
-- enabled/off state
-- discovered text tracks
-- selected track key
-- external associations
-- selected external association ID
-- current delay
-- recoverable subtitle error
+Manual selection uses `TrackSelectionOverride`. Durable restore stores descriptive track fields rather than unstable Media3 group indexes, allowing reordered groups to be rematched.
 
-`SubtitleRepository` owns durable subtitle relationships, preferences and appearance state. Media3 remains authoritative for actual exposed/selected text tracks.
+Auto mode clears audio overrides and applies the persisted preferred-language list.
 
-## Embedded track discovery and identity
+## External audio
 
-Media3 `currentTracks` is inspected for `TRACK_TYPE_TEXT`. Track labels use available language/label/forced/default metadata.
+External audio is loaded through Android `OpenDocument`/SAF and stored as a durable association to the stable media ID.
 
-For side-loaded tracks, identity first uses the custom subtitle configuration ID. Because Media3 does not guarantee that `SubtitleConfiguration.id` is preserved as `Format.id` in every source path, Step 4 also performs a deterministic descriptor match using label, MIME type and language. This preserves external-track identity without weakening the actual rendering test.
+`ProfessionalMediaSourceFactory` composes the selected external audio with the primary source using `MergingMediaSource`:
 
-## External subtitle association model
+```text
+primary video + embedded audio + Step-4 subtitles
+                     +
+selected external audio
+                     ↓
+              one Media3 timeline
+```
 
-External subtitle files remain URI/reference based. One media item may own multiple associations.
+No second synchronized player, extraction or transcode is used. Missing/permission-lost/unsupported external audio remains recoverable; embedded/default audio stays available as a safe fallback.
 
-Each association records:
+Across the MediaSession boundary, merged-child identity is resolved using preserved merged `Format` identity as well as direct group identity where available, because MediaSession may rewrite controller-visible group IDs.
 
-- stable association ID
-- stable media ID
-- subtitle URI
-- display label
-- language
-- MIME type
-- format
-- encoding
-- preferred flag
-- availability
-- synchronization delay
+## Room v4
 
-The selected external association and per-media delay are stored separately in subtitle media state.
-
-## Room v3
-
-Step 4 advances the application database to version 3.
+Step 5 advances Room from v3 to v4.
 
 New tables:
 
-- `subtitle_associations`
-- `subtitle_media_state`
+- `audio_associations` — external-audio URI relationship, name/language/MIME, preferred flag and availability
+- `audio_media_state` — selection mode, selected external ID or embedded descriptor fields, per-media audio delay and timestamp
 
-`MIGRATION_2_3` is explicit. Existing `MIGRATION_1_2` is retained so v1 → v3 upgrades execute both migrations. Migration instrumentation verifies Step-1 history/large `Long` values and Step-2 favourites/playlists/library/index/preferences survive the upgrade. No `fallbackToDestructiveMigration()` is introduced.
+`MIGRATION_3_4` is explicit and `fallbackToDestructiveMigration()` is not used. Migration instrumentation covers v1→v4, v2→v4 and v3→v4 while preserving history, multi-GB `Long` values, favourites, playlists, library/index/preferences and Step-4 subtitle rows.
 
-A small in-memory cache mirrors subtitle association/media state because MediaItem construction and track publication are synchronous. Room writes and provider probing run on I/O dispatchers.
+## Deterministic PCM DSP
 
-## SAF and external-file access
+`Media3PlaybackEngine` installs `MaxAudioProcessor` into a custom `DefaultAudioSink`. User-defined EQ/gain/channel/delay behavior therefore occurs in the production ExoPlayer audio path rather than only in UI state.
 
-Manual loading uses `OpenDocument` and persistable read permission where supported. Production descriptor probing is asynchronous.
+Conceptual order:
 
-The repository inspects only bounded subtitle metadata/prefix data. It does not copy media files or load whole videos.
+```text
+Decoded PCM
+   ↓
+Stereo channel mode / balance
+   ↓
+10-band peaking EQ
+   ↓
+Preamp + digital boost
+   ↓
+Soft limiter / numerical protection
+   ↓
+Per-media + route audio delay
+   ↓
+Media3 AudioSink
+```
 
-Supported text-family policy:
+Supported app-owned processing formats:
 
-- SRT / SubRip
-- WebVTT
-- SSA
-- ASS
-- TTML / DFXP
+- PCM 16-bit
+- PCM float
 
-Provider MIME aliases and extensions are normalized. Generic XML is accepted only when bounded prefix inspection identifies a TTML-like document.
+Unsupported PCM/output formats are rejected/bypassed truthfully instead of reinterpreting bytes.
 
-## Automatic sidecar discovery
+### Real-time policy
 
-For media indexed from user-approved SAF folder trees, the repository can query sibling documents in the same parent folder. Candidate subtitles are scored against the video filename by `SubtitleMatcher`.
+The audio callback performs no Room, storage, network, Compose or coroutine work. UI/repository changes publish a small immutable `AudioDspParameters` snapshot through an `AtomicReference`.
 
-Matching prefers exact stem/language-suffix matches and rejects generic/unrelated names. Preferred-language ordering is applied before lower-ranked candidates. Discovery is off-main-thread and does not recurse through unrelated storage during playback.
+Processing/filter/delay arrays are allocated or reconfigured at format/flush/parameter boundaries, not per sample. Filter history is reset after flush/reconfiguration. EQ coefficients use short ramps to reduce discontinuity when settings change live.
 
-## Language policy
+### Numerical safety
 
-Preferred subtitle languages are persisted as canonical language codes. `Auto` selection passes the ordered language list to Media3 text-track selection and also enables undetermined text when appropriate.
+- invalid/non-finite float input on the active DSP path is sanitized
+- non-finite/unstable filter output resets defensively
+- EQ/preamp/boost/balance/delay values are bounded by policy
+- the soft limiter prevents invalid output range
+- positive-delay storage is bounded to 40 MiB
+- excessive high-rate/high-channel delay requests report DSP unavailability rather than allocating unbounded memory
+- neutral PCM16 uses a transparent copy path
+- neutral float uses a transparent copy path for valid PCM
 
-The professional subtitle panel exposes common language choices while repository APIs remain code-based rather than UI-label based.
+## 10-band equalizer
 
-## Encoding policy
+Center frequencies:
 
-External subtitle text supports:
+`31, 62, 125, 250, 500, 1k, 2k, 4k, 8k, 16k Hz`
 
-- Auto
-- UTF-8
-- UTF-16 LE
-- UTF-16 BE
-- Windows-1252
+Gain range is ±12 dB. A band at/above the safe Nyquist boundary is disabled instead of constructing an unstable filter.
 
-`SubtitleEncodingPolicy` detects UTF BOMs, validates UTF-8 and allows a persisted per-association override. External subtitle bytes can be normalized to UTF-8 before delegation to Media3's text parser. Embedded subtitle streams are not rewritten by this layer.
+Original presets: Flat, Bass, Vocal, Treble, Rock, Classical, Electronic, plus Custom.
 
-The default external encoding is a user preference; a selected external association can override it.
+The certification suite measures real output response at 62 Hz, 1 kHz and 8 kHz rather than relying only on coefficient assertions.
 
-## Parser resilience
+## Gain and channel controls
 
-The Step-4 parser chain composes three responsibilities:
+Preamp and digital boost are independent of Android system media volume. The Step-3 right-side gesture continues to control actual Android media volume rather than DSP boost.
 
-1. optional external-text encoding normalization;
-2. subtitle timing offset;
-3. delegation to Media3's actual subtitle parser.
+Stereo input supports:
 
-External parser failures are converted into recoverable subtitle state rather than escalating into a video playback failure. The video/audio media source remains independently usable.
+- Stereo
+- Mono downmix
+- Left duplicated to both stereo outputs
+- Right duplicated to both stereo outputs
+- left/right balance
 
-## Synchronization architecture
+### Multichannel truthfulness
 
-`SubtitleTimingPolicy` clamps delay to ±600,000 ms and keeps timing in `Long` microseconds/milliseconds.
+Channel mode and balance are explicitly stereo-only. For a selected non-stereo track (for example 5.1/7.1), the UI disables those controls and states that the multichannel layout is preserved.
 
-Positive delay shifts cues later; negative delay shifts earlier. If a negative shift crosses zero, cue start is clipped to zero and finite duration is reduced safely.
+The DSP does not reinterpret six/eight-channel frames as stereo. EQ/gain may still process each accessible PCM channel where supported.
 
-`SubtitleAwareMediaSourceFactory` creates a fresh subtitle parser factory per `MediaItem`, snapshotting the correct delay for that media. This prevents a prefetched queue item from inheriting a previous item's synchronization value.
+## Audio synchronization
 
-## Missing/permission-lost subtitle recovery
+Per-media audio delay is a `Long` and is clamped to ±10,000 ms.
 
-Persisted external associations are re-probed. Availability can become:
+- positive delay = bounded PCM delay buffering
+- negative delay = deterministic leading-frame trimming
+- zero delay = no sample insertion/removal
+- changing delay seeks/flushes at the current position so stale delayed PCM is not retained
 
-- `AVAILABLE`
-- `MISSING`
-- `PERMISSION_LOST`
-- `UNSUPPORTED`
-- `MALFORMED`
-- `UNKNOWN`
+Route compensation is separate global state keyed by route family. Effective timing is:
 
-Blocked/unavailable associations are not attached to the current MediaItem. The association remains visible for recovery.
+```text
+per-media delay + current-route compensation
+```
 
-`Relink` accepts a replacement supported subtitle URI and preserves the media relationship, selected/preferred state and delay. The underlying association ID may change because identity includes the URI.
+The final effective value is clamped by the same professional delay range.
 
-## Appearance state
+## Pitch and Step-3 speed
 
-`SubtitleStyleState` controls rendering through Media3 `SubtitleView`:
+Step-3 speed remains 0.25×–4×. Step 5 adds independent pitch through real Media3 `PlaybackParameters`; setting one preserves the other.
 
-- text scale
-- foreground colour
-- background colour
-- window colour in the state model
-- edge style
-- edge colour
-- bottom padding/margin
-- whether embedded cue styling is applied
-- whether embedded cue font sizes are applied
+## Audio-only mode
 
-The UI intentionally does not expose an Android system-caption-style switch unless that setting is actually applied by the rendering path.
+`Play as audio` disables Media3 video-track selection while keeping the same player, media item, queue and timeline. Restoring video reenables selection without restarting playback from zero.
 
-## Step-4 control surface
+## Background policy
 
-The subtitle panel exposes:
+Global leave-player policy:
 
-- Off
-- Auto
-- manual embedded/external track selection
-- load external subtitle
-- multiple external associations
-- select / relink / remove
-- per-file text encoding
-- ±50/100/500 ms synchronization adjustments and reset
-- matching-sidecar auto-load toggle
-- preferred language ordering
-- default external encoding
-- appearance sliders/choices
+- Pause
+- Continue audio
+- PiP when possible
 
-The panel is vertically/horizontally scrollable where needed to remain usable on narrow player surfaces.
+Optional `Disable video while playing in background` uses the same service-owned track-selection path. Lifecycle-only suppression is distinct from user-selected Audio-only mode.
 
-## Error isolation
+Foreground return restores video after lifecycle suppression. API-35 instrumentation certifies the real PiP path rather than forcing an impossible lifecycle transition for an Activity that successfully entered PiP.
 
-Subtitle-specific file/provider/parser failures are not mapped into the generic video playback error overlay when the video source itself is healthy. Instead the subtitle state publishes a recoverable message and the user can relink/remove/change encoding.
+The existing MediaSession/foreground-service notification remains authoritative for background controls.
 
-# Step-3 player architecture — preserved
+## Android audio integration
 
-Step 4 preserves the Step-3 player state machine and interaction policy: controls/auto-hide, seek/double-tap, brightness, volume, zoom/pan, resize/aspect, display rotation, orientation, fullscreen, lock, speed, repeat/shuffle, PiP and accessibility handling.
+`Media3PlaybackEngine` retains media `AudioAttributes`, Media3 audio-focus handling and `setHandleAudioBecomingNoisy(true)`.
 
-Display transforms remain geometric surface transforms. Step 4 does not re-encode video or add a frame-bitmap pipeline.
+`AudioRouteMonitor` classifies speaker, wired headset/headphones, Bluetooth A2DP/LE where exposed, USB, HDMI and unknown. The app reports truthful route labels from Android where available and does not force private Bluetooth routing.
 
-# Step-2 library architecture — preserved
+## Step-4 subtitle coexistence
 
-MediaStore/SAF discovery, Room media index/cache, favourites, playlists, folder exclusions, relink, rename/delete, bounded thumbnail loading and queue planning remain unchanged in ownership.
+External-audio composition preserves the Step-4 subtitle media-source/parser path. Audio delay and subtitle delay are separate repositories and controls.
 
-API-26 and API-28 thumbnail regression jobs remain mandatory CI gates for Step 4.
+API-35 production integration attaches an external subtitle, then external audio, and verifies the subtitle association remains intact while external audio becomes the actually selected Media3 track.
 
-# Large-media design
+# Preserved Step-1–4 architecture
 
-Media and external subtitle sources remain reference based. Step 4 adds no artificial media-size or resolution ceiling.
+Step 5 preserves:
 
-Large media is not copied on subtitle attachment. Subtitle processing is bounded to subtitle files/prefixes and timing metadata rather than video bytes. File sizes, durations, positions, seek values and subtitle timing remain `Long`-safe where applicable.
+- Step 1 service-owned MediaSession playback, history/resume and background service
+- Step 2 library, favourites, playlists, MediaStore/SAF, relink/file operations and thumbnails
+- Step 3 gestures, speed, display transforms, PiP and accessibility behavior
+- Step 4 embedded/external subtitles, SRT/VTT/SSA/ASS/TTML, timing, styling, sidecars and Room subtitle persistence
 
-Physical 3 GB+, 4K/HDR and OEM/device-specific performance are **NOT VERIFIED — DEFERRED TO STEP 10**.
+No Step-5 code adds a whole-video copy, full-file RAM read, transcode, artificial 3 GB ceiling or 1080p ceiling. Video colour/HDR/scaling/decoder selection are not modified.
 
 # Verification architecture
 
-Automated Step-4 coverage includes:
+Step-5 software/emulator certification includes:
 
-- JVM format-policy tests
-- filename/language matching tests
-- encoding tests
-- subtitle timing tests
-- Room v1 → v3 and v2 → v3 migration tests
-- multiple-association/selection/delay repository persistence tests
-- real Media3 parser tests for SRT, WebVTT, ASS, SSA and TTML
-- multilingual Unicode/RTL fixture checks
-- missing-source/relink/encoding persistence instrumentation
-- real service-owned MP4 + side-loaded SRT cue integration on API 35
-- retained Step-1/2/3 instrumentation
-- API-26/API-28 thumbnail regressions
-
-Implementation gate `94aa7af146e342f8405c6032f8d29bfe9250d780`, Android CI run `34100525570` (#129), passed debug/JVM, release, lint, API-35 instrumentation, API-26 and API-28 jobs.
-
-The documentation-complete head must pass the same CI matrix before merge.
+- PCM16 and PCM-float neutral transparency
+- EQ-enabled Flat transparency
+- 62 Hz / 1 kHz / 8 kHz measured response with known gain
+- cross-band EQ selectivity
+- Nyquist-safety handling
+- −6/0/+6 dB preamp behavior
+- boost and integer/float limiter tests
+- NaN/Infinity sanitization on active DSP
+- mono/left/right/balance mapping and channel-inversion checks
+- 5.1 preservation under stereo-only controls
+- zero/+500 ms/negative delay semantics
+- delay clamping and delay-buffer flush/seek reset
+- 44.1/48/96 kHz processing
+- filter reset and live parameter revision
+- DC-offset/numerical safety
+- long deterministic extreme-settings streaming stability
+- truthful unsupported-PCM rejection
+- Room v1/v2/v3 → v4 migration instrumentation
+- API-35 service-owned track/external-audio/DSP/audio-only/background/PiP/subtitle coexistence tests
+- API-26/API-28 legacy regressions
 
 # Later-step boundaries
 
-Step 4 does not implement:
-
-- Step 5 equalizer, boost, audio delay, Bluetooth sync or advanced DSP
-- Step 6 software decoder/FFmpeg routing
-- Step 7/8 network/cloud/Cast work
-- Step 9 full advanced settings/security system
-- Step 10 physical certification
+Step 5 does **not** claim Step 6 decoder work. Hardware/enhanced-hardware/software decoder selection, codec fallback and FFmpeg/custom software decoding remain Step 6.
 
 # Physical certification boundary
 
-Real 3 GB+/5 GB+/10 GB playback, 4K/HDR colour/performance, SD/USB/OTG, OEM provider behavior, physical Bluetooth/headset routing, cutouts/foldables/external displays, battery, thermal and broad device-matrix testing remain **NOT VERIFIED — DEFERRED TO STEP 10**.
+Real Bluetooth/headset/USB/HDMI latency and acoustic quality, OEM audio effects/offload, physical 3 GB+/4K/HDR playback, battery, thermal and broad phone/tablet behavior remain:
+
+**NOT VERIFIED — DEFERRED TO STEP 10**.
