@@ -16,7 +16,7 @@ import com.zubaer.maxvideoplayer.feature.audio.MaxAudioProcessor
 import com.zubaer.maxvideoplayer.feature.audio.ProfessionalMediaSourceFactory
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
-@UnstableApi
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class Media3PlaybackEngine(
     context: Context,
     subtitleRepository: SubtitleRepository,

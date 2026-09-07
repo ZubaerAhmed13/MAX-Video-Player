@@ -15,7 +15,7 @@ import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
  * One authoritative Media3 timeline: primary video/audio/subtitles plus at most the selected
  * external audio source. External subtitles remain configured on the primary MediaItem.
  */
-@UnstableApi
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class ProfessionalMediaSourceFactory(
     context: Context,
     private val subtitleRepository: SubtitleRepository,

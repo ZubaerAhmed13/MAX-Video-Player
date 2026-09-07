@@ -2,6 +2,7 @@ package com.zubaer.maxvideoplayer.feature.audio
 
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.util.UnstableApi
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -14,6 +15,7 @@ import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class MaxAudioProcessorTest {
     @Test
     fun neutralPcm16IsBitTransparent() {

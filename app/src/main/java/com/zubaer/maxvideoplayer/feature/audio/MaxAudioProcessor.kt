@@ -3,6 +3,7 @@ package com.zubaer.maxvideoplayer.feature.audio
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
+import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.PI
@@ -15,6 +16,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** App-owned deterministic PCM DSP. No I/O, Room, coroutines or UI work occurs in queueInput. */
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class MaxAudioProcessor(
     private val parameterSource: AtomicReference<AudioDspParameters>,
     private val availability: (Boolean, String?) -> Unit = { _, _ -> },
