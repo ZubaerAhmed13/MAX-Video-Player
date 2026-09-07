@@ -19,12 +19,25 @@ Step 5 was merged through PR #7.
 - API-26 regression: **PASS**
 - API-28 regression: **PASS**
 
-An independent follow-up audit identified two documentation/certification defects in that repository-complete claim:
+An independent follow-up audit then identified two defects in the repository-complete claim:
 
 1. the canonical root documentation (`README.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md`, `PARITY_MATRIX.md`) still described Step 4;
 2. the DSP unit suite did not yet implement every exact signal test required by the original Step-5 specification.
 
-Those findings are addressed by PR #8 / branch `step-5-canonical-docs-dsp-certification`. That corrective change must pass the complete exact-head CI matrix and post-merge `main` CI before this report treats the audit as closed.
+Both source-level findings are now corrected in PR #8 / branch `step-5-canonical-docs-dsp-certification`.
+
+## Corrective implementation gate
+
+The exact corrective implementation/evidence head `826558fdd9ba5eeec1c772aed6307faef2ecb88c` passed Android CI #165 / run `34159966506`:
+
+- debug build + all JVM/unit/DSP tests — **PASS**
+- release compilation — **PASS**
+- lint — **PASS**
+- API-35 full instrumentation — **PASS**
+- API-26 legacy regression — **PASS**
+- API-28 legacy regression — **PASS**
+
+The final documentation commits that record this evidence necessarily move the PR head. Therefore the resulting documentation-complete head must pass the identical matrix once more before PR #8 is merged, followed by post-merge `main` CI.
 
 ## Delivered product capabilities
 
@@ -53,46 +66,37 @@ Those findings are addressed by PR #8 / branch `step-5-canonical-docs-dsp-certif
 
 ## Review finding: multichannel channel/balance truthfulness
 
-**Closed.** UI/state make channel mode and balance stereo-only. Automated DSP coverage verifies a six-channel PCM frame is not remapped by those controls.
+**CLOSED.** UI/state make channel mode and balance stereo-only. Automated DSP coverage verifies a six-channel PCM frame is not remapped by those controls.
 
 ## Review finding: external-audio actual selection
 
-**Closed.** API-35 instrumentation requires both:
-
-1. durable selected external association; and
-2. an actually selected merged external Media3 audio track.
-
-It also asserts embedded audio is no longer selected after explicit external-audio selection.
+**CLOSED.** API-35 instrumentation requires both a durable selected association and an actually selected merged external Media3 audio track. It also asserts embedded audio is no longer selected after explicit external-audio selection.
 
 ## Review finding: background behavior integration
 
-**Closed.** Dedicated API-35 lifecycle instrumentation verifies:
-
-- Continue-audio session retention and optional video suppression
-- real foreground video restoration
-- Pause policy
-- actual Picture-in-Picture behavior
-- stable MediaSession/current-media identity
+**CLOSED.** Dedicated API-35 lifecycle instrumentation verifies Continue-audio session retention/video suppression, foreground video restoration, Pause policy, actual Picture-in-Picture behavior and stable MediaSession/current-media identity.
 
 ## Review finding: canonical project documentation
 
-**Corrective source change implemented in PR #8; CI/merge gate pending.**
+**CLOSED IN SOURCE; FINAL-HEAD CI/MERGE PENDING.**
 
-Canonical files are rewritten through Step 5:
+Canonical files are now genuinely through Step 5:
 
 - `README.md`
 - `ARCHITECTURE.md`
 - `DEPENDENCIES.md`
 - `PARITY_MATRIX.md`
 
-The step-specific documents remain supporting evidence, not substitutes for the canonical root files.
+The Step-specific files remain supporting evidence rather than substitutes for the canonical root documents.
 
 ## Review finding: exact DSP certification matrix
 
-**Corrective source change implemented in PR #8; CI/merge gate pending.**
+**CLOSED IN SOURCE AND PASSED CI #165; FINAL DOCUMENTATION-HEAD CI/MERGE PENDING.**
 
-The expanded JVM DSP suite now contains explicit tests for the requirements that were previously only partial or implicit:
+The expanded JVM DSP suite directly verifies:
 
+- neutral PCM16 bit transparency
+- neutral PCM-float transparency
 - EQ-enabled Flat transparency
 - +6 dB measured response at 62 Hz, 1 kHz and 8 kHz with defined tolerance
 - EQ cross-band selectivity
@@ -117,7 +121,7 @@ The expanded JVM DSP suite now contains explicit tests for the requirements that
 - 30-second deterministic extreme-settings streaming stability
 - truthful unsupported-PCM rejection
 
-See `STEP_5_TEST_MATRIX.md` for exact assertions.
+See `STEP_5_TEST_MATRIX.md` for exact assertions and evidence.
 
 ## Clean-room / dependency statement
 
@@ -131,11 +135,11 @@ Those remain:
 
 **NOT VERIFIED — DEFERRED TO STEP 10**
 
-## Corrective merge rule
+## Final corrective merge rule
 
-Do not close the two follow-up audit findings until:
+PR #8 may merge only when:
 
-1. PR #8 exact head passes debug/JVM/DSP tests, release compilation, lint, API-35, API-26 and API-28;
+1. the exact documentation-complete PR head passes debug/JVM/DSP tests, release compilation, lint, API-35, API-26 and API-28;
 2. PR #8 is merged without dropping the corrective changes;
 3. `main` runs the same CI on the resulting merge commit and is fully green.
 
