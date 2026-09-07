@@ -21,15 +21,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.zubaer.maxvideoplayer.core.device.DeviceCapabilityProvider
 import com.zubaer.maxvideoplayer.core.device.DeviceDecoderBackend
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
 import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderBackendType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
@@ -47,7 +53,6 @@ fun PlayerDialogs(
     onRememberDecoderPerVideo: (Boolean) -> Unit,
     onShowDecoderDiagnostics: (Boolean) -> Unit,
     onResetDecoderPreferences: () -> Unit,
-    onRefreshDecoderCapabilities: () -> Unit,
     onResize: (ResizeMode) -> Unit,
     onCustomAspect: (Float, Float) -> Boolean,
     onResetZoom: () -> Unit,
@@ -73,7 +78,6 @@ fun PlayerDialogs(
             onDismiss = onDismissMenu,
             onMode = onDecoderMode,
             onUseGlobal = onUseGlobalDecoder,
-            onRefreshCapabilities = onRefreshDecoderCapabilities,
         )
         PlayerMenu.DISPLAY -> DisplayDialog(coordinator, onDismissMenu, onResize, onCustomAspect, onResetZoom, onRotate)
         PlayerMenu.ORIENTATION -> OrientationDialog(coordinator.orientationMode, onDismissMenu, onOrientation)
@@ -169,7 +173,6 @@ private fun DecoderDialog(
     onDismiss: () -> Unit,
     onMode: (DecoderMode) -> Unit,
     onUseGlobal: () -> Unit,
-    onRefreshCapabilities: () -> Unit,
 ) {
     val session = state.decoder
     val diagnostics = session.diagnostics
@@ -242,9 +245,7 @@ private fun DecoderDialog(
                 TextButton(onClick = { capabilitiesExpanded = !capabilitiesExpanded }) {
                     Text(if (capabilitiesExpanded) "Hide device decoder capabilities" else "Device decoder capabilities")
                 }
-                if (capabilitiesExpanded) {
-                    DeviceDecoderCapabilitiesPanel(state, onRefreshCapabilities)
-                }
+                if (capabilitiesExpanded) DeviceDecoderCapabilitiesPanel(state)
             }
         },
         confirmButton = { Button(onClick = onDismiss) { Text("Done") } },
@@ -252,66 +253,82 @@ private fun DecoderDialog(
 }
 
 @Composable
-private fun DeviceDecoderCapabilitiesPanel(state: PlayerCoordinatorState, onRefresh: () -> Unit) {
+private fun DeviceDecoderCapabilitiesPanel(state: PlayerCoordinatorState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val provider = remember(context.applicationContext) { DeviceCapabilityProvider(context.applicationContext) }
+    var refreshedProfile by remember { mutableStateOf(state.decoderCapabilities) }
+    var refreshing by remember { mutableStateOf(false) }
+    var refreshError by remember { mutableStateOf<String?>(null) }
+    val profile = refreshedProfile ?: state.decoderCapabilities
+
     when {
-        state.decoderCapabilitiesLoading && state.decoderCapabilities == null -> Text("Scanning device decoder capabilities…")
-        state.decoderCapabilitiesError != null && state.decoderCapabilities == null -> {
-            Text("Decoder capability scan failed: ${state.decoderCapabilitiesError}")
-            TextButton(onClick = onRefresh) { Text("Retry scan") }
-        }
+        (state.decoderCapabilitiesLoading || refreshing) && profile == null -> Text("Scanning device decoder capabilities…")
+        state.decoderCapabilitiesError != null && profile == null -> Text("Decoder capability scan failed: ${state.decoderCapabilitiesError}")
+        profile == null -> Text("Decoder capability inventory is not available yet.")
         else -> {
-            val profile = state.decoderCapabilities
-            if (profile == null) {
-                Text("Decoder capability inventory is not available yet.")
-                TextButton(onClick = onRefresh) { Text("Scan now") }
-            } else {
-                Text("${profile.manufacturer} ${profile.model} · API ${profile.apiLevel}")
-                InfoLine("ABIs", profile.abis.joinToString().ifBlank { "Unknown" })
-                InfoLine("Hardware decoder names", profile.hardwareDecoderNames.size.toString())
-                InfoLine("Software decoder names", profile.softwareDecoderNames.size.toString())
-                if (profile.unknownDecoderNames.isNotEmpty()) {
-                    InfoLine("Unclassified decoder names", profile.unknownDecoderNames.size.toString())
+            Text("${profile.manufacturer} ${profile.model} · API ${profile.apiLevel}")
+            InfoLine("ABIs", profile.abis.joinToString().ifBlank { "Unknown" })
+            InfoLine("Hardware decoder names", profile.hardwareDecoderNames.size.toString())
+            InfoLine("Software decoder names", profile.softwareDecoderNames.size.toString())
+            if (profile.unknownDecoderNames.isNotEmpty()) {
+                InfoLine("Unclassified decoder names", profile.unknownDecoderNames.size.toString())
+            }
+            profile.availableVideoDecoders
+                .groupBy { it.mimeType }
+                .toSortedMap()
+                .forEach { (mimeType, decoders) ->
+                    HorizontalDivider()
+                    Text(decoderMimeLabel(mimeType))
+                    Text(mimeType)
+                    decoders.forEach { decoder ->
+                        Text("• ${decoder.name} — ${deviceDecoderBackendLabel(decoder.backend)}")
+                        decoder.vendor?.let { InfoLine("Vendor codec", it.toString()) }
+                        if (decoder.profileLevels.isNotEmpty()) {
+                            InfoLine("Profiles/levels", decoder.profileLevels.joinToString(limit = 12, truncated = "…"))
+                        }
+                        if (decoder.colorFormats.isNotEmpty()) {
+                            InfoLine("Color formats", decoder.colorFormats.joinToString(limit = 8, truncated = "…"))
+                        }
+                        val features = buildList {
+                            if (decoder.adaptivePlayback) add("adaptive")
+                            if (decoder.securePlayback) add("secure")
+                            if (decoder.tunneledPlayback) add("tunneled")
+                            if (decoder.lowLatency == true) add("low-latency")
+                        }
+                        if (features.isNotEmpty()) InfoLine("Features", features.joinToString())
+                        val supportedTargets = decoder.resolutionTargets.entries.mapNotNull { (label, capability) ->
+                            when {
+                                capability.supportedAt60Fps == true -> "$label@60"
+                                capability.supportedAt30Fps -> "$label@30"
+                                else -> null
+                            }
+                        }
+                        if (supportedTargets.isNotEmpty()) InfoLine("Size/rate targets", supportedTargets.joinToString())
+                    }
                 }
-                profile.availableVideoDecoders
-                    .groupBy { it.mimeType }
-                    .toSortedMap()
-                    .forEach { (mimeType, decoders) ->
-                        HorizontalDivider()
-                        Text(decoderMimeLabel(mimeType))
-                        Text(mimeType)
-                        decoders.forEach { decoder ->
-                            Text("• ${decoder.name} — ${deviceDecoderBackendLabel(decoder.backend)}")
-                            decoder.vendor?.let { InfoLine("Vendor codec", it.toString()) }
-                            if (decoder.profileLevels.isNotEmpty()) {
-                                InfoLine("Profiles/levels", decoder.profileLevels.joinToString(limit = 12, truncated = "…"))
+            if (state.decoderCapabilitiesLoading || refreshing) Text("Refreshing decoder inventory…")
+            (refreshError ?: state.decoderCapabilitiesError)?.let { Text("Last refresh failed: $it") }
+            TextButton(
+                onClick = {
+                    if (!refreshing) {
+                        refreshing = true
+                        refreshError = null
+                        scope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.Default) { provider.collectDecoderProfile(forceRefresh = true) }
                             }
-                            if (decoder.colorFormats.isNotEmpty()) {
-                                InfoLine("Color formats", decoder.colorFormats.joinToString(limit = 8, truncated = "…"))
-                            }
-                            val features = buildList {
-                                if (decoder.adaptivePlayback) add("adaptive")
-                                if (decoder.securePlayback) add("secure")
-                                if (decoder.tunneledPlayback) add("tunneled")
-                                if (decoder.lowLatency == true) add("low-latency")
-                            }
-                            if (features.isNotEmpty()) InfoLine("Features", features.joinToString())
-                            val supportedTargets = decoder.resolutionTargets.entries.mapNotNull { (label, capability) ->
-                                when {
-                                    capability.supportedAt60Fps == true -> "$label@60"
-                                    capability.supportedAt30Fps -> "$label@30"
-                                    else -> null
-                                }
-                            }
-                            if (supportedTargets.isNotEmpty()) InfoLine("Size/rate targets", supportedTargets.joinToString())
+                            result.onSuccess { refreshedProfile = it }
+                                .onFailure { refreshError = it.message ?: it.javaClass.simpleName }
+                            refreshing = false
                         }
                     }
-                if (state.decoderCapabilitiesLoading) Text("Refreshing decoder inventory…")
-                state.decoderCapabilitiesError?.let { Text("Last refresh failed: $it") }
-                TextButton(onClick = onRefresh, enabled = !state.decoderCapabilitiesLoading) {
-                    Text("Refresh decoder inventory")
-                }
-                Text("This inventory describes this device only; it is not a universal Android codec-support list.")
+                },
+                enabled = !refreshing,
+            ) {
+                Text("Refresh decoder inventory")
             }
+            Text("This inventory describes this device only; it is not a universal Android codec-support list.")
         }
     }
 }
