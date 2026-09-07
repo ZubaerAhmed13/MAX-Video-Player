@@ -300,10 +300,22 @@ fun ProfessionalAudioDialog(
                 }
                 Text("Positive delay = audio plays later. Negative delay = audio plays earlier.", style = MaterialTheme.typography.bodySmall)
 
-                SectionTitle("Channel / balance")
+                val stereoControlsAvailable = state.stereoChannelControlsAvailable
+                SectionTitle("Channel / balance — stereo only")
+                Text(
+                    when (val count = state.selectedChannelCount) {
+                        2 -> "Selected track is 2.0 stereo. Channel mode and left/right balance are active."
+                        null -> "Channel mode and left/right balance stay disabled until the selected track is confirmed as 2.0 stereo."
+                        else -> "Selected track is ${channelLabel(count)}. Multichannel layout is preserved; stereo-only channel mode and balance are not applied."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                     AudioChannelMode.entries.forEach { mode ->
-                        TextButton(onClick = { onChannel(mode) }) {
+                        TextButton(
+                            onClick = { onChannel(mode) },
+                            enabled = stereoControlsAvailable,
+                        ) {
                             Text((if (state.channelMode == mode) "✓ " else "") + mode.name.lowercase().replaceFirstChar { it.uppercase() })
                         }
                     }
@@ -312,10 +324,11 @@ fun ProfessionalAudioDialog(
                 Slider(
                     value = state.balance,
                     onValueChange = onBalance,
+                    enabled = stereoControlsAvailable,
                     valueRange = -1f..1f,
                     modifier = Modifier.semantics {
-                        contentDescription = "Left right audio balance"
-                        stateDescription = balanceLabel(state.balance)
+                        contentDescription = "Left right audio balance, stereo tracks only"
+                        stateDescription = if (stereoControlsAvailable) balanceLabel(state.balance) else "Unavailable for non-stereo track"
                     },
                 )
 
