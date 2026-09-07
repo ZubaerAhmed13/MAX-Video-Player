@@ -98,7 +98,7 @@ class Media3PlaybackEngine(
         }
     }
 
-    private val exoPlayer = ExoPlayer.Builder(
+    private val exoPlayer: ExoPlayer = ExoPlayer.Builder(
         appContext,
         renderersFactory,
         ProfessionalMediaSourceFactory(appContext, subtitleRepository, audioRepository),
