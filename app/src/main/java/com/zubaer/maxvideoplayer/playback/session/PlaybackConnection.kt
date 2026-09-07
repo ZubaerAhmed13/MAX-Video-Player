@@ -76,7 +76,12 @@ class PlaybackConnection(
     fun disconnect() {
         tickerJob?.cancel()
         tickerJob = null
-        controller?.removeListener(listener)
+        controller?.let { current ->
+            current.removeListener(listener)
+            if (current.isCommandAvailable(Player.COMMAND_SET_VIDEO_SURFACE)) {
+                current.clearVideoSurface()
+            }
+        }
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         controller = null
