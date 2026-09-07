@@ -6,19 +6,42 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
-import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleAwareMediaSourceFactory
+import com.zubaer.maxvideoplayer.feature.audio.AudioRepository
+import com.zubaer.maxvideoplayer.feature.audio.MaxAudioProcessor
+import com.zubaer.maxvideoplayer.feature.audio.ProfessionalMediaSourceFactory
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
 @UnstableApi
 class Media3PlaybackEngine(
     context: Context,
     subtitleRepository: SubtitleRepository,
+    audioRepository: AudioRepository,
 ) : PlaybackEngine {
+    val audioProcessor = MaxAudioProcessor(audioRepository)
+    private val appContext = context.applicationContext
+    private val renderersFactory = object : DefaultRenderersFactory(appContext) {
+        override fun buildAudioSink(
+            context: Context,
+            enableFloatOutput: Boolean,
+            enableAudioOutputPlaybackParams: Boolean,
+        ): AudioSink = DefaultAudioSink.Builder(context)
+            // User-defined AudioProcessors are a PCM path; keep processing deterministic instead of
+            // silently enabling device-dependent float/offload paths that bypass the chain.
+            .setEnableFloatOutput(false)
+            .setEnableAudioOutputPlaybackParameters(false)
+            .setAudioProcessors(arrayOf(audioProcessor))
+            .build()
+    }
+
     private val exoPlayer = ExoPlayer.Builder(
-        context.applicationContext,
-        SubtitleAwareMediaSourceFactory(context.applicationContext, subtitleRepository),
+        appContext,
+        renderersFactory,
+        ProfessionalMediaSourceFactory(appContext, subtitleRepository, audioRepository),
     )
         .build()
         .apply {

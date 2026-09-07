@@ -20,8 +20,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LibraryPreferenceEntity::class,
         SubtitleAssociationEntity::class,
         SubtitleMediaStateEntity::class,
+        AudioAssociationEntity::class,
+        AudioMediaStateEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class MaxDatabase : RoomDatabase() {
@@ -34,6 +36,7 @@ abstract class MaxDatabase : RoomDatabase() {
     abstract fun mediaIndexDao(): MediaIndexDao
     abstract fun libraryPreferenceDao(): LibraryPreferenceDao
     abstract fun subtitleDao(): SubtitleDao
+    abstract fun audioDao(): AudioDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -64,9 +67,18 @@ abstract class MaxDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `audio_associations` (`id` TEXT NOT NULL, `stableMediaId` TEXT NOT NULL, `audioUri` TEXT NOT NULL, `displayName` TEXT NOT NULL, `language` TEXT, `mimeType` TEXT, `addedAtMs` INTEGER NOT NULL, `isPreferred` INTEGER NOT NULL, `availability` TEXT NOT NULL, PRIMARY KEY(`id`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_audio_associations_stableMediaId` ON `audio_associations` (`stableMediaId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_audio_associations_stableMediaId_isPreferred` ON `audio_associations` (`stableMediaId`, `isPreferred`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `audio_media_state` (`stableMediaId` TEXT NOT NULL, `selectedExternalId` TEXT, `selectionMode` TEXT NOT NULL, `selectedLanguage` TEXT, `selectedLabel` TEXT, `selectedMimeType` TEXT, `selectedChannelCount` INTEGER, `delayMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`stableMediaId`))")
+            }
+        }
+
         fun create(context: Context): MaxDatabase =
             Room.databaseBuilder(context, MaxDatabase::class.java, "max-video-player.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }
