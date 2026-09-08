@@ -36,16 +36,23 @@ class RemovableStorageController(context: Context) {
         override fun onReceive(context: Context?, intent: Intent?) = refresh()
     }
 
-    private val callback = if (Build.VERSION.SDK_INT >= 30) object : StorageManager.StorageVolumeCallback() {
-        override fun onStateChanged(volume: StorageVolume) = refresh()
-    } else null
+    private val callback: StorageManager.StorageVolumeCallback? =
+        if (Build.VERSION.SDK_INT >= 30) {
+            object : StorageManager.StorageVolumeCallback() {
+                override fun onStateChanged(volume: StorageVolume) = refresh()
+            }
+        } else {
+            null
+        }
 
     @Synchronized
     fun start() {
         if (started) return
         started = true
-        if (Build.VERSION.SDK_INT >= 30 && storageManager != null && callback != null) {
-            storageManager.registerStorageVolumeCallback(appContext.mainExecutor, callback)
+        if (Build.VERSION.SDK_INT >= 30 && storageManager != null) {
+            callback?.let { volumeCallback ->
+                storageManager.registerStorageVolumeCallback(appContext.mainExecutor, volumeCallback)
+            }
         } else {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_MEDIA_MOUNTED)
@@ -64,8 +71,10 @@ class RemovableStorageController(context: Context) {
     fun stop() {
         if (!started) return
         started = false
-        if (Build.VERSION.SDK_INT >= 30 && storageManager != null && callback != null) {
-            runCatching { storageManager.unregisterStorageVolumeCallback(callback) }
+        if (Build.VERSION.SDK_INT >= 30 && storageManager != null) {
+            callback?.let { volumeCallback ->
+                runCatching { storageManager.unregisterStorageVolumeCallback(volumeCallback) }
+            }
         } else {
             runCatching { appContext.unregisterReceiver(receiver) }
         }
