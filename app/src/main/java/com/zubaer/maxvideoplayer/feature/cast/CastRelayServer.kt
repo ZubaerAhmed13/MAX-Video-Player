@@ -140,7 +140,9 @@ class CastRelayServer(
     }
 
     private fun serve(resource: CastRelayResource, request: RelayRequest, output: BufferedOutputStream) {
-        val total = runCatching { resource.length }.getOrNull()
+        val total = runCatching {
+            if (resource is CastRelayRequestAwareResource) resource.lengthForRequest(request.target) else resource.length
+        }.getOrNull()
         val rangeResult = CastRangeParser.parse(request.headers["range"], total)
         val range = when (rangeResult) {
             RangeParseResult.NotRequested -> null
@@ -166,9 +168,6 @@ class CastRelayServer(
         val start = range?.startInclusive ?: 0L
         val requestedLength = range?.boundedLength ?: if (range == null) total else null
         if (range != null && total == null && range.endInclusive == Long.MAX_VALUE) {
-            // We cannot produce a standards-compliant Content-Range for an unknown open-ended
-            // resource. DataSource-backed relay resources probe length first, so this is only a
-            // truthful fallback for genuinely lengthless sources.
             writeResponseHeaders(output, 416, "Range Not Satisfiable", mapOf("Accept-Ranges" to "bytes", "Content-Range" to "bytes */*", "Content-Length" to "0", "Connection" to "close"))
             output.flush()
             return
@@ -190,7 +189,12 @@ class CastRelayServer(
         writeResponseHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
         output.flush()
         if (request.method == "HEAD") return
-        resource.open(start, requestedLength).use { source -> copyBounded(source, output, requestedLength) }
+        val source = if (resource is CastRelayRequestAwareResource) {
+            resource.openForRequest(request.target, start, requestedLength)
+        } else {
+            resource.open(start, requestedLength)
+        }
+        source.use { copyBounded(it, output, requestedLength) }
         output.flush()
     }
 
@@ -302,4 +306,10 @@ interface CastRelayResource {
     val mimeType: String?
     val seekable: Boolean
     fun open(position: Long, length: Long?): InputStream
+}
+
+/** Optional relay contract for resources whose source is selected by a sanitized request query. */
+interface CastRelayRequestAwareResource : CastRelayResource {
+    fun lengthForRequest(requestTarget: String): Long?
+    fun openForRequest(requestTarget: String, position: Long, length: Long?): InputStream
 }
