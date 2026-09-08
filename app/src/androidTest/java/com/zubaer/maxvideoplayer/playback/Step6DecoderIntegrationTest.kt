@@ -55,6 +55,12 @@ class Step6DecoderIntegrationTest {
         val softwareNames = platform.filter { it.softwareOnly }.map { it.name }.toSet()
         val hardwareNames = platform.filter { it.hardwareAccelerated }.map { it.name }.toSet()
 
+        // The full instrumentation matrix intentionally shares one application process. Ensure this
+        // certification starts with a fresh service rather than inheriting a source/error from the
+        // immediately preceding regression test whose temporary fixture has already been deleted.
+        context.stopService(Intent(context, PlaybackService::class.java))
+        instrumentation.waitForIdleSync()
+
         val activityScenario = ActivityScenario.launch(MainActivity::class.java)
         val connection = PlaybackConnection(context)
         try {
@@ -63,11 +69,15 @@ class Step6DecoderIntegrationTest {
 
             repository.requestModeForCurrentMedia(media.stableId, DecoderMode.AUTO)
             instrumentation.runOnMainSync { connection.load(media, startPositionMs = 0L, playWhenReady = true) }
-            assertTrue("Auto did not initialize a decoder or report a failure", await(15_000L) {
-                repository.state.value.diagnostics.activeDecoderName != null ||
-                    repository.state.value.diagnostics.lastFailure != null ||
-                    connection.state.value.error != null
+            assertTrue("Auto did not initialize a decoder or report a failure for the Step-6 fixture", await(15_000L) {
+                val playback = connection.state.value
+                playback.mediaId == media.stableId && (
+                    repository.state.value.diagnostics.activeDecoderName != null ||
+                        repository.state.value.diagnostics.lastFailure != null ||
+                        playback.error != null
+                    )
             })
+            assertEquals(media.stableId, connection.state.value.mediaId)
             assertNull("Auto playback failed: ${connection.state.value.error}", connection.state.value.error)
             val auto = repository.state.value.diagnostics
             assertEquals(DecoderMode.AUTO, auto.requestedMode)
