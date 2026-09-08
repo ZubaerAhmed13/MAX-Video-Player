@@ -1,5 +1,6 @@
 package com.zubaer.maxvideoplayer.feature.player
 
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,6 +24,9 @@ class PlayerPreferenceCodecTest {
         assertEquals(1f, defaults.rememberedPlaybackSpeed, 0.0001f)
         assertFalse(defaults.autoPip)
         assertFalse(defaults.tutorialSeen)
+        assertEquals(DecoderMode.AUTO, defaults.defaultDecoderMode)
+        assertTrue(defaults.rememberDecoderPerVideo)
+        assertFalse(defaults.showDecoderDiagnostics)
     }
 
     @Test
@@ -40,6 +44,9 @@ class PlayerPreferenceCodecTest {
             rememberedPlaybackSpeed = 1.75f,
             autoPip = true,
             tutorialSeen = true,
+            defaultDecoderMode = DecoderMode.ENHANCED_HARDWARE,
+            rememberDecoderPerVideo = false,
+            showDecoderDiagnostics = true,
         )
         assertEquals(30, configured.doubleTapSeekSeconds)
         assertEquals(GestureSensitivity.HIGH, configured.gestureSensitivity)
@@ -53,6 +60,9 @@ class PlayerPreferenceCodecTest {
         assertEquals(1.75f, configured.rememberedPlaybackSpeed, 0.0001f)
         assertTrue(configured.autoPip)
         assertTrue(configured.tutorialSeen)
+        assertEquals(DecoderMode.ENHANCED_HARDWARE, configured.defaultDecoderMode)
+        assertFalse(configured.rememberDecoderPerVideo)
+        assertTrue(configured.showDecoderDiagnostics)
     }
 
     @Test
@@ -60,6 +70,8 @@ class PlayerPreferenceCodecTest {
         assertEquals(ResizeMode.FIT, PlayerPreferenceCodec.resizeMode("REMOVED_FUTURE_VALUE"))
         assertEquals(OrientationMode.AUTO, PlayerPreferenceCodec.orientationMode(null))
         assertEquals(GestureSensitivity.MEDIUM, PlayerPreferenceCodec.sensitivity("INVALID"))
+        assertEquals(DecoderMode.AUTO, PlayerPreferenceCodec.decoderMode("FUTURE_DECODER_MODE"))
+        assertEquals(DecoderMode.AUTO, PlayerPreferenceCodec.decoderMode(null))
     }
 
     @Test
@@ -67,5 +79,7 @@ class PlayerPreferenceCodecTest {
         assertEquals(ResizeMode.CROP, PlayerPreferenceCodec.resizeMode("CROP"))
         assertEquals(OrientationMode.REVERSE_LANDSCAPE, PlayerPreferenceCodec.orientationMode("REVERSE_LANDSCAPE"))
         assertEquals(GestureSensitivity.HIGH, PlayerPreferenceCodec.sensitivity("HIGH"))
+        assertEquals(DecoderMode.SOFTWARE, PlayerPreferenceCodec.decoderMode("SOFTWARE"))
+        assertEquals(DecoderMode.HARDWARE, PlayerPreferenceCodec.decoderMode("HARDWARE"))
     }
 }

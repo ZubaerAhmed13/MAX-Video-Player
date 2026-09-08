@@ -21,12 +21,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.zubaer.maxvideoplayer.core.device.DeviceCapabilityProvider
+import com.zubaer.maxvideoplayer.core.device.DeviceDecoderBackend
 import com.zubaer.maxvideoplayer.core.model.AppMedia
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
+import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderBackendType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
@@ -38,6 +47,12 @@ fun PlayerDialogs(
     onSpeed: (Float) -> Unit,
     onRepeatMode: (RepeatMode) -> Unit,
     onShuffle: (Boolean) -> Unit,
+    onDecoderMode: (DecoderMode) -> Unit,
+    onUseGlobalDecoder: () -> Unit,
+    onDefaultDecoderMode: (DecoderMode) -> Unit,
+    onRememberDecoderPerVideo: (Boolean) -> Unit,
+    onShowDecoderDiagnostics: (Boolean) -> Unit,
+    onResetDecoderPreferences: () -> Unit,
     onResize: (ResizeMode) -> Unit,
     onCustomAspect: (Float, Float) -> Boolean,
     onResetZoom: () -> Unit,
@@ -58,6 +73,12 @@ fun PlayerDialogs(
     when (coordinator.activeMenu) {
         PlayerMenu.SPEED -> SpeedDialog(playback.playbackSpeed, onDismissMenu, onSpeed)
         PlayerMenu.PLAYBACK -> PlaybackModeDialog(playback, onDismissMenu, onRepeatMode, onShuffle)
+        PlayerMenu.DECODER -> DecoderDialog(
+            state = coordinator,
+            onDismiss = onDismissMenu,
+            onMode = onDecoderMode,
+            onUseGlobal = onUseGlobalDecoder,
+        )
         PlayerMenu.DISPLAY -> DisplayDialog(coordinator, onDismissMenu, onResize, onCustomAspect, onResetZoom, onRotate)
         PlayerMenu.ORIENTATION -> OrientationDialog(coordinator.orientationMode, onDismissMenu, onOrientation)
         PlayerMenu.SETTINGS -> SettingsDialog(
@@ -72,9 +93,13 @@ fun PlayerDialogs(
             onAutoHideMillis = onAutoHideMillis,
             onRememberSpeed = onRememberSpeed,
             onAutoPip = onAutoPip,
+            onDefaultDecoderMode = onDefaultDecoderMode,
+            onRememberDecoderPerVideo = onRememberDecoderPerVideo,
+            onShowDecoderDiagnostics = onShowDecoderDiagnostics,
+            onResetDecoderPreferences = onResetDecoderPreferences,
             onShowTutorial = onShowTutorial,
         )
-        PlayerMenu.INFO -> MediaInfoDialog(media, playback, onDismissMenu)
+        PlayerMenu.INFO -> MediaInfoDialog(media, playback, coordinator, onDismissMenu)
         PlayerMenu.NONE -> Unit
     }
     if (coordinator.tutorialVisible && coordinator.resumePositionMs == null && !coordinator.preparing) GestureTutorialDialog(onDismissTutorial)
@@ -140,6 +165,172 @@ private fun PlaybackModeDialog(
         },
         confirmButton = { Button(onClick = onDismiss) { Text("Done") } },
     )
+}
+
+@Composable
+private fun DecoderDialog(
+    state: PlayerCoordinatorState,
+    onDismiss: () -> Unit,
+    onMode: (DecoderMode) -> Unit,
+    onUseGlobal: () -> Unit,
+) {
+    val session = state.decoder
+    val diagnostics = session.diagnostics
+    var capabilitiesExpanded by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Decoder") },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Text("Requested: ${decoderModeLabel(session.requestedMode)}")
+                Text(
+                    when {
+                        diagnostics.switching -> "Switching decoder…"
+                        diagnostics.activeDecoderName != null -> "Active: ${decoderBackendLabel(diagnostics.effectiveBackend)} — ${diagnostics.activeDecoderName}"
+                        else -> diagnostics.statusMessage ?: "Active decoder will appear after video initialization."
+                    },
+                )
+                if (session.usingMediaOverride) {
+                    TextButton(onClick = onUseGlobal) { Text("Use global default") }
+                } else {
+                    Text("Using global default")
+                }
+                HorizontalDivider()
+                DecoderMode.entries.forEach { mode ->
+                    TextButton(onClick = { onMode(mode) }) {
+                        Text(if (session.requestedMode == mode) "✓ ${decoderModeLabel(mode)}" else decoderModeLabel(mode))
+                    }
+                    Text(decoderModeDescription(mode))
+                }
+                Text("Software decoding can use significantly more CPU and battery, especially for high-resolution video.")
+                diagnostics.lastFailure?.let { failure ->
+                    HorizontalDivider()
+                    Text("Decoder problem: ${failure.message}")
+                    Text("Try Auto, another hardware policy, or Software if the selected mode cannot decode this video.")
+                }
+                if (state.preferences.showDecoderDiagnostics) {
+                    HorizontalDivider()
+                    Text("Decoder information")
+                    InfoLine("Requested", decoderModeLabel(diagnostics.requestedMode))
+                    InfoLine("Effective", diagnostics.effectiveMode?.let(::decoderModeLabel) ?: "Unknown / inactive")
+                    InfoLine("Backend", decoderBackendLabel(diagnostics.effectiveBackend))
+                    InfoLine("Decoder", diagnostics.activeDecoderName ?: "None")
+                    InfoLine("Hardware accelerated", diagnostics.hardwareAccelerated?.toString() ?: "Unknown")
+                    InfoLine("Software only", diagnostics.softwareOnly?.toString() ?: "Unknown")
+                    InfoLine("Vendor", diagnostics.vendor?.toString() ?: "Unknown")
+                    InfoLine("Secure", diagnostics.secure?.toString() ?: "Unknown")
+                    InfoLine("MIME", diagnostics.inputFormat.mimeType ?: "Unknown")
+                    InfoLine("Codec string", diagnostics.inputFormat.codecs ?: "Unknown")
+                    InfoLine(
+                        "Resolution",
+                        if (diagnostics.inputFormat.width != null && diagnostics.inputFormat.height != null) {
+                            "${diagnostics.inputFormat.width} × ${diagnostics.inputFormat.height}"
+                        } else "Unknown",
+                    )
+                    InfoLine("Frame rate", diagnostics.inputFormat.frameRate?.let { "${"%.2f".format(it)} fps" } ?: "Unknown")
+                    InfoLine("Decoder init", diagnostics.decoderInitializationDurationMs?.let { "${it} ms" } ?: "Unknown")
+                    InfoLine("Dropped frames", diagnostics.droppedFrames.toString())
+                    InfoLine("Fallback events", diagnostics.fallbackCount.toString())
+                    if (diagnostics.fallbackHistory.isNotEmpty()) {
+                        Text("Fallback history")
+                        diagnostics.fallbackHistory.forEach { event ->
+                            Text("• ${event.decoderName ?: "candidate"}: ${event.failureCode.name}")
+                        }
+                    }
+                }
+                HorizontalDivider()
+                TextButton(onClick = { capabilitiesExpanded = !capabilitiesExpanded }) {
+                    Text(if (capabilitiesExpanded) "Hide device decoder capabilities" else "Device decoder capabilities")
+                }
+                if (capabilitiesExpanded) DeviceDecoderCapabilitiesPanel(state)
+            }
+        },
+        confirmButton = { Button(onClick = onDismiss) { Text("Done") } },
+    )
+}
+
+@Composable
+private fun DeviceDecoderCapabilitiesPanel(state: PlayerCoordinatorState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val provider = remember(context.applicationContext) { DeviceCapabilityProvider(context.applicationContext) }
+    var refreshedProfile by remember { mutableStateOf(state.decoderCapabilities) }
+    var refreshing by remember { mutableStateOf(false) }
+    var refreshError by remember { mutableStateOf<String?>(null) }
+    val profile = refreshedProfile ?: state.decoderCapabilities
+
+    when {
+        (state.decoderCapabilitiesLoading || refreshing) && profile == null -> Text("Scanning device decoder capabilities…")
+        state.decoderCapabilitiesError != null && profile == null -> Text("Decoder capability scan failed: ${state.decoderCapabilitiesError}")
+        profile == null -> Text("Decoder capability inventory is not available yet.")
+        else -> {
+            Text("${profile.manufacturer} ${profile.model} · API ${profile.apiLevel}")
+            InfoLine("ABIs", profile.abis.joinToString().ifBlank { "Unknown" })
+            InfoLine("Hardware decoder names", profile.hardwareDecoderNames.size.toString())
+            InfoLine("Software decoder names", profile.softwareDecoderNames.size.toString())
+            if (profile.unknownDecoderNames.isNotEmpty()) {
+                InfoLine("Unclassified decoder names", profile.unknownDecoderNames.size.toString())
+            }
+            profile.availableVideoDecoders
+                .groupBy { it.mimeType }
+                .toSortedMap()
+                .forEach { (mimeType, decoders) ->
+                    HorizontalDivider()
+                    Text(decoderMimeLabel(mimeType))
+                    Text(mimeType)
+                    decoders.forEach { decoder ->
+                        Text("• ${decoder.name} — ${deviceDecoderBackendLabel(decoder.backend)}")
+                        decoder.vendor?.let { InfoLine("Vendor codec", it.toString()) }
+                        if (decoder.profileLevels.isNotEmpty()) {
+                            InfoLine("Profiles/levels", decoder.profileLevels.joinToString(limit = 12, truncated = "…"))
+                        }
+                        if (decoder.colorFormats.isNotEmpty()) {
+                            InfoLine("Color formats", decoder.colorFormats.joinToString(limit = 8, truncated = "…"))
+                        }
+                        val features = buildList {
+                            if (decoder.adaptivePlayback) add("adaptive")
+                            if (decoder.securePlayback) add("secure")
+                            if (decoder.tunneledPlayback) add("tunneled")
+                            if (decoder.lowLatency == true) add("low-latency")
+                        }
+                        if (features.isNotEmpty()) InfoLine("Features", features.joinToString())
+                        val supportedTargets = decoder.resolutionTargets.entries.mapNotNull { (label, capability) ->
+                            when {
+                                capability.supportedAt60Fps == true -> "$label@60"
+                                capability.supportedAt30Fps -> "$label@30"
+                                else -> null
+                            }
+                        }
+                        if (supportedTargets.isNotEmpty()) InfoLine("Size/rate targets", supportedTargets.joinToString())
+                    }
+                }
+            if (state.decoderCapabilitiesLoading || refreshing) Text("Refreshing decoder inventory…")
+            (refreshError ?: state.decoderCapabilitiesError)?.let { Text("Last refresh failed: $it") }
+            TextButton(
+                onClick = {
+                    if (!refreshing) {
+                        refreshing = true
+                        refreshError = null
+                        scope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.Default) { provider.collectDecoderProfile(forceRefresh = true) }
+                            }
+                            result.onSuccess { refreshedProfile = it }
+                                .onFailure { refreshError = it.message ?: it.javaClass.simpleName }
+                            refreshing = false
+                        }
+                    }
+                },
+                enabled = !refreshing,
+            ) {
+                Text("Refresh decoder inventory")
+            }
+            Text("This inventory describes this device only; it is not a universal Android codec-support list.")
+        }
+    }
 }
 
 @Composable
@@ -236,6 +427,10 @@ private fun SettingsDialog(
     onAutoHideMillis: (Long) -> Unit,
     onRememberSpeed: (Boolean) -> Unit,
     onAutoPip: (Boolean) -> Unit,
+    onDefaultDecoderMode: (DecoderMode) -> Unit,
+    onRememberDecoderPerVideo: (Boolean) -> Unit,
+    onShowDecoderDiagnostics: (Boolean) -> Unit,
+    onResetDecoderPreferences: () -> Unit,
     onShowTutorial: () -> Unit,
 ) {
     var customDoubleTapSeconds by remember(preferences.doubleTapSeekSeconds) {
@@ -297,6 +492,22 @@ private fun SettingsDialog(
                     }
                 }
                 HorizontalDivider()
+                Text("Decoder")
+                Text("Default decoder: ${decoderModeLabel(preferences.defaultDecoderMode)}")
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    DecoderMode.entries.forEach { mode ->
+                        TextButton(onClick = { onDefaultDecoderMode(mode) }) {
+                            Text(if (preferences.defaultDecoderMode == mode) "✓ ${decoderModeLabel(mode)}" else decoderModeLabel(mode))
+                        }
+                    }
+                }
+                SettingSwitch("Remember decoder per video", preferences.rememberDecoderPerVideo, onRememberDecoderPerVideo)
+                SettingSwitch("Show decoder diagnostics", preferences.showDecoderDiagnostics, onShowDecoderDiagnostics)
+                TextButton(onClick = onResetDecoderPreferences) { Text("Reset Decoder Preferences") }
+                HorizontalDivider()
                 TextButton(onClick = { onDismiss(); onShowTutorial() }) { Text("Show gesture tutorial") }
             }
         },
@@ -313,7 +524,8 @@ private fun SettingSwitch(label: String, checked: Boolean, onChecked: (Boolean) 
 }
 
 @Composable
-private fun MediaInfoDialog(media: AppMedia, playback: PlaybackUiState, onDismiss: () -> Unit) {
+private fun MediaInfoDialog(media: AppMedia, playback: PlaybackUiState, coordinator: PlayerCoordinatorState, onDismiss: () -> Unit) {
+    val diagnostics = coordinator.decoder.diagnostics
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Media information") },
@@ -322,11 +534,13 @@ private fun MediaInfoDialog(media: AppMedia, playback: PlaybackUiState, onDismis
                 InfoLine("Title", playback.title.ifBlank { media.title })
                 InfoLine("Resolution", if (media.width != null && media.height != null) "${media.width} × ${media.height}" else "Unknown")
                 InfoLine("Duration", formatPlayerTime(playback.durationMs.takeIf { it > 0L } ?: media.durationMs ?: 0L))
-                InfoLine("Video codec", media.videoCodec ?: "Unknown")
+                InfoLine("Video codec", media.videoCodec ?: diagnostics.inputFormat.mimeType ?: "Unknown")
                 InfoLine("Audio codec", media.audioCodec ?: "Unknown")
-                InfoLine("Frame rate", media.frameRate?.let { "${"%.2f".format(it)} fps" } ?: "Unknown")
+                InfoLine("Frame rate", media.frameRate?.let { "${"%.2f".format(it)} fps" } ?: diagnostics.inputFormat.frameRate?.let { "${"%.2f".format(it)} fps" } ?: "Unknown")
                 InfoLine("Source", media.sourceType.name)
-                InfoLine("Decoder", "Media3 / platform decoder (Step 6 advanced routing not implemented)")
+                InfoLine("Requested decoder", decoderModeLabel(coordinator.decoder.requestedMode))
+                InfoLine("Active decoder", diagnostics.activeDecoderName ?: "Inactive / not initialized")
+                InfoLine("Hardware acceleration", diagnostics.hardwareAccelerated?.toString() ?: "Unknown")
             }
         },
         confirmButton = { Button(onClick = onDismiss) { Text("Close") } },
@@ -359,4 +573,43 @@ private fun GestureTutorialDialog(onDismiss: () -> Unit) {
         },
         confirmButton = { Button(onClick = onDismiss) { Text("Got it") } },
     )
+}
+
+private fun decoderModeLabel(mode: DecoderMode): String = when (mode) {
+    DecoderMode.AUTO -> "Auto"
+    DecoderMode.HARDWARE -> "Hardware"
+    DecoderMode.ENHANCED_HARDWARE -> "Enhanced Hardware"
+    DecoderMode.SOFTWARE -> "Software"
+}
+
+private fun decoderModeDescription(mode: DecoderMode): String = when (mode) {
+    DecoderMode.AUTO -> "Automatically chooses the most suitable available decoder and can fall back across compatible backends."
+    DecoderMode.HARDWARE -> "Uses the preferred hardware-accelerated decoder only."
+    DecoderMode.ENHANCED_HARDWARE -> "Uses compatible hardware decoders with broader hardware-only fallback."
+    DecoderMode.SOFTWARE -> "Uses a software decoder only. May use more CPU and battery."
+}
+
+private fun decoderBackendLabel(backend: DecoderBackendType?): String = when (backend) {
+    DecoderBackendType.HARDWARE -> "Hardware"
+    DecoderBackendType.SOFTWARE -> "Software"
+    DecoderBackendType.UNKNOWN -> "Unknown"
+    null -> "Inactive / unknown"
+}
+
+private fun deviceDecoderBackendLabel(backend: DeviceDecoderBackend): String = when (backend) {
+    DeviceDecoderBackend.HARDWARE -> "Hardware"
+    DeviceDecoderBackend.SOFTWARE -> "Software"
+    DeviceDecoderBackend.UNKNOWN -> "Unknown"
+}
+
+private fun decoderMimeLabel(mimeType: String): String = when (mimeType.lowercase()) {
+    "video/avc" -> "H.264 / AVC"
+    "video/hevc" -> "H.265 / HEVC"
+    "video/x-vnd.on2.vp8" -> "VP8"
+    "video/x-vnd.on2.vp9" -> "VP9"
+    "video/av01" -> "AV1"
+    "video/mp4v-es" -> "MPEG-4 Part 2"
+    "video/mpeg2" -> "MPEG-2 Video"
+    "video/3gpp" -> "H.263"
+    else -> mimeType
 }

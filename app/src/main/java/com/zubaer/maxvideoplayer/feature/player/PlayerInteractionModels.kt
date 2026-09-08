@@ -1,5 +1,9 @@
 package com.zubaer.maxvideoplayer.feature.player
 
+import com.zubaer.maxvideoplayer.core.device.DeviceDecoderProfile
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
+import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderSessionState
+
 enum class PlayerGestureKind {
     NONE,
     SEEK,
@@ -13,6 +17,7 @@ enum class PlayerMenu {
     NONE,
     SPEED,
     PLAYBACK,
+    DECODER,
     DISPLAY,
     ORIENTATION,
     SETTINGS,
@@ -75,6 +80,9 @@ data class PlayerPreferencesState(
     val rememberedPlaybackSpeed: Float = 1f,
     val autoPip: Boolean = false,
     val tutorialSeen: Boolean = false,
+    val defaultDecoderMode: DecoderMode = DecoderMode.AUTO,
+    val rememberDecoderPerVideo: Boolean = true,
+    val showDecoderDiagnostics: Boolean = false,
 )
 
 data class PlayerCoordinatorState(
@@ -102,6 +110,10 @@ data class PlayerCoordinatorState(
     val accessibilityMode: Boolean = false,
     val isPlaying: Boolean = false,
     val preferences: PlayerPreferencesState = PlayerPreferencesState(),
+    val decoder: DecoderSessionState = DecoderSessionState(),
+    val decoderCapabilities: DeviceDecoderProfile? = null,
+    val decoderCapabilitiesLoading: Boolean = false,
+    val decoderCapabilitiesError: String? = null,
 )
 
 data class PanBounds(

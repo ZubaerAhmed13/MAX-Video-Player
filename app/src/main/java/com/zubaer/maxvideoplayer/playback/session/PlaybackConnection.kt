@@ -49,21 +49,16 @@ class PlaybackConnection(
 
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
+    private var controllerListener: Player.Listener? = null
     private var tickerJob: Job? = null
     private var connectRequested = false
     private var pendingExternalSelectionMediaId: String? = null
     private var pendingExternalSelectionId: String? = null
     private var lastAutoDiscoveryMediaId: String? = null
     private var recoverableSubtitleError: String? = null
+    private var pendingSeekMediaId: String? = null
+    private var pendingSeekPositionMs: Long? = null
     private val knownMediaById = ConcurrentHashMap<String, AppMedia>()
-
-    private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) = publish(player)
-
-        override fun onPlayerError(error: PlaybackException) {
-            _state.value = _state.value.copy(error = PlaybackErrorMapper.map(error), isBuffering = false)
-        }
-    }
 
     fun connect() {
         if (connectRequested || controller != null) return
@@ -73,11 +68,37 @@ class PlaybackConnection(
         controllerFuture = future
         future.addListener({
             runCatching { future.get() }.onSuccess { mediaController ->
+                if (controllerFuture !== future) {
+                    MediaController.releaseFuture(future)
+                    return@onSuccess
+                }
+                val listener = object : Player.Listener {
+                    override fun onEvents(player: Player, events: Player.Events) {
+                        if (controller !== mediaController) return
+                        publish(player)
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (controller !== mediaController) return
+                        // The callback payload can be queued before a media/session transition.
+                        // Publish the controller's current Player state instead of copying the
+                        // delayed payload into a newer media item. If the same error is still
+                        // authoritative, mediaController.playerError retains it and publish maps it.
+                        if (mediaController.playerError?.errorCode != error.errorCode) {
+                            publish(mediaController)
+                            return
+                        }
+                        publish(mediaController)
+                    }
+                }
                 controller = mediaController
+                controllerListener = listener
                 mediaController.addListener(listener)
                 publish(mediaController)
                 startTicker()
             }.onFailure {
+                if (controllerFuture !== future) return@onFailure
+                controllerFuture = null
                 connectRequested = false
                 _state.value = _state.value.copy(connected = false)
             }
@@ -88,9 +109,10 @@ class PlaybackConnection(
         tickerJob?.cancel()
         tickerJob = null
         controller?.let { current ->
-            current.removeListener(listener)
+            controllerListener?.let(current::removeListener)
             if (current.isCommandAvailable(Player.COMMAND_SET_VIDEO_SURFACE)) current.clearVideoSurface()
         }
+        controllerListener = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         controller = null
@@ -99,12 +121,14 @@ class PlaybackConnection(
         pendingExternalSelectionId = null
         lastAutoDiscoveryMediaId = null
         recoverableSubtitleError = null
+        clearPendingSeek()
         _state.value = PlaybackUiState()
     }
 
     fun load(media: AppMedia, startPositionMs: Long = 0L, playWhenReady: Boolean = true) {
         knownMediaById[media.stableId] = media
         withController { player ->
+            clearPendingSeek()
             applyAutoPolicy(player)
             player.setMediaItem(media.toMedia3Item(), startPositionMs.coerceAtLeast(0L))
             player.prepare()
@@ -116,6 +140,7 @@ class PlaybackConnection(
         if (media.isEmpty()) return
         media.forEach { knownMediaById[it.stableId] = it }
         withController { player ->
+            clearPendingSeek()
             applyAutoPolicy(player)
             player.setMediaItems(media.map { it.toMedia3Item() }, startIndex.coerceIn(media.indices), startPositionMs.coerceAtLeast(0L))
             player.prepare()
@@ -134,11 +159,26 @@ class PlaybackConnection(
     fun seekTo(positionMs: Long) = withController { player ->
         val duration = player.duration.takeIf { it > 0L }
         val safe = if (duration != null) positionMs.coerceIn(0L, duration) else positionMs.coerceAtLeast(0L)
-        player.seekTo(safe)
+        val mediaId = player.currentMediaItem?.mediaId
+        if (player.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
+            clearPendingSeek()
+            player.seekTo(safe)
+        } else if (mediaId != null) {
+            pendingSeekMediaId = mediaId
+            pendingSeekPositionMs = safe
+        }
     }
 
-    fun seekToNext() = withController { if (it.hasNextMediaItem()) it.seekToNextMediaItem() }
-    fun seekToPrevious() = withController { if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem() }
+    fun seekToNext() = withController {
+        clearPendingSeek()
+        if (it.hasNextMediaItem()) it.seekToNextMediaItem()
+    }
+
+    fun seekToPrevious() = withController {
+        clearPendingSeek()
+        if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem()
+    }
+
     fun setPlaybackSpeed(speed: Float) = withController { it.setPlaybackSpeed(speed.coerceIn(0.25f, 4f)) }
 
     fun setRepeatMode(mode: RepeatMode) = withController {
@@ -322,9 +362,10 @@ class PlaybackConnection(
     }
 
     private fun publish(player: Player) {
+        val mediaId = player.currentMediaItem?.mediaId
+        maybeApplyPendingSeek(player, mediaId)
         val duration = player.duration.takeIf { it > 0L } ?: 0L
         val subtitleState = buildSubtitleState(player)
-        val mediaId = player.currentMediaItem?.mediaId
 
         if (pendingExternalSelectionMediaId == mediaId) {
             val associationId = pendingExternalSelectionId
@@ -365,6 +406,23 @@ class PlaybackConnection(
         )
 
         maybeDiscoverSidecars(mediaId)
+    }
+
+    private fun maybeApplyPendingSeek(player: Player, mediaId: String?) {
+        val expectedMediaId = pendingSeekMediaId ?: return
+        val positionMs = pendingSeekPositionMs ?: return
+        if (mediaId != null && mediaId != expectedMediaId) {
+            clearPendingSeek()
+            return
+        }
+        if (mediaId != expectedMediaId || !player.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) return
+        clearPendingSeek()
+        player.seekTo(positionMs)
+    }
+
+    private fun clearPendingSeek() {
+        pendingSeekMediaId = null
+        pendingSeekPositionMs = null
     }
 
     private fun maybeDiscoverSidecars(mediaId: String?) {
@@ -544,11 +602,6 @@ class PlaybackConnection(
         delayMs = attachment.delayMs,
     )
 
-    /**
-     * Media3 does not guarantee that SubtitleConfiguration.id is preserved in every downstream
-     * Format. Prefer the stable id when present, then fall back to descriptor identity. This is
-     * deliberately deterministic and restores the robust behavior used by the proven Step-4 SRT path.
-     */
     private fun resolveExternalAttachment(
         format: Format,
         attachments: List<ExternalSubtitleAttachment>,

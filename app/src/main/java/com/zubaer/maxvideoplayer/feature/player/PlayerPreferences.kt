@@ -2,6 +2,7 @@ package com.zubaer.maxvideoplayer.feature.player
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,9 @@ class PlayerPreferences(context: Context) {
     fun setRememberedPlaybackSpeed(value: Float) = update(KEY_SPEED, value.coerceIn(0.25f, 4f))
     fun setAutoPip(value: Boolean) = update(KEY_AUTO_PIP, value)
     fun setTutorialSeen(value: Boolean) = update(KEY_TUTORIAL_SEEN, value)
+    fun setDefaultDecoderMode(value: DecoderMode) = update(KEY_DEFAULT_DECODER_MODE, value.name)
+    fun setRememberDecoderPerVideo(value: Boolean) = update(KEY_REMEMBER_DECODER_PER_VIDEO, value)
+    fun setShowDecoderDiagnostics(value: Boolean) = update(KEY_SHOW_DECODER_DIAGNOSTICS, value)
 
     private fun update(key: String, value: Any) {
         val editor = prefs.edit()
@@ -55,6 +59,9 @@ class PlayerPreferences(context: Context) {
         rememberedPlaybackSpeed = prefs.getFloat(KEY_SPEED, 1f).coerceIn(0.25f, 4f),
         autoPip = prefs.getBoolean(KEY_AUTO_PIP, false),
         tutorialSeen = prefs.getBoolean(KEY_TUTORIAL_SEEN, false),
+        defaultDecoderMode = PlayerPreferenceCodec.decoderMode(prefs.getString(KEY_DEFAULT_DECODER_MODE, null)),
+        rememberDecoderPerVideo = prefs.getBoolean(KEY_REMEMBER_DECODER_PER_VIDEO, true),
+        showDecoderDiagnostics = prefs.getBoolean(KEY_SHOW_DECODER_DIAGNOSTICS, false),
     )
 
     private fun safeAspectRatio(value: Float): Float =
@@ -76,5 +83,8 @@ class PlayerPreferences(context: Context) {
         private const val KEY_SPEED = "remembered_speed"
         private const val KEY_AUTO_PIP = "auto_pip"
         private const val KEY_TUTORIAL_SEEN = "tutorial_seen"
+        private const val KEY_DEFAULT_DECODER_MODE = "default_decoder_mode"
+        private const val KEY_REMEMBER_DECODER_PER_VIDEO = "remember_decoder_per_video"
+        private const val KEY_SHOW_DECODER_DIAGNOSTICS = "show_decoder_diagnostics"
     }
 }

@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [ main, step-1-professional-foundation, step-2-professional-media-library, step-5-professional-audio-engine ]
+    branches: [ main, step-1-professional-foundation, step-2-professional-media-library, step-5-professional-audio-engine, step-6-professional-decoder-engine ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -74,7 +74,16 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
+          script: |
+            gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -e class com.zubaer.maxvideoplayer.playback.Step6CodecCapabilityReportTest com.zubaer.maxvideoplayer.test/androidx.test.runner.AndroidJUnitRunner > /tmp/step6-capability-test.txt
+            cat /tmp/step6-capability-test.txt
+            grep -q 'OK (1 test)' /tmp/step6-capability-test.txt
+            mkdir -p app/build/reports/step6
+            adb exec-out run-as com.zubaer.maxvideoplayer cat files/step6-decoder-capability-report.txt > app/build/reports/step6/decoder-capability-report-api35.txt
+            test -s app/build/reports/step6/decoder-capability-report-api35.txt
       - name: Upload instrumentation reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -85,6 +94,7 @@ jobs:
           path: |
             app/build/reports/androidTests/connected/**
             app/build/outputs/androidTest-results/connected/**
+            app/build/reports/step6/**
 
   legacy-thumbnail-instrumentation:
     runs-on: ubuntu-latest

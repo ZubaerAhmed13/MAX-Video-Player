@@ -24,6 +24,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var routeMonitor: AudioRouteMonitor
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var persistenceJob: Job? = null
+    private var decoderActivatedMediaId: String? = null
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -40,7 +41,17 @@ class PlaybackService : MediaSessionService() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val container = (application as MaxVideoPlayerApplication).container
-            container.audioRepository.activateMedia(mediaItem?.mediaId)
+            val mediaId = mediaItem?.mediaId
+            container.audioRepository.activateMedia(mediaId)
+            // Decoder reconfiguration restores the same MediaItem through setMediaItems(), which
+            // produces another transition callback. Re-activating decoder state for that identical
+            // media ID would emit another mode request and create a reconfigure -> transition ->
+            // reconfigure loop. Activate decoder persistence only when the authoritative media
+            // identity actually changes; explicit user mode changes already emit their own request.
+            if (decoderActivatedMediaId != mediaId) {
+                decoderActivatedMediaId = mediaId
+                container.decoderRepository.activateMedia(mediaId)
+            }
             if (mediaItem != null) container.audioRepository.refreshExternalAvailability(mediaItem.mediaId)
             persistCurrent()
         }
@@ -49,9 +60,20 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val container = (application as MaxVideoPlayerApplication).container
-        engine = Media3PlaybackEngine(this, container.subtitleRepository, container.audioRepository)
+        engine = Media3PlaybackEngine(
+            this,
+            container.subtitleRepository,
+            container.audioRepository,
+            container.decoderRepository,
+        )
         engine.player.addListener(listener)
         container.audioRepository.activateMedia(engine.player.currentMediaItem?.mediaId)
+        container.decoderRepository.activateMedia(engine.player.currentMediaItem?.mediaId)
+        serviceScope.launch {
+            container.decoderRepository.modeRequests.collect { mode ->
+                if (::engine.isInitialized) engine.reconfigureVideoDecoder(mode)
+            }
+        }
         routeMonitor = AudioRouteMonitor(this, container.audioRepository::setRoute).also { it.start() }
         mediaSession = MediaSession.Builder(this, engine.player).build()
     }

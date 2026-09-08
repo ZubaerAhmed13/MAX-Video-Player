@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.core.database.MaxDatabase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -25,6 +27,7 @@ class SubtitleRecoveryInstrumentedTest {
         val database = Room.inMemoryDatabaseBuilder(context, MaxDatabase::class.java)
             .allowMainThreadQueries()
             .build()
+        val repository = SubtitleRepository(context, database)
         val original = File(context.cacheDir, "recovery.en.srt").apply {
             writeText("1\n00:00:00,100 --> 00:00:01,000\nOriginal\n")
         }
@@ -33,7 +36,6 @@ class SubtitleRecoveryInstrumentedTest {
         }
 
         try {
-            val repository = SubtitleRepository(context, database)
             val attached = repository.saveExternalAttachment(
                 "media-recovery",
                 SubtitleFileDescriptor(
@@ -76,9 +78,28 @@ class SubtitleRecoveryInstrumentedTest {
                 database.subtitleDao().association(relinked.id)?.encoding,
             )
         } finally {
+            // This test owns an injected in-memory Room instance while SubtitleRepository owns a
+            // long-lived SupervisorJob in production. A row becoming visible does not prove that
+            // older reconciliation coroutines have all left the repository mutex. Drain those
+            // children before closing the test DB so no orphaned persistence work can crash the
+            // following instrumentation test with "connection is closed".
+            withTimeout(5_000L) {
+                repository.awaitPersistenceChildrenForTest()
+            }
             original.delete()
             replacement.delete()
             database.close()
+        }
+    }
+
+    private suspend fun SubtitleRepository.awaitPersistenceChildrenForTest() {
+        val field = SubtitleRepository::class.java.getDeclaredField("ioScope").apply { isAccessible = true }
+        val scope = field.get(this) as CoroutineScope
+        val parent = scope.coroutineContext[Job] ?: return
+        while (true) {
+            val children = parent.children.toList()
+            if (children.isEmpty()) return
+            children.forEach { it.join() }
         }
     }
 }

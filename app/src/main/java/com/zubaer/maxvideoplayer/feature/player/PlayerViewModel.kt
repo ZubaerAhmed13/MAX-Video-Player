@@ -3,8 +3,11 @@ package com.zubaer.maxvideoplayer.feature.player
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zubaer.maxvideoplayer.core.database.PlaybackHistoryRepository
+import com.zubaer.maxvideoplayer.core.device.DeviceCapabilityProvider
 import com.zubaer.maxvideoplayer.core.model.AppMedia
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import com.zubaer.maxvideoplayer.core.model.ResumeAction
+import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,6 +25,8 @@ class PlayerViewModel(
     private val historyRepository: PlaybackHistoryRepository,
     private val playbackConnection: PlaybackConnection,
     private val preferences: PlayerPreferences,
+    private val decoderRepository: DecoderRepository,
+    private val deviceCapabilityProvider: DeviceCapabilityProvider,
     private val queue: List<AppMedia> = listOf(media),
     private val startIndex: Int = 0,
 ) : ViewModel() {
@@ -29,6 +34,7 @@ class PlayerViewModel(
     val state: StateFlow<PlayerCoordinatorState> = _state.asStateFlow()
     private var autoHideJob: Job? = null
     private var hudHideJob: Job? = null
+    private var decoderCapabilityJob: Job? = null
     private var tutorialChecked = false
     private var preferencesInitialized = false
 
@@ -50,6 +56,12 @@ class PlayerViewModel(
                 scheduleAutoHideIfNeeded()
             }
         }
+        viewModelScope.launch {
+            decoderRepository.state.collect { decoder ->
+                _state.value = _state.value.copy(decoder = decoder)
+            }
+        }
+        refreshDecoderCapabilities(forceRefresh = false)
         viewModelScope.launch {
             val history = withContext(Dispatchers.IO) { historyRepository.get(media.stableId) }
             val decision = historyRepository.resumeDecision(history)
@@ -308,6 +320,40 @@ class PlayerViewModel(
 
     fun setRememberPlaybackSpeed(enabled: Boolean) {
         preferences.setRememberPlaybackSpeed(enabled)
+    }
+
+    fun setDecoderMode(mode: DecoderMode) {
+        val activeMediaId = playbackConnection.state.value.mediaId ?: media.stableId
+        decoderRepository.requestModeForCurrentMedia(activeMediaId, mode)
+        showControls()
+    }
+
+    fun useGlobalDecoderForCurrentMedia() {
+        val activeMediaId = playbackConnection.state.value.mediaId ?: media.stableId
+        decoderRepository.useGlobalForCurrentMedia(activeMediaId)
+        showControls()
+    }
+
+    fun setDefaultDecoderMode(mode: DecoderMode) = decoderRepository.setGlobalDefault(mode)
+    fun setRememberDecoderPerVideo(enabled: Boolean) = decoderRepository.setRememberPerVideo(enabled)
+    fun setShowDecoderDiagnostics(enabled: Boolean) = decoderRepository.setShowDiagnostics(enabled)
+    fun resetDecoderPreferences() = decoderRepository.resetDecoderPreferences()
+
+    fun refreshDecoderCapabilities(forceRefresh: Boolean = true) {
+        if (decoderCapabilityJob?.isActive == true) return
+        _state.value = _state.value.copy(decoderCapabilitiesLoading = true, decoderCapabilitiesError = null)
+        decoderCapabilityJob = viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.Default) {
+                    deviceCapabilityProvider.collectDecoderProfile(forceRefresh)
+                }
+            }
+            _state.value = _state.value.copy(
+                decoderCapabilities = result.getOrNull() ?: _state.value.decoderCapabilities,
+                decoderCapabilitiesLoading = false,
+                decoderCapabilitiesError = result.exceptionOrNull()?.message,
+            )
+        }
     }
 
     fun setDoubleTapSeekSeconds(seconds: Int) = preferences.setDoubleTapSeekSeconds(seconds)
