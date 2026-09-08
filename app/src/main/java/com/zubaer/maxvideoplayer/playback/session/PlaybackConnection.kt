@@ -71,7 +71,7 @@ class PlaybackConnection(
 
     init {
         scope.launch {
-            networkDiagnosticsMonitor.state.collect { diagnostics ->
+            this@PlaybackConnection.networkDiagnosticsMonitor.state.collect { diagnostics ->
                 _state.value = _state.value.copy(network = diagnostics)
             }
         }
