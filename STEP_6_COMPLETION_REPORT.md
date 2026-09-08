@@ -6,16 +6,19 @@ This report covers Step 6 only. Step 7 is not implemented here.
 
 Step 6 extends the Step-5-certified application while preserving the single service-owned Media3 playback architecture, Step-5 DSP, Step-4 subtitles, Step-3 player behavior, Step-2 library and Step-1 large-media/reference foundations.
 
-## Implementation status
+## Final implementation and certification status
 
-The Step-6 source implementation is complete in scope on branch `step-6-professional-decoder-engine`.
+**STEP 6: PASS**
 
-Final repository completion is deliberately gated by two exact-SHA CI checks:
+All required Step-6 repository gates are satisfied:
 
-1. the documentation-complete Step-6 branch head must pass the complete configured matrix before merge;
-2. the resulting exact `main` merge head must pass the same configured matrix after merge.
+1. exact documentation-complete branch head `c463ecf526b359833053ac505ebc68598e435b12` passed the configured matrix in Android CI run #216;
+2. PR #9 merged that exact head into `main` without dropping Step-6 source/evidence/documentation changes;
+3. exact resulting `main` merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0` passed the same configured matrix in Android CI run #218.
 
-Until both conditions are green, the authoritative final status remains **CERTIFICATION PENDING** rather than a fabricated PASS.
+The configured matrix covers debug/JVM tests, release compilation, lint, complete API-35 instrumentation, API-26 thumbnail regression and API-28 thumbnail regression.
+
+The Step-6 implementation is therefore repository-complete in its declared software/emulator scope. Physical OEM/SoC, large-media, 4K/HDR/high-bitrate, battery/thermal and broad device certification remain explicitly deferred to Step 10 and are not implied by this PASS.
 
 ## Delivered decoder modes
 
@@ -115,7 +118,7 @@ The same ExoPlayer instance is stopped/re-prepared at the same item/position rat
 
 ## Diagnostics
 
-The product now separates requested policy from actual decoder state and can report:
+The product separates requested policy from actual decoder state and can report:
 
 - requested mode
 - effective mode/backend
@@ -169,6 +172,42 @@ Global decoder default, remember-per-video and diagnostics visibility use the ex
 
 ## Automated certification evidence
 
+### Exact pre-merge branch certification
+
+Documentation-complete branch head:
+
+`c463ecf526b359833053ac505ebc68598e435b12`
+
+Android CI run #216 (`34208213180`) passed:
+
+- debug build + JVM/unit tests
+- release compilation
+- lint
+- API-35 full instrumentation
+- API-26 regression
+- API-28 regression
+
+The preceding implementation evidence run #215 (`34207634128`) also passed the full configured matrix and exported the API-35 decoder capability report. Its connected API-35 suite recorded 39 tests, 0 failures, 0 errors and 0 skipped.
+
+### Exact post-merge `main` certification
+
+PR #9 merged the certified branch head using a normal merge commit.
+
+Exact `main` merge commit:
+
+`b47c4315cb895269a14a1ef8dc71696423f8fdc0`
+
+Android CI run #218 (`34209217145`) passed:
+
+- debug build + JVM/unit tests
+- release compilation
+- lint
+- API-35 full instrumentation
+- API-26 regression
+- API-28 regression
+
+This satisfies the final Step-6 merge rule.
+
 ### JVM / policy
 
 Step-6 unit coverage includes:
@@ -205,6 +244,8 @@ No `Assume`/skip turns missing backend capability into a PASS.
 `Step6CodecCapabilityReportTest` validates codec inventory against Android API-29+ classification flags and writes a device-specific decoder capability report. CI exports it as:
 
 `app/build/reports/step6/decoder-capability-report-api35.txt`
+
+The certified emulator evidence recorded 18 real video-decoder entries: four hardware-classified Goldfish video decoders, fourteen software video decoder entries, and zero unknown classifications for that tested emulator. This is device/emulator-specific evidence only.
 
 ### Regression matrix
 
@@ -258,16 +299,14 @@ The following remain:
 - cross-OEM runtime fallback behavior
 - broad phone/tablet matrix
 
-## Final Step-6 merge rule
+## Final Step-6 merge rule — satisfied
 
-Step 6 may be declared repository-complete only when:
+- [x] exact documentation-complete `step-6-professional-decoder-engine` head passed debug/JVM tests, release compilation, lint, API-35, API-26 and API-28
+- [x] Step-6 PR #9 merged without dropping source/evidence/documentation changes
+- [x] exact resulting `main` merge head passed the same configured CI matrix
 
-1. the exact documentation-complete `step-6-professional-decoder-engine` head passes debug/JVM tests, release compilation, lint, API-35, API-26 and API-28;
-2. the Step-6 pull request is merged without dropping any source/evidence/documentation change;
-3. the resulting exact `main` merge head passes the same configured CI matrix.
-
-Only after all three conditions are satisfied is the final status:
+Final status:
 
 **STEP 6: PASS**
 
-Do not begin Step 7 before those gates are satisfied.
+Step 7 has not been started.

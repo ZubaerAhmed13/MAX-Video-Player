@@ -6,7 +6,7 @@ MX Player Pro is used only as a functionality/workflow reference. This repositor
 
 ## Current development status
 
-**Step 6 of 10 — Professional Decoder Engine: IMPLEMENTED; FINAL EXACT-HEAD CERTIFICATION IN PROGRESS**
+**Step 6 of 10 — Professional Decoder Engine: PASS**
 
 Step 6 extends the existing service-owned Media3 player with real, materially distinct video decoder policies:
 
@@ -17,7 +17,7 @@ Step 6 extends the existing service-owned Media3 player with real, materially di
 
 The requested mode and the decoder that actually initializes are tracked separately. Step 6 does not add a second ExoPlayer, fake decoder labels, an Activity-owned playback engine, a proprietary decoder pack or a bundled FFmpeg/native video decoder.
 
-The Step-6 branch is `step-6-professional-decoder-engine`. It must not be called complete until the exact final branch head passes debug/JVM/release/lint/API-35/API-26/API-28 CI, is merged to `main`, and the exact merge head passes the configured `main` workflow again.
+Step 6 passed its exact pre-merge gate on branch head `c463ecf526b359833053ac505ebc68598e435b12` in Android CI run #216. PR #9 was then merged without dropping Step-6 source/evidence/documentation changes. The exact resulting `main` merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0` passed the complete configured post-merge matrix in Android CI run #218: debug/JVM, release compilation, lint, API-35 full instrumentation, API-26 regression and API-28 regression.
 
 Physical 3 GB+/4K/HDR/device-matrix, Snapdragon/Exynos/MediaTek/Tensor behavior, OEM codec quirks, battery and thermal certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
@@ -203,21 +203,25 @@ Media, subtitle and external-audio sources remain URI/reference based. Step 6 do
 
 Physical large-file/4K/HDR/high-bitrate performance remains Step-10 certification rather than inferred PASS.
 
-## Step-6 software/emulator certification
+## Step-6 software/emulator certification — PASS
 
-The final exact-head gate requires:
+The exact certified Step-6 branch head and exact `main` merge commit passed the configured gates:
 
-- `:app:assembleDebug`
-- `:app:testDebugUnitTest`
-- `:app:assembleRelease`
-- `:app:lintDebug`
-- complete API-35 `connectedDebugAndroidTest`
-- real Auto/Software/Hardware/Enhanced-Hardware production routing assertions
-- API-35 decoder-capability inventory/export
-- Room v4→v5 migration preservation
-- retained Step-1–5 instrumentation
-- API-26 thumbnail regression
-- API-28 thumbnail regression
+- `:app:assembleDebug` — PASS
+- `:app:testDebugUnitTest` — PASS
+- `:app:assembleRelease` — PASS
+- `:app:lintDebug` — PASS
+- complete API-35 `connectedDebugAndroidTest` — PASS
+- real Auto/Software/Hardware/Enhanced-Hardware production routing assertions — PASS
+- API-35 decoder-capability inventory/export — PASS
+- Room v4→v5 migration preservation — PASS
+- retained Step-1–5 instrumentation — PASS
+- API-26 thumbnail regression — PASS
+- API-28 thumbnail regression — PASS
+
+Pre-merge certification: branch head `c463ecf526b359833053ac505ebc68598e435b12`, Android CI run #216.
+
+Post-merge certification: `main` merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0`, Android CI run #218.
 
 No `Assume`/skip is used to convert a missing emulator backend into a decoder-mode pass. Capability-aware tests require a truthful unavailable state when that backend is absent.
 
@@ -235,13 +239,15 @@ Step-specific evidence:
 - `STEP_6_ARCHITECTURE.md`
 - `STEP_6_DEPENDENCIES.md`
 - `STEP_6_TEST_MATRIX.md`
-- `STEP_6_COMPLETION_REPORT.md` after final exact-head and post-merge evidence is known
+- `STEP_6_BRANCH_CERTIFICATION.md`
+- `STEP_6_FINAL_CERTIFICATION.md`
+- `STEP_6_COMPLETION_REPORT.md`
 - earlier Step-1–5 completion reports and certification documents
 - `LARGE_MEDIA_AUDIT.md`
 
 ## Roadmap boundary
 
-Step 6 does **not** begin Step 7. Any later feature scope remains untouched until Step 6 satisfies its exact-head branch and post-merge `main` gates.
+Step 6 is complete. Step 7 has **not** been started by the Step-6 work or its certification/finalization commits.
 
 A future bundled native software-video decoder would require a separate explicit dependency/license/ABI review. Step 6 deliberately does not claim one exists.
 
