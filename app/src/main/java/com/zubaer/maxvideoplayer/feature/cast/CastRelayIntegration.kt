@@ -60,6 +60,22 @@ class CastRelayManager(
     }
 
     @Synchronized
+    fun relayAdaptiveManifest(mediaItem: MediaItem): Uri {
+        val local = requireNotNull(mediaItem.localConfiguration) { "Cast media item has no source." }
+        val key = "manifest:${mediaItem.mediaId}:${local.uri}"
+        endpoints[key]?.let { return Uri.parse(it.uri.toString()) }
+        val resource = CastAdaptiveManifestRelayResource(
+            dataSourceFactory = dataSourceFactory,
+            sourceUri = local.uri,
+            sourceMimeType = local.mimeType,
+        )
+        val endpoint = register(resource)
+        resource.bindEndpoint(endpoint.uri)
+        endpoints[key] = endpoint
+        return Uri.parse(endpoint.uri.toString())
+    }
+
+    @Synchronized
     fun relaySubtitle(configuration: MediaItem.SubtitleConfiguration): MediaItem.SubtitleConfiguration {
         val key = "subtitle:${configuration.uri}:${configuration.mimeType}:${configuration.language}"
         val existing = endpoints[key]
@@ -132,9 +148,10 @@ class SecureCastMediaItemConverter(
                 .setUri(relayManager.relayMedia(mediaItem))
                 .setSubtitleConfigurations(castSafeSubtitles(local.subtitleConfigurations))
                 .build()
-            CastSourceMode.MANIFEST_RELAY -> throw IllegalArgumentException(
-                "Authenticated adaptive Cast source requires the manifest relay and cannot be exposed directly.",
-            )
+            CastSourceMode.MANIFEST_RELAY -> mediaItem.buildUpon()
+                .setUri(relayManager.relayAdaptiveManifest(mediaItem))
+                .setSubtitleConfigurations(castSafeSubtitles(local.subtitleConfigurations))
+                .build()
             CastSourceMode.UNSUPPORTED_CAST -> throw IllegalArgumentException(decision.reason)
         }
         return delegate.toMediaQueueItem(castItem)
