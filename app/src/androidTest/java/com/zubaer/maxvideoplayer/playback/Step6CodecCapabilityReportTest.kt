@@ -10,6 +10,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.FileInputStream
 
 /** Produces the Step-6 CI emulator decoder inventory without treating it as universal Android support. */
 @RunWith(AndroidJUnit4::class)
@@ -81,9 +82,26 @@ class Step6CodecCapabilityReportTest {
             it.write(report)
         }
         assertTrue(context.getFileStreamPath(REPORT_FILE).length() > 0L)
+
+        // connectedDebugAndroidTest uninstalls the target package before the emulator-runner script
+        // resumes. Export a shell-owned copy while instrumentation is still alive so CI can collect
+        // the truthful device report after Gradle finishes without depending on app-private storage.
+        val exportCommand =
+            "sh -c 'run-as ${context.packageName} cat files/$REPORT_FILE > $SHELL_REPORT_FILE'"
+        instrumentation.uiAutomation.executeShellCommand(exportCommand).use { descriptor ->
+            FileInputStream(descriptor.fileDescriptor).use { it.readBytes() }
+        }
+        val exportedBytes = instrumentation.uiAutomation
+            .executeShellCommand("wc -c < $SHELL_REPORT_FILE")
+            .use { descriptor -> FileInputStream(descriptor.fileDescriptor).bufferedReader().use { it.readText() } }
+            .trim()
+            .toLongOrNull()
+            ?: 0L
+        assertTrue("Shell-owned Step-6 decoder capability report was not exported", exportedBytes > 0L)
     }
 
     private companion object {
         const val REPORT_FILE = "step6-decoder-capability-report.txt"
+        const val SHELL_REPORT_FILE = "/data/local/tmp/step6-decoder-capability-report.txt"
     }
 }
