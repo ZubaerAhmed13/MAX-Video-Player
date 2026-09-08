@@ -24,6 +24,7 @@ import com.zubaer.maxvideoplayer.feature.network.repository.NetworkRepository
 import com.zubaer.maxvideoplayer.feature.network.security.CredentialVault
 import com.zubaer.maxvideoplayer.feature.player.PlayerPreferences
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
+import com.zubaer.maxvideoplayer.feature.usb.RemovableStorageController
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 
 class AppContainer(context: Context) {
@@ -63,4 +64,5 @@ class AppContainer(context: Context) {
     val libraryRepository: LibraryRepository by lazy { LibraryRepository(database, mediaStoreRepository, safTreeScanner, historyRepository) }
     val mediaFileActionRepository: MediaFileActionRepository by lazy { MediaFileActionRepository(appContext.contentResolver) }
     val thumbnailRepository: ThumbnailRepository by lazy { ThumbnailRepository(appContext) }
+    val removableStorageController: RemovableStorageController by lazy { RemovableStorageController(appContext) }
 }
