@@ -73,7 +73,7 @@ class OneDriveClient(
                 mimeType = entry.mimeType,
                 sizeBytes = entry.sizeBytes,
                 revision = entry.revision,
-                authorizationHeader = null,
+                requestHeaders = emptyMap(),
                 expiresAtMs = System.currentTimeMillis() + 45L * 60L * 1000L,
                 supportsRange = true,
             )
