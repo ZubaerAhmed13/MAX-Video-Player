@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!--
+            Test-only virtual removable-storage provider. The instrumentation runner executes in
+            the target app UID, while this provider belongs to the androidTest APK UID, so it must
+            be exported for the target process to exercise the production content:// data-source
+            path. This manifest is packaged only in the test APK and never in the production app.
+        -->
         <provider
             android:name="com.zubaer.maxvideoplayer.feature.usb.Step8LargeVirtualContentProvider"
             android:authorities="com.zubaer.maxvideoplayer.step8virtual"
-            android:exported="false" />
+            android:exported="true" />
     </application>
 </manifest>
