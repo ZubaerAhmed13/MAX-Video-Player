@@ -58,7 +58,38 @@ Assertions:
 - Enhanced Hardware never leaks to software and requires an actual hardware decoder when hardware exists.
 - switching after a seek preserves the current playback position rather than restarting at zero.
 - requested mode remains separate from effective backend diagnostics.
+- name/backend readiness requires a settled classified lifecycle state rather than accepting a transient stale initialization callback.
 - no `Assume`/skip converts missing backend capability into PASS.
+
+## API-35 decoder coexistence hardening
+
+`Step6CoexistenceIntegrationTest` closes the cross-step decoder-switch certification gaps on the same real service-owned production graph. It does not manually restore the state being tested.
+
+| Coexistence area | Status | Evidence |
+|---|---|---|
+| Queue A/B/C continuity across decoder switch | **PASS** | exact A/B/C IDs/order/count and B index survive decoder reprepare |
+| Previous/Next after decoder switch | **PASS** | Next reaches C and Previous returns to B after switching decoder |
+| Repeat/shuffle preservation through switch | **PASS** | Repeat All plus shuffle false/true are asserted across separate decoder switches |
+| Step-4 external subtitle survives decoder switch | **PASS** | external SRT remains attached/selected and a real subtitle cue renders after reconfiguration |
+| Step-5 external audio survives decoder switch | **PASS** | external-audio association remains and Media3 automatically re-selects the external track after reprepare |
+| EQ/DSP remains active after decoder switch | **PASS** | DSP installed, EQ enabled, Vocal preset, preamp and boost remain active |
+| Audio delay survives decoder switch | **PASS** | 250 ms media delay + 100 ms route compensation remain 350 ms effective/realtime delay |
+| Speed + pitch continuity through switch | **PASS** | playback parameters remain 1.5× speed and 1.2 pitch |
+| Activity recreation with selected decoder mode | **PASS** | decoder mode/backend and queue/sidecar/DSP/policy state survive Activity recreation |
+| Decoder change while Audio-only is enabled | **PASS** | video remains disabled while the new decoder mode is requested; position and error-free playback are retained |
+| Restore video using newly requested decoder | **PASS** | when Audio-only is disabled, video returns using an actual decoder matching the newly requested backend |
+
+Exact implementation evidence:
+
+- branch head: `1249363cdd9f5843c85dca399650db9a457a192d`
+- Android CI run #223: `34215009083`
+- API-35 tests: **41**
+- failures: **0**
+- errors: **0**
+- skipped: **0**
+- instrumentation artifact digest: `sha256:62105cf381bc52afe8f2a8acfcc5995dba3a01a32db674ab98f55388524c4de4`
+
+See `STEP_6_COEXISTENCE_HARDENING.md` for the detailed evidence and Step-10 boundary.
 
 ## API-35 decoder capability report
 
@@ -85,8 +116,7 @@ The report is explicitly device/emulator-specific and is not universal Android c
 | Fixture | Container | Video | Resolution | Duration | SHA-256 | Purpose |
 |---|---|---|---:|---:|---|---|
 | `AndroidTestMediaFixture.writeShortH264Mp4` | MP4 | H.264 / AVC | 160×90 | 2.0 s | `f636bcf8f6bedbd668888db0e71a199c6b24f56e0c27b455d3d1725ab3165a69` | deterministic real decoder initialization and mode switching |
-
-The fixture is embedded as redistribution-safe Base64 test data and written only to the instrumentation cache directory.
+| `step5_multi_audio.mp4` + generated PCM WAV + `step5_external.srt` | MP4 + WAV + SRT | H.264 / AVC | test asset | short | repository test assets / generated WAV | queue, external subtitle/audio, DSP/delay, speed/pitch and Audio-only coexistence through decoder switching |
 
 ## Existing regressions retained
 
@@ -97,13 +127,14 @@ The Step-6 CI does not delete or weaken earlier coverage. The exact branch head 
 - Step-3 gesture/display/PiP tests
 - Step-4 subtitle tests
 - Step-5 DSP/audio/external-audio/background tests
+- Step-6 decoder routing and coexistence tests
 - API-26 thumbnail regression lane
 - API-28 thumbnail regression lane
 - API-35 complete instrumentation lane
 
 ## Required final CI gate
 
-The exact final Step-6 branch head must pass:
+The exact final Step-6 hardening branch head must pass:
 
 - `:app:assembleDebug`
 - `:app:testDebugUnitTest`
@@ -113,7 +144,7 @@ The exact final Step-6 branch head must pass:
 - retained API-26 regression
 - retained API-28 regression
 
-After merge, the exact `main` merge head must pass the same configured workflow before Step 6 is called complete.
+After merge, the exact `main` merge head must pass the same configured workflow before the coexistence hardening is called repository-complete.
 
 ## Physical device boundary
 
