@@ -34,7 +34,7 @@ This is a fully native Android application. It does not use WebView, Capacitor, 
 
 ## Step-7 professional network playback
 
-Network sources flow through `NetworkRepository`, protocol-specific clients and `NetworkDataSourceRouter` into the existing `ProfessionalMediaSourceFactory`, `PlaybackService`, MediaSession and ExoPlayer. SMB and FTP use bounded random-access DataSources; HTTP/WebDAV/HLS/DASH use the shared OkHttp-backed Media3 path; RTSP uses Media3's RTSP module. No normal protocol path copies a full movie before playback.
+Network sources flow through `NetworkRepository`, protocol-specific clients and `NetworkDataSourceRouter` into the existing `ProfessionalMediaSourceFactory`, `PlaybackService`, MediaSession and ExoPlayer. SMB and FTP use bounded random-access DataSources; HTTP/WebDAV/HLS/DASH use the shared OkHttp-backed Media3 path; RTSP uses Media3's RTSP module with RTP-over-RTSP/TCP selected explicitly. No normal protocol path copies a full movie before playback.
 
 The Network center supports saved server add/edit/test/browse/remove/forget flows, recent remote history, breadcrumbs, search, refresh and folders-first listings. Direct HTTP requires an explicit cleartext warning acknowledgement. Plain FTP credentials require the same. WebDAV is HTTPS-only.
 

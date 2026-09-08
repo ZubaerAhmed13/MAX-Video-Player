@@ -50,7 +50,7 @@ The emulator reaches only the isolated runner host. Assertions cover:
 |---|---|---|---|---|
 | SMB | authenticated listing, Unicode directory, rejected wrong password | exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `SmbDataSource` | PENDING exact-head run |
 | FTP | authenticated listing, Unicode directory, rejected wrong password | REST-backed exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `FtpDataSource` | PENDING exact-head run |
-| RTSP | open isolated server | Media3 RTSP transport | service-owned Media3 reaches READY | PENDING exact-head run |
+| RTSP | open isolated server | explicitly configured Media3 RTP-over-RTSP/TCP transport | service-owned Media3 reaches READY | PENDING exact-head run |
 
 FTPS remains `PARTIAL`: explicit TLS, endpoint checking and private data-channel code are present, but a real automated TLS FTP server test is not yet part of the lane.
 
@@ -123,4 +123,3 @@ The following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
 - long-play socket/resource stability
 - battery and thermal behavior
 - OEM background and codec variations
-

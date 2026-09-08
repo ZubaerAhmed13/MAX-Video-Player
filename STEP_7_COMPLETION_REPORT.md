@@ -59,7 +59,7 @@ Media3 DASH handles MPDs on the same player. The deterministic static fixture co
 
 ## RTSP
 
-The Media3 RTSP module is included and direct RTSP uses `DefaultMediaSourceFactory` on the single player. The isolated CI server publishes a real H.264/AAC stream over TCP and the test requires Media3 READY. URL userinfo is rejected, so authenticated RTSP is not claimed when doing so would place a password in the MediaItem URI.
+The Media3 RTSP module is included and direct RTSP uses `RtspMediaSource.Factory` on the single player. RTP-over-RTSP/TCP is explicitly selected for NAT and TCP-only server compatibility, with a 15-second inactivity/end-of-stream timeout. The isolated CI server publishes a real H.264/AAC stream over TCP and the test requires Media3 READY. UDP-only servers are not claimed. URL userinfo is rejected, so authenticated RTSP is not claimed when doing so would place a password in the MediaItem URI.
 
 ## SMB
 
@@ -175,4 +175,3 @@ Runtime additions are OkHttp 5.1.0, Media3 DataSource OkHttp 1.11.0, SMBJ 0.14.0
 - weak-network recovery on representative hardware
 
 Step 8, Step 9 and Step 10 features are not started by this work.
-

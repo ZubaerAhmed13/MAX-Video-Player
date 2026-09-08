@@ -18,7 +18,7 @@
 | HTTP | Cleartext only after an explicit destination warning and acknowledgement | Optional request headers or credentials are process-local | Not encrypted; UI states this plainly |
 | HTTPS | TLS through OkHttp | Basic, bearer or custom headers | Android system trust store and hostname verification; no trust-all path |
 | HLS / DASH | HTTP transport rules apply to manifests and every child request | Header scope follows exact origin/directory; cross-origin children require their own authorization policy | HTTPS recommended; HTTP requires the same explicit cleartext acknowledgement |
-| RTSP | Media3 RTSP integration | Userinfo is rejected; authenticated RTSP is not claimed by Step 7 because Media3 would require embedding it in the media URI | Server/protocol dependent; no fake TLS claim |
+| RTSP | Media3 RTSP integration with explicit RTP-over-RTSP/TCP | Userinfo is rejected; authenticated RTSP is not claimed by Step 7 because Media3 would require embedding it in the media URI | TCP-capable server required; no UDP-only or fake TLS claim |
 | SMB | SMB 2.0.2 through SMB 3.1.1 only | Guest, anonymous or username/password/domain | Signing enabled. SMB3 server/share-required encryption is honored; encryption is not claimed for SMB2 |
 | WebDAV | HTTPS only | Basic, bearer and scoped custom headers | Normal TLS verification plus bounded, DTD-disabled pull parsing |
 | FTP | Plain FTP | Anonymous or username/password | Explicit warning and acknowledgement required before saving a password |
@@ -70,4 +70,3 @@ Instrumentation certifies encryption/update/delete/invalidation, signed-query ca
 - FTPS code is implemented, but Step 7 does not call it fully certified until a real automated TLS FTP test passes.
 - SFTP is not implemented; it is not aliased to FTP or FTPS.
 - SMB encryption is not described as universal because SMB2 has no SMB3 transport encryption.
-

@@ -20,7 +20,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | HLS | Manual quality and Auto | PASS candidate | Real Media3 track override and removal |
 | HLS | Live / Go Live | PASS candidate | Live-style local playlist, Media3 live state/offset and default-position seek |
 | DASH | MPD VOD / adaptive representations / audio | PASS candidate | Static local MPD with two AVC representations and AAC adaptation set |
-| RTSP | Production playback | PENDING protocol lane | Media3 RTSP module against isolated MediaMTX H.264/AAC server |
+| RTSP | Production playback | PENDING protocol lane | Media3 RTP-over-RTSP/TCP against isolated MediaMTX H.264/AAC server |
 | RTSP | Credential safety | PASS candidate | URL userinfo rejected; authenticated RTSP not falsely claimed |
 | SMB | SMB2/SMB3 browse/auth/play | PENDING protocol lane | SMBJ against isolated authenticated Samba; SMB1 excluded |
 | SMB | Random seek / >3 GB offsets | PENDING protocol lane | exact ranged bytes and sparse-file read at 3,221,225,472 |

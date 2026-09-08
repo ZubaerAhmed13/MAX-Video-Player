@@ -69,7 +69,7 @@ NetworkDataSourceRouter
   ├─ HTTP/HTTPS/WebDAV/HLS/DASH → Media3 OkHttpDataSource
   ├─ SMB → SmbDataSource → SMBJ random read
   ├─ FTP/FTPS → FtpDataSource → Commons Net REST stream
-  ├─ RTSP → Media3 RTSP MediaSource
+  ├─ RTSP → Media3 RTSP MediaSource → RTP-over-RTSP/TCP
   └─ local/content/file → existing DefaultDataSource
   ↓
 ProfessionalMediaSourceFactory
@@ -85,7 +85,7 @@ PlaybackService → MediaSession → Media3PlaybackEngine → ExoPlayer
 
 ## HTTP and adaptive transport
 
-One OkHttp client supplies progressive HTTP/HTTPS, WebDAV GETs, HLS and DASH requests. `RegistryHeaderInterceptor` re-resolves access context for every request so credentials apply only to the registered scheme/origin/directory. Media3 handles HTTP ranges, HLS/DASH manifests, adaptive tracks and RTSP media sources. The application quality UI reads actual Media3 track groups and applies/removes `TrackSelectionOverride`.
+One OkHttp client supplies progressive HTTP/HTTPS, WebDAV GETs, HLS and DASH requests. `RegistryHeaderInterceptor` re-resolves access context for every request so credentials apply only to the registered scheme/origin/directory. Media3 handles HTTP ranges, HLS/DASH manifests, adaptive tracks and RTSP media sources; RTSP explicitly selects interleaved RTP/TCP for NAT and TCP-only server compatibility. The application quality UI reads actual Media3 track groups and applies/removes `TrackSelectionOverride`.
 
 ## Random-access SMB and FTP
 
