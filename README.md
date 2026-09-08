@@ -17,7 +17,9 @@ Step 6 extends the existing service-owned Media3 player with real, materially di
 
 The requested mode and the decoder that actually initializes are tracked separately. Step 6 does not add a second ExoPlayer, fake decoder labels, an Activity-owned playback engine, a proprietary decoder pack or a bundled FFmpeg/native video decoder.
 
-Step 6 passed its exact pre-merge gate on branch head `c463ecf526b359833053ac505ebc68598e435b12` in Android CI run #216. PR #9 was then merged without dropping Step-6 source/evidence/documentation changes. The exact resulting `main` merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0` passed the complete configured post-merge matrix in Android CI run #218: debug/JVM, release compilation, lint, API-35 full instrumentation, API-26 regression and API-28 regression.
+The original Step-6 implementation passed its exact pre-merge gate on branch head `c463ecf526b359833053ac505ebc68598e435b12` in Android CI run #216. PR #9 merged that exact head, and the resulting `main` merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0` passed post-merge run #218.
+
+A later Step-6 coexistence hardening closed the remaining cross-step certification gaps without starting Step 7. Exact hardening implementation head `1249363cdd9f5843c85dca399650db9a457a192d` passed run #223 with **41 API-35 tests, 0 failures, 0 errors and 0 skipped**. Exact documentation-complete hardening head `4a7c1e351dab7e5dc1e6d1acd4e1954cec3ceee8` passed run #225, PR #10 merged that exact head, and resulting exact `main` merge commit `4921f43deae9c1b3ff221071a30cc1dab26efa0b` passed the complete post-merge matrix in run #226: debug/JVM, release compilation, lint, API-35 full instrumentation, API-26 regression and API-28 regression.
 
 Physical 3 GB+/4K/HDR/device-matrix, Snapdragon/Exynos/MediaTek/Tensor behavior, OEM codec quirks, battery and thermal certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
@@ -106,6 +108,8 @@ Changing decoder mode reconfigures the same `Media3PlaybackEngine`/ExoPlayer. Be
 - track-selection parameters, preserving Step-4 subtitles and Step-5 audio selection
 
 The Step-5 `MaxAudioProcessor` remains installed in the existing `DefaultAudioSink` regardless of the active video decoder.
+
+The API-35 coexistence hardening now proves the full runtime state survives real decoder reconfiguration: A/B/C queue continuity, Previous/Next, repeat/shuffle, external subtitle rendering, external audio selection, EQ/DSP, audio delay, speed/pitch, Activity recreation, decoder changes during Audio-only and restoring video with the newly requested decoder all pass automated production-path assertions.
 
 ### Failure handling and diagnostics
 
@@ -205,7 +209,20 @@ Physical large-file/4K/HDR/high-bitrate performance remains Step-10 certificatio
 
 ## Step-6 software/emulator certification — PASS
 
-The exact certified Step-6 branch head and exact `main` merge commit passed the configured gates:
+The original decoder implementation and the coexistence hardening both passed exact-head and post-merge gates.
+
+Original certification:
+
+- pre-merge branch head `c463ecf526b359833053ac505ebc68598e435b12` — Android CI run #216 — PASS
+- PR #9 merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0` — Android CI run #218 — PASS
+
+Coexistence hardening certification:
+
+- implementation head `1249363cdd9f5843c85dca399650db9a457a192d` — Android CI run #223 — PASS, API-35 **41/41 tests**
+- documentation-complete PR head `4a7c1e351dab7e5dc1e6d1acd4e1954cec3ceee8` — Android CI run #225 — PASS
+- PR #10 resulting `main` merge commit `4921f43deae9c1b3ff221071a30cc1dab26efa0b` — Android CI run #226 — PASS
+
+The configured gates include:
 
 - `:app:assembleDebug` — PASS
 - `:app:testDebugUnitTest` — PASS
@@ -213,15 +230,19 @@ The exact certified Step-6 branch head and exact `main` merge commit passed the 
 - `:app:lintDebug` — PASS
 - complete API-35 `connectedDebugAndroidTest` — PASS
 - real Auto/Software/Hardware/Enhanced-Hardware production routing assertions — PASS
+- A/B/C queue + Previous/Next decoder-switch coexistence assertions — PASS
+- repeat/shuffle preservation — PASS
+- Step-4 external subtitle preservation/rendering — PASS
+- Step-5 external audio preservation — PASS
+- EQ/DSP and audio-delay preservation — PASS
+- speed/pitch preservation — PASS
+- Activity recreation with selected decoder state — PASS
+- Audio-only decoder change + video restore using requested backend — PASS
 - API-35 decoder-capability inventory/export — PASS
 - Room v4→v5 migration preservation — PASS
 - retained Step-1–5 instrumentation — PASS
 - API-26 thumbnail regression — PASS
 - API-28 thumbnail regression — PASS
-
-Pre-merge certification: branch head `c463ecf526b359833053ac505ebc68598e435b12`, Android CI run #216.
-
-Post-merge certification: `main` merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0`, Android CI run #218.
 
 No `Assume`/skip is used to convert a missing emulator backend into a decoder-mode pass. Capability-aware tests require a truthful unavailable state when that backend is absent.
 
@@ -240,6 +261,7 @@ Step-specific evidence:
 - `STEP_6_DEPENDENCIES.md`
 - `STEP_6_TEST_MATRIX.md`
 - `STEP_6_BRANCH_CERTIFICATION.md`
+- `STEP_6_COEXISTENCE_HARDENING.md`
 - `STEP_6_FINAL_CERTIFICATION.md`
 - `STEP_6_COMPLETION_REPORT.md`
 - earlier Step-1–5 completion reports and certification documents
