@@ -116,15 +116,18 @@ jobs:
           sudo systemctl stop smbd.service nmbd.service
           sudo smbd --configfile="$PWD/ci/step7/smb.conf" --daemon
           RUNNER_TRACKING_ID='' nohup python3 -m pyftpdlib -p 2121 -w -u maxci -P max-network-ci -d /tmp/max-video-step7 > /tmp/max-video-step7-ftp.log 2>&1 &
-          sudo cp ci/step7/ftps_server.pem /tmp/max-video-step7-ftps-server.pem
-          sudo cp ci/step7/ftps_server.key /tmp/max-video-step7-ftps-server.key
-          sudo chmod 600 /tmp/max-video-step7-ftps-server.key
+          cp ci/step7/ftps_server.pem /tmp/max-video-step7-ftps-server.pem
+          cp ci/step7/ftps_server.key /tmp/max-video-step7-ftps-server.key
+          chmod 600 /tmp/max-video-step7-ftps-server.key
           RUNNER_TRACKING_ID='' nohup python3 ci/step7/ftps_server.py > /tmp/max-video-step7-ftps.log 2>&1 &
           docker run --detach --name max-video-step7-rtsp --publish 8554:8554 --volume "$PWD/ci/step7/mediamtx.yml:/mediamtx.yml:ro" bluenviron/mediamtx:1.21.0@sha256:19fddade8d6110a3d718ac0045681fbeba344ae563a066205fe5929a87f7582f
           timeout 30 bash -c 'until nc -z 127.0.0.1 8554; do sleep 1; done'
           RUNNER_TRACKING_ID='' nohup ffmpeg -nostdin -loglevel warning -re -f lavfi -i 'testsrc2=size=160x90:rate=15' -re -f lavfi -i 'sine=frequency=880:sample_rate=48000' -c:v libx264 -preset ultrafast -tune zerolatency -profile:v baseline -pix_fmt yuv420p -g 30 -keyint_min 30 -sc_threshold 0 -c:a aac -b:a 64k -ar 48000 -ac 1 -f rtsp -rtsp_transport tcp rtsp://maxci:max-network-ci@127.0.0.1:8554/step7 > /tmp/max-video-step7-ffmpeg.log 2>&1 &
           for port in 1445 2121 2122; do
-            timeout 30 bash -c "until nc -z 127.0.0.1 $port; do sleep 1; done"
+            timeout 30 bash -c "until nc -z 127.0.0.1 $port; do sleep 1; done" || {
+              cat /tmp/max-video-step7-ftps.log
+              exit 1
+            }
           done
           timeout 30 bash -c 'until ffprobe -v error -rtsp_transport tcp -show_streams rtsp://maxci:max-network-ci@127.0.0.1:8554/step7 >/dev/null 2>&1; do sleep 1; done' || { docker logs max-video-step7-rtsp; cat /tmp/max-video-step7-ffmpeg.log; exit 1; }
       - uses: actions/setup-java@v5
