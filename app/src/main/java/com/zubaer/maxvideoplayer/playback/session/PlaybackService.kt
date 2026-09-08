@@ -1,6 +1,7 @@
 package com.zubaer.maxvideoplayer.playback.session
 
 import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.RemoteCastPlayer
 import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -9,6 +10,8 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.feature.audio.AudioRouteMonitor
+import com.zubaer.maxvideoplayer.feature.cast.CastRelayManager
+import com.zubaer.maxvideoplayer.feature.cast.SecureCastMediaItemConverter
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 import com.zubaer.maxvideoplayer.playback.engine.Media3PlaybackEngine
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +27,8 @@ import kotlinx.coroutines.launch
 class PlaybackService : MediaSessionService() {
     private lateinit var engine: Media3PlaybackEngine
     private lateinit var castPlayer: CastPlayer
+    private lateinit var castRelayManager: CastRelayManager
+    private lateinit var castMediaItemConverter: SecureCastMediaItemConverter
     private lateinit var mediaSession: MediaSession
     private lateinit var routeMonitor: AudioRouteMonitor
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -60,6 +65,13 @@ class PlaybackService : MediaSessionService() {
             persistCurrent()
         }
 
+        override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
+            if (deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE) {
+                if (::castRelayManager.isInitialized) castRelayManager.stopSession()
+                if (::castMediaItemConverter.isInitialized) castMediaItemConverter.clearOriginalMappings()
+            }
+        }
+
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onFailure(error)
         }
@@ -76,8 +88,21 @@ class PlaybackService : MediaSessionService() {
             container.networkRequestRegistry,
             container.cloudPlaybackRegistry,
         )
+        castRelayManager = CastRelayManager(
+            this,
+            container.networkRequestRegistry,
+            container.cloudPlaybackRegistry,
+        )
+        castMediaItemConverter = SecureCastMediaItemConverter(
+            castRelayManager,
+            container.networkRequestRegistry,
+        )
+        val remoteCastPlayer = RemoteCastPlayer.Builder(this)
+            .setMediaItemConverter(castMediaItemConverter)
+            .build()
         castPlayer = CastPlayer.Builder(this)
             .setLocalPlayer(engine.player)
+            .setRemotePlayer(remoteCastPlayer)
             .build()
         castPlayer.addListener(listener)
         container.audioRepository.activateMedia(castPlayer.currentMediaItem?.mediaId)
@@ -107,6 +132,7 @@ class PlaybackService : MediaSessionService() {
         if (::castPlayer.isInitialized) castPlayer.removeListener(listener)
         if (::mediaSession.isInitialized) mediaSession.release()
         if (::castPlayer.isInitialized) castPlayer.release()
+        if (::castRelayManager.isInitialized) castRelayManager.close()
         if (::engine.isInitialized) engine.release()
         serviceScope.cancel()
         super.onDestroy()
