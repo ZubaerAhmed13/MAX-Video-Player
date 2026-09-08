@@ -10,13 +10,24 @@ Step 6 extends the Step-5-certified application while preserving the single serv
 
 **STEP 6: PASS**
 
-All required Step-6 repository gates are satisfied:
+The original decoder-engine implementation and the later coexistence hardening are both repository-certified in the declared software/emulator scope.
 
-1. exact documentation-complete branch head `c463ecf526b359833053ac505ebc68598e435b12` passed the configured matrix in Android CI run #216;
-2. PR #9 merged that exact head into `main` without dropping Step-6 source/evidence/documentation changes;
-3. exact resulting `main` merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0` passed the same configured matrix in Android CI run #218.
+Original Step-6 certification:
+
+1. exact documentation-complete branch head `c463ecf526b359833053ac505ebc68598e435b12` passed Android CI run #216;
+2. PR #9 merged that exact head into `main`;
+3. exact resulting `main` merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0` passed Android CI run #218.
+
+Coexistence hardening certification:
+
+1. exact hardening implementation head `1249363cdd9f5843c85dca399650db9a457a192d` passed Android CI run #223;
+2. exact documentation-complete hardening head `4a7c1e351dab7e5dc1e6d1acd4e1954cec3ceee8` passed Android CI run #225;
+3. PR #10 merged that exact head with an expected-head SHA lock;
+4. exact resulting `main` merge commit `4921f43deae9c1b3ff221071a30cc1dab26efa0b` passed Android CI run #226.
 
 The configured matrix covers debug/JVM tests, release compilation, lint, complete API-35 instrumentation, API-26 thumbnail regression and API-28 thumbnail regression.
+
+Run #223's API-35 artifact recorded **41 tests, 0 failures, 0 errors and 0 skipped**. The two new coexistence tests and the existing decoder integration test all passed in the same process.
 
 The Step-6 implementation is therefore repository-complete in its declared software/emulator scope. Physical OEM/SoC, large-media, 4K/HDR/high-bitrate, battery/thermal and broad device certification remain explicitly deferred to Step 10 and are not implied by this PASS.
 
@@ -90,6 +101,8 @@ The production `DefaultAudioSink` still contains the project-owned `MaxAudioProc
 - pitch/speed behavior
 - audio-only/background/PiP policies
 
+The API-35 coexistence hardening now proves these properties across real decoder reconfiguration rather than relying only on implementation inspection.
+
 ## Runtime switching preservation
 
 Before decoder reconfiguration, `Media3PlaybackEngine` snapshots and restores:
@@ -104,6 +117,28 @@ Before decoder reconfiguration, `Media3PlaybackEngine` snapshots and restores:
 - track-selection parameters, preserving audio/subtitle/video selections
 
 The same ExoPlayer instance is stopped/re-prepared at the same item/position rather than replaced.
+
+## Coexistence hardening — automated PASS
+
+`Step6CoexistenceIntegrationTest` exercises the real service-owned production graph on API 35 and closes every previously missing/partial coexistence row:
+
+| Certification row | Result |
+|---|---|
+| Queue A/B/C continuity across decoder switch | **PASS** |
+| Previous/Next after decoder switch | **PASS** |
+| Repeat/shuffle preservation through switch | **PASS** |
+| Step-4 external subtitle survives decoder switch | **PASS** |
+| Step-5 external audio survives decoder switch | **PASS** |
+| EQ/DSP remains active after decoder switch | **PASS** |
+| Audio delay survives decoder switch | **PASS** |
+| Speed + pitch continuity through switch | **PASS** |
+| Activity recreation with selected decoder mode | **PASS** |
+| Decoder change while Audio-only is enabled | **PASS** |
+| Restore video using newly requested decoder | **PASS** |
+
+The production-path test uses a real A/B/C Media3 queue, real external SRT, real external WAV, actual Step-5 DSP state and actual API-35 MediaCodec decoder selection. It does not use a mock player, `Assume`/skip, a second ExoPlayer or manual post-switch sidecar reselection.
+
+The test also proves the external subtitle cue renders after decoder reconfiguration and that the external audio track reselects automatically through the existing production persistence/listener path.
 
 ## Decoder failure handling
 
@@ -172,7 +207,7 @@ Global decoder default, remember-per-video and diagnostics visibility use the ex
 
 ## Automated certification evidence
 
-### Exact pre-merge branch certification
+### Original exact pre-merge certification
 
 Documentation-complete branch head:
 
@@ -189,7 +224,7 @@ Android CI run #216 (`34208213180`) passed:
 
 The preceding implementation evidence run #215 (`34207634128`) also passed the full configured matrix and exported the API-35 decoder capability report. Its connected API-35 suite recorded 39 tests, 0 failures, 0 errors and 0 skipped.
 
-### Exact post-merge `main` certification
+### Original exact post-merge `main` certification
 
 PR #9 merged the certified branch head using a normal merge commit.
 
@@ -197,7 +232,23 @@ Exact `main` merge commit:
 
 `b47c4315cb895269a14a1ef8dc71696423f8fdc0`
 
-Android CI run #218 (`34209217145`) passed:
+Android CI run #218 (`34209217145`) passed the full configured matrix.
+
+### Hardening implementation certification
+
+Exact hardening implementation head:
+
+`1249363cdd9f5843c85dca399650db9a457a192d`
+
+Android CI run #223 (`34215009083`) passed the full configured matrix. The API-35 instrumentation artifact recorded 41 tests, 0 failures, 0 errors and 0 skipped.
+
+### Hardening documentation-complete PR certification
+
+Exact PR head:
+
+`4a7c1e351dab7e5dc1e6d1acd4e1954cec3ceee8`
+
+Android CI run #225 (`34215510508`) passed:
 
 - debug build + JVM/unit tests
 - release compilation
@@ -206,7 +257,24 @@ Android CI run #218 (`34209217145`) passed:
 - API-26 regression
 - API-28 regression
 
-This satisfies the final Step-6 merge rule.
+### Hardening exact post-merge `main` certification
+
+PR #10 merged the exact certified hardening head.
+
+Exact `main` merge commit:
+
+`4921f43deae9c1b3ff221071a30cc1dab26efa0b`
+
+Android CI run #226 (`34215929984`) completed with all four configured jobs successful:
+
+- debug build + JVM/unit tests — PASS
+- release compilation — PASS
+- lint — PASS
+- API-35 full instrumentation — PASS
+- API-26 regression — PASS
+- API-28 regression — PASS
+
+This satisfies the Step-6 coexistence hardening merge rule.
 
 ### JVM / policy
 
@@ -237,6 +305,8 @@ Step-6 unit coverage includes:
 - current playback position to survive a decoder mode switch
 - requested policy to remain separate from effective backend
 
+The readiness condition requires a settled decoder-name/backend classification pair so a transient lifecycle callback cannot count as success.
+
 No `Assume`/skip turns missing backend capability into a PASS.
 
 ### API-35 capability report
@@ -260,7 +330,7 @@ Step 6 retains:
 - API-28 thumbnail regression
 - earlier Step-1–5 product tests
 
-See `STEP_6_TEST_MATRIX.md` for the detailed matrix.
+See `STEP_6_TEST_MATRIX.md` and `STEP_6_COEXISTENCE_HARDENING.md` for the detailed matrices.
 
 ## Dependency / clean-room result
 
@@ -301,9 +371,12 @@ The following remain:
 
 ## Final Step-6 merge rule — satisfied
 
-- [x] exact documentation-complete `step-6-professional-decoder-engine` head passed debug/JVM tests, release compilation, lint, API-35, API-26 and API-28
-- [x] Step-6 PR #9 merged without dropping source/evidence/documentation changes
-- [x] exact resulting `main` merge head passed the same configured CI matrix
+- [x] original exact documentation-complete `step-6-professional-decoder-engine` head passed the configured matrix
+- [x] original Step-6 PR #9 merged and exact resulting `main` head passed the same matrix
+- [x] coexistence hardening implementation head passed the complete matrix with 41/41 API-35 tests
+- [x] exact hardening documentation-complete PR head passed the complete matrix
+- [x] hardening PR #10 merged the exact certified head
+- [x] exact resulting `main` hardening merge head `4921f43deae9c1b3ff221071a30cc1dab26efa0b` passed Android CI run #226
 
 Final status:
 
