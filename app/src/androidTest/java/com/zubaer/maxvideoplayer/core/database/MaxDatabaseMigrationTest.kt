@@ -233,6 +233,17 @@ class MaxDatabaseMigrationTest {
         context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { db ->
             createV5Tables(db)
             db.execSQL("INSERT INTO media_history VALUES('media-D','content://video/D','Movie D','video/mp4',8200000000,3840,2160,120000,360000,900,0)")
+            db.execSQL("INSERT INTO playback_preferences VALUES('speed','1.85')")
+            db.execSQL("INSERT INTO favourites VALUES('media-D',901)")
+            db.execSQL("INSERT INTO playlists(id,name,createdAtMs,updatedAtMs) VALUES(13,'Step6',901,902)")
+            db.execSQL("INSERT INTO playlist_items VALUES(13,'media-D',0,903)")
+            db.execSQL("INSERT INTO library_sources VALUES('tree-D','content://provider/tree/d','Library D','SAF','AVAILABLE',1,904,NULL)")
+            db.execSQL("INSERT INTO media_index VALUES('media-D','tree-D','content://video/D','Movie D','Movie.D.mkv','video/x-matroska',360000,8200000000,3840,2160,10,20,'Movies/','folder-D','Movies','SAF','AVAILABLE')")
+            db.execSQL("INSERT INTO library_preferences VALUES('view_mode','list')")
+            db.execSQL("INSERT INTO subtitle_associations VALUES('sub-D','media-D','content://subtitle/D.srt','Movie.D.srt','en','application/x-subrip','SRT','UTF_8',905,1,'AVAILABLE',400)")
+            db.execSQL("INSERT INTO subtitle_media_state VALUES('media-D','sub-D',400,906)")
+            db.execSQL("INSERT INTO audio_associations VALUES('audio-D','media-D','content://audio/D.flac','Movie.D.flac','en','audio/flac',907,1,'AVAILABLE')")
+            db.execSQL("INSERT INTO audio_media_state VALUES('media-D','audio-D','MANUAL','en','Movie.D.flac','audio/flac',2,350,908)")
             db.execSQL("INSERT INTO decoder_media_state VALUES('media-D','SOFTWARE',901)")
             db.version = 5
         }
@@ -243,6 +254,16 @@ class MaxDatabaseMigrationTest {
         try {
             migrated.openHelper.writableDatabase
             assertEquals(8_200_000_000L, migrated.mediaHistoryDao().getBlockingForMigrationTest("media-D")?.sizeBytes)
+            assertEquals("1.85", migrated.playbackPreferenceDao().get("speed")?.value)
+            assertTrue("media-D" in migrated.favouriteDao().ids())
+            assertEquals("Step6", migrated.playlistDao().getPlaylist(13)?.name)
+            assertEquals("media-D", migrated.playlistDao().items(13).single().stableMediaId)
+            assertEquals("Movie D", migrated.mediaIndexDao().get("media-D")?.title)
+            assertEquals("list", migrated.libraryPreferenceDao().get("view_mode")?.value)
+            assertEquals("sub-D", migrated.subtitleDao().mediaStateBlockingForMigrationTest("media-D")?.selectedExternalId)
+            assertEquals(400L, migrated.subtitleDao().mediaStateBlockingForMigrationTest("media-D")?.delayMs)
+            assertEquals("audio-D", migrated.audioDao().mediaStateBlockingForMigrationTest("media-D")?.selectedExternalId)
+            assertEquals(350L, migrated.audioDao().mediaStateBlockingForMigrationTest("media-D")?.delayMs)
             assertEquals("SOFTWARE", migrated.decoderMediaStateDao().get("media-D")?.requestedMode)
             migrated.networkLocationDao().upsert(
                 NetworkLocationEntity(

@@ -41,6 +41,10 @@ class PlaybackService : MediaSessionService() {
             if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) persistCurrent()
         }
 
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(engine.player)
+        }
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val container = (application as MaxVideoPlayerApplication).container
             val mediaId = mediaItem?.mediaId
@@ -60,7 +64,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onFailure()
+            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onFailure(error)
         }
     }
 

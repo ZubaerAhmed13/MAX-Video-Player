@@ -53,6 +53,7 @@ fun NetworkScreen(
     viewModel: NetworkViewModel,
     onBack: () -> Unit,
     onPlay: (AppMedia) -> Unit,
+    onPlayQueue: (List<AppMedia>) -> Unit,
 ) {
     var page by remember { mutableStateOf(NetworkPage.HOME) }
     var draft by remember { mutableStateOf(NetworkLocationDraft()) }
@@ -86,7 +87,7 @@ fun NetworkScreen(
             if (state.loading) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).testTag("network_loading"))
 
             when {
-                state.currentLocation != null -> NetworkBrowser(state, viewModel, onPlay)
+                state.currentLocation != null -> NetworkBrowser(state, viewModel, onPlay, onPlayQueue)
                 page == NetworkPage.OPEN_STREAM -> OpenStreamForm(
                     onCancel = { page = NetworkPage.HOME },
                     onOpen = { url, title, username, password, token, userAgent, referer ->
@@ -105,6 +106,7 @@ fun NetworkScreen(
                     onOpenStream = { page = NetworkPage.OPEN_STREAM },
                     onAdd = { draft = NetworkLocationDraft(); page = NetworkPage.EDIT_LOCATION },
                     onBrowse = { location -> viewModel.open(location) },
+                    onPlayLocation = { location -> viewModel.playLocation(location, onPlay) },
                     onEdit = { location -> draft = NetworkLocationDraft.from(location); page = NetworkPage.EDIT_LOCATION },
                     onTest = viewModel::testSaved,
                     onForget = viewModel::forgetCredentials,
@@ -122,6 +124,7 @@ private fun NetworkHome(
     onOpenStream: () -> Unit,
     onAdd: () -> Unit,
     onBrowse: (NetworkLocation) -> Unit,
+    onPlayLocation: (NetworkLocation) -> Unit,
     onEdit: (NetworkLocation) -> Unit,
     onTest: (NetworkLocation) -> Unit,
     onForget: (String) -> Unit,
@@ -144,6 +147,7 @@ private fun NetworkHome(
                     Text("${location.protocol.name} • ${location.host}:${location.port} • ${location.usernameHint ?: if (location.useGuest) "Guest" else "No saved login"}", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (location.protocol.browsable) TextButton(onClick = { onBrowse(location) }) { Text("Browse") }
+                        else TextButton(onClick = { onPlayLocation(location) }) { Text("Play") }
                         TextButton(onClick = { onTest(location) }) { Text("Test") }
                         TextButton(onClick = { onEdit(location) }) { Text("Edit") }
                         if (location.credentialRef != null) TextButton(onClick = { onForget(location.id) }) { Text("Forget login") }
@@ -291,8 +295,17 @@ private fun LocationEditor(
 }
 
 @Composable
-private fun NetworkBrowser(state: NetworkUiState, viewModel: NetworkViewModel, onPlay: (AppMedia) -> Unit) {
+private fun NetworkBrowser(
+    state: NetworkUiState,
+    viewModel: NetworkViewModel,
+    onPlay: (AppMedia) -> Unit,
+    onPlayQueue: (List<AppMedia>) -> Unit,
+) {
     val location = state.currentLocation ?: return
+    var query by remember(location.id) { mutableStateOf("") }
+    val visibleEntries = remember(state.entries, query) {
+        if (query.isBlank()) state.entries else state.entries.filter { it.name.contains(query.trim(), ignoreCase = true) }
+    }
     Column(Modifier.fillMaxSize()) {
         Text(location.displayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(if (state.currentPath.isBlank()) location.displayName else "${location.displayName} > ${state.currentPath.split('/').joinToString(" > ")}")
@@ -300,10 +313,17 @@ private fun NetworkBrowser(state: NetworkUiState, viewModel: NetworkViewModel, o
             TextButton(onClick = { if (state.currentPath.isBlank()) viewModel.closeBrowser() else viewModel.up() }) { Text("↑ Up") }
             TextButton(onClick = { viewModel.open(location, state.currentPath) }) { Text("Refresh") }
         }
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth().testTag("network_search"),
+            label = { Text("Search this folder") },
+            singleLine = true,
+        )
         LazyColumn(Modifier.fillMaxSize().testTag("network_entries")) {
-            if (!state.loading && state.entries.isEmpty()) item { Text("This folder is empty or contains no listed items.", modifier = Modifier.padding(16.dp)) }
-            items(state.entries, key = { "${it.type}:${it.remotePath}" }) { entry ->
-                NetworkEntryRow(entry) { viewModel.openEntry(entry, onPlay) }
+            if (!state.loading && visibleEntries.isEmpty()) item { Text(if (query.isBlank()) "This folder is empty or contains no listed items." else "No matching entries.", modifier = Modifier.padding(16.dp)) }
+            items(visibleEntries, key = { "${it.type}:${it.remotePath}" }) { entry ->
+                NetworkEntryRow(entry) { viewModel.openEntry(entry, onPlay, onPlayQueue) }
                 HorizontalDivider()
             }
         }

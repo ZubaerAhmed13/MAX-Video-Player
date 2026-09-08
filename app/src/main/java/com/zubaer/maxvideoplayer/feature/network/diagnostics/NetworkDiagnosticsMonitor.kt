@@ -6,7 +6,11 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkConnectionState
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkDiagnostics
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkPlaybackPhase
@@ -18,8 +22,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class NetworkDiagnosticsMonitor(context: Context) {
     private val connectivity = context.applicationContext.getSystemService(ConnectivityManager::class.java)
+    private val bandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(context.applicationContext)
     private val _state = MutableStateFlow(NetworkDiagnostics())
     val state: StateFlow<NetworkDiagnostics> = _state.asStateFlow()
     private var activeNetworkMedia = false
@@ -67,6 +73,13 @@ class NetworkDiagnosticsMonitor(context: Context) {
 
     fun onPlayerState(player: Player) {
         if (!activeNetworkMedia) return
+        mutate {
+            it.copy(
+                bufferedDurationMs = player.totalBufferedDuration.coerceAtLeast(0L),
+                seekable = player.isCurrentMediaItemSeekable,
+                estimatedBandwidthBitsPerSecond = bandwidthMeter.bitrateEstimate.takeIf { estimate -> estimate > 0L },
+            )
+        }
         when (player.playbackState) {
             Player.STATE_BUFFERING -> mutate(event = if (hasBeenReady) "Buffering" else "Initial loading") {
                 it.copy(
@@ -89,9 +102,16 @@ class NetworkDiagnosticsMonitor(context: Context) {
         }
     }
 
-    fun onFailure() {
+    fun onFailure(error: PlaybackException? = null) {
         if (!activeNetworkMedia) return
-        mutate(event = "Playback failed") { it.copy(connectionState = NetworkConnectionState.FAILED, phase = NetworkPlaybackPhase.FAILED) }
+        val responseCode = error?.findCause<HttpDataSource.InvalidResponseCodeException>()?.responseCode
+        mutate(event = responseCode?.let { "Server response $it" } ?: "Playback failed") {
+            it.copy(
+                connectionState = NetworkConnectionState.FAILED,
+                phase = NetworkPlaybackPhase.FAILED,
+                responseStatus = responseCode,
+            )
+        }
     }
 
     fun recordReconnect() {
@@ -130,5 +150,14 @@ class NetworkDiagnosticsMonitor(context: Context) {
         val current = _state.value
         val events = if (event == null || current.events.lastOrNull() == event) current.events else (current.events + event).takeLast(30)
         _state.value = transform(current).copy(events = events)
+    }
+
+    private inline fun <reified T : Throwable> Throwable.findCause(): T? {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current is T) return current
+            current = current.cause
+        }
+        return null
     }
 }

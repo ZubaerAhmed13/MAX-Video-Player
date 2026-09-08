@@ -12,6 +12,7 @@ import com.zubaer.maxvideoplayer.core.database.SubtitleAssociationEntity
 import com.zubaer.maxvideoplayer.core.database.SubtitleMediaStateEntity
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -106,6 +107,7 @@ class SubtitleRepository(
         val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase(Locale.ROOT) !in setOf("http", "https")) return null
         if (uri.host.isNullOrBlank()) return null
+        if (NetworkUriPolicy.containsSensitiveMaterial(uri.toString())) return null
         val displayName = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "Network subtitle"
         val mimeType = SubtitleFormatPolicy.resolveMimeType(displayName, null) ?: return null
         val format = SubtitleFormatPolicy.resolveFormat(displayName, null) ?: return null

@@ -168,6 +168,12 @@ class NetworkViewModel(
         }
     }
 
+    fun playLocation(location: NetworkLocation, onPlay: (AppMedia) -> Unit) {
+        viewModelScope.launch {
+            runCatching { repository.prepareLocation(location) }.onSuccess(onPlay).onFailure(::setError)
+        }
+    }
+
     fun open(location: NetworkLocation, path: String = "") {
         if (!location.protocol.browsable) return
         browseJob?.cancel()
@@ -179,10 +185,12 @@ class NetworkViewModel(
         }
     }
 
-    fun openEntry(entry: NetworkEntry, onPlay: (AppMedia) -> Unit) {
+    fun openEntry(entry: NetworkEntry, onPlay: (AppMedia) -> Unit, onPlayQueue: (List<AppMedia>) -> Unit) {
         val location = state.value.currentLocation ?: return
         if (entry.isDirectory) open(location, entry.remotePath) else viewModelScope.launch {
-            runCatching { repository.prepare(entry) }.onSuccess(onPlay).onFailure(::setError)
+            runCatching { repository.prepareQueue(entry) }.onSuccess { queue ->
+                if (queue.size == 1) onPlay(queue.single()) else onPlayQueue(queue)
+            }.onFailure(::setError)
         }
     }
 

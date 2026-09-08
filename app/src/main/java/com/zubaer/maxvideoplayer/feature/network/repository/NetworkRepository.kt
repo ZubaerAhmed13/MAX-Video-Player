@@ -6,7 +6,9 @@ import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkCredential
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkEntry
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkFilePolicy
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkLocation
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkPlaylistParser
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkPlaybackRequest
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkProtocol
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
@@ -19,12 +21,16 @@ import com.zubaer.maxvideoplayer.feature.network.protocol.http.HttpProtocolClien
 import com.zubaer.maxvideoplayer.feature.network.protocol.smb.SmbProtocolClient
 import com.zubaer.maxvideoplayer.feature.network.protocol.webdav.WebDavProtocolClient
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.ByteArrayOutputStream
 
 class NetworkRepository(
     private val locations: NetworkLocationRepository,
     private val requestRegistry: NetworkRequestRegistry,
-    httpClient: OkHttpClient,
+    private val httpClient: OkHttpClient,
 ) {
     private val http = HttpProtocolClient(httpClient)
     private val webDav = WebDavProtocolClient(httpClient)
@@ -52,6 +58,62 @@ class NetworkRepository(
         val credential = locations.credential(location)
         requestRegistry.registerUri(entry.uri, location, credential)
         return entry.toAppMedia()
+    }
+
+    suspend fun prepareLocation(location: NetworkLocation): AppMedia {
+        val credential = locations.credential(location)
+        val uri = client(location.protocol).playbackUri(location, "")
+        val media = AppMedia(
+            stableId = StableMediaIdentity.forNetworkSource(location.id, location.basePath),
+            uri = uri,
+            title = location.displayName,
+            mimeType = when (location.protocol) {
+                NetworkProtocol.HLS -> "application/x-mpegURL"
+                NetworkProtocol.DASH -> "application/dash+xml"
+                else -> NetworkFilePolicy.mimeType(location.basePath)
+            },
+            relativePath = location.basePath,
+            sourceId = location.id,
+            sourceType = MediaSourceType.NETWORK,
+        )
+        requestRegistry.registerUri(uri, location, credential)
+        return media
+    }
+
+    suspend fun prepareQueue(entry: NetworkEntry): List<AppMedia> {
+        val extension = entry.name.substringAfterLast('.', "").lowercase()
+        if (entry.type != com.zubaer.maxvideoplayer.feature.network.model.NetworkEntryType.PLAYLIST || extension != "m3u") {
+            return listOf(prepare(entry))
+        }
+        val location = locations.get(entry.sourceId) ?: error("Saved network location is unavailable")
+        if (!entry.uri.startsWith("http://") && !entry.uri.startsWith("https://")) {
+            error("M3U queue expansion is currently available for HTTP and WebDAV sources. Other playlist files can still be opened as media sources.")
+        }
+        val credential = locations.credential(location)
+        requestRegistry.registerUri(entry.uri, location, credential)
+        val content = withContext(Dispatchers.IO) {
+            httpClient.newCall(Request.Builder().url(entry.uri).build()).execute().use { response ->
+                if (!response.isSuccessful) error("Playlist server returned ${response.code}")
+                response.body.byteStream().use { input ->
+                    val output = ByteArrayOutputStream()
+                    val buffer = ByteArray(8 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        if (output.size() + read > MAX_PLAYLIST_BYTES) error("Network playlist exceeds the 2 MB safety limit")
+                        output.write(buffer, 0, read)
+                    }
+                    output.toString(Charsets.UTF_8.name())
+                }
+            }
+        }
+        val items = NetworkPlaylistParser.parse(content, entry.uri, MAX_PLAYLIST_ITEMS)
+        if (items.isEmpty()) error("The network playlist contains no supported media URLs")
+        return items.map { playlistItem ->
+            val media = prepareDirect(playlistItem.uri, playlistItem.title.orEmpty(), credential)
+            requestRegistry.registerUri(media.uri, location, credential)
+            media.copy(sourceId = location.id)
+        }
     }
 
     suspend fun prepareHistory(history: MediaHistoryEntity): AppMedia {
@@ -133,6 +195,9 @@ class NetworkRepository(
     }
 
     companion object {
+        private const val MAX_PLAYLIST_BYTES = 2 * 1024 * 1024
+        private const val MAX_PLAYLIST_ITEMS = 1_000
+
         fun detectProtocol(url: String): NetworkProtocol {
             val uri = Uri.parse(url)
             val path = uri.path.orEmpty().lowercase()

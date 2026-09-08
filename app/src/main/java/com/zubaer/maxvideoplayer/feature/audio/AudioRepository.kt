@@ -9,6 +9,7 @@ import androidx.room.withTransaction
 import com.zubaer.maxvideoplayer.core.database.AudioAssociationEntity
 import com.zubaer.maxvideoplayer.core.database.AudioMediaStateEntity
 import com.zubaer.maxvideoplayer.core.database.MaxDatabase
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -126,6 +127,7 @@ class AudioRepository(
         val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase(Locale.ROOT) !in setOf("http", "https")) return null
         if (uri.host.isNullOrBlank()) return null
+        if (NetworkUriPolicy.containsSensitiveMaterial(uri.toString())) return null
         val displayName = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "Network audio"
         if (!isSupportedDescriptor(displayName, null)) return null
         return ExternalAudioDescriptor(uri.toString(), displayName, mimeFromName(displayName))

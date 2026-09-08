@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkCredential
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkLocation
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkPlaylistParser
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkProtocol
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
@@ -42,13 +43,32 @@ class Step7NetworkSecurityInstrumentedTest {
     @Test
     fun signedTokensAreRedactedAndDoNotChangeStableCanonicalIdentity() {
         val first = "https://Media.Example.test/video/Feature.mkv?quality=4k&token=first&X-Amz-Signature=secret-one"
-        val refreshed = "https://Media.Example.test/video/Feature.mkv?X-Amz-Signature=secret-two&token=second&quality=4k"
+        val refreshed = "HTTPS://media.example.test/video/Feature.mkv?X-Amz-Signature=secret-two&token=second&quality=4k"
 
         val sanitized = NetworkUriPolicy.sanitize(first)
         assertFalse(sanitized.contains("first"))
         assertFalse(sanitized.contains("secret-one"))
         assertTrue(sanitized.contains("quality=4k"))
         assertEquals(NetworkUriPolicy.canonicalIdentity(first), NetworkUriPolicy.canonicalIdentity(refreshed))
+    }
+
+    @Test
+    fun boundedM3uPlaylistResolvesRelativeAndMixedNetworkItemsWithoutRecursion() {
+        val playlist = """
+            #EXTM3U
+            #EXTINF:10,Relative video
+            clips/video%201.mp4
+            #EXTINF:-1,Camera
+            rtsp://camera.example.test/live
+            file:///must-not-open
+            https://cdn.example.test/audio.m4a
+        """.trimIndent()
+        val items = NetworkPlaylistParser.parse(playlist, "https://media.example.test/lists/watch.m3u", maximumItems = 2)
+
+        assertEquals(2, items.size)
+        assertEquals("https://media.example.test/lists/clips/video%201.mp4", items[0].uri)
+        assertEquals("Relative video", items[0].title)
+        assertEquals("rtsp://camera.example.test/live", items[1].uri)
     }
 
     @Test

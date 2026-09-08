@@ -580,6 +580,8 @@ private fun MediaInfoDialog(media: AppMedia, playback: PlaybackUiState, coordina
                     InfoLine("Connection", playback.network.connectionState.name.replace('_', ' '))
                     InfoLine("Transport", playback.network.transport.name)
                     InfoLine("Seekable", playback.network.seekable?.toString() ?: "Stream-dependent")
+                    InfoLine("Buffered", playback.network.bufferedDurationMs?.let(::formatPlayerTime) ?: "Unknown")
+                    InfoLine("Estimated bandwidth", playback.network.estimatedBandwidthBitsPerSecond?.let { "${it / 1_000} kb/s" } ?: "Unknown")
                     InfoLine("Retry count", playback.network.retryCount.toString())
                     InfoLine("URL", playback.network.sanitizedUri ?: "Unavailable")
                 }

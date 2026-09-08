@@ -10,6 +10,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.zubaer.maxvideoplayer.core.model.AppMedia
@@ -39,6 +40,7 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackConnection(
     context: Context,
     private val subtitleRepository: SubtitleRepository = SubtitleRepository(context.applicationContext),
@@ -162,6 +164,7 @@ class PlaybackConnection(
     fun play() = withController { it.play() }
     fun pause() = withController { it.pause() }
     fun retry() = withController {
+        networkDiagnosticsMonitor.recordReconnect()
         if (it.playbackState == Player.STATE_ENDED) it.seekTo(0L)
         it.prepare()
         it.play()

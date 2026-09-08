@@ -179,12 +179,14 @@ object NetworkUriPolicy {
 
     fun canonicalIdentity(raw: String): String {
         val uri = Uri.parse(raw)
-        val builder = uri.buildUpon().fragment(null).clearQuery()
-        if (uri.userInfo != null) {
-            val user = uri.userInfo?.substringBefore(':').orEmpty()
-            val hostPort = uri.host.orEmpty() + if (uri.port > 0) ":${uri.port}" else ""
-            builder.encodedAuthority(if (user.isBlank()) hostPort else "$user@$hostPort")
-        }
+        val host = uri.host.orEmpty().lowercase(Locale.ROOT).let { if (':' in it && !it.startsWith('[')) "[$it]" else it }
+        val hostPort = host + if (uri.port > 0) ":${uri.port}" else ""
+        val user = uri.userInfo?.substringBefore(':')?.takeIf(String::isNotBlank)?.let(Uri::encode)
+        val builder = uri.buildUpon()
+            .scheme(uri.scheme?.lowercase(Locale.ROOT))
+            .encodedAuthority(if (user == null) hostPort else "$user@$hostPort")
+            .fragment(null)
+            .clearQuery()
         uri.queryParameterNames.sorted().forEach { name ->
             if (!isSensitiveQuery(name)) {
                 uri.getQueryParameters(name).forEach { builder.appendQueryParameter(name, it) }
@@ -194,6 +196,11 @@ object NetworkUriPolicy {
     }
 
     fun persistenceSafeUri(raw: String): String = canonicalIdentity(raw)
+
+    fun containsSensitiveMaterial(raw: String): Boolean = runCatching {
+        val uri = Uri.parse(raw)
+        uri.userInfo != null || uri.queryParameterNames.any(::isSensitiveQuery)
+    }.getOrDefault(true)
 
     fun safeRemotePath(path: String): String {
         val normalized = path.replace('\\', '/').split('/').fold(mutableListOf<String>()) { parts, segment ->

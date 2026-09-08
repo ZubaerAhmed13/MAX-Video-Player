@@ -64,6 +64,7 @@ fun MaxApp(
                     viewModel = networkViewModel,
                     onBack = { showNetwork = false },
                     onPlay = { media -> showNetwork = false; navigationViewModel.select(media) },
+                    onPlayQueue = { queue -> showNetwork = false; navigationViewModel.selectQueue(queue, 0) },
                 )
             } else LibraryScreen(
                 state = libraryState,

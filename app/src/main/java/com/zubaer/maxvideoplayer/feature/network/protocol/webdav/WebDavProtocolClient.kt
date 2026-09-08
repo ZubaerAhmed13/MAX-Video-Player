@@ -17,13 +17,12 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.w3c.dom.Element
-import org.w3c.dom.Node
 import java.io.ByteArrayInputStream
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Locale
-import javax.xml.parsers.DocumentBuilderFactory
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 
 class WebDavProtocolClient(
     private val client: OkHttpClient,
@@ -117,42 +116,68 @@ internal data class WebDavResource(
 
 internal object SecureWebDavParser {
     fun parse(bytes: ByteArray): List<WebDavResource> {
-        val factory = DocumentBuilderFactory.newInstance().apply {
-            isNamespaceAware = true
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-            runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "") }
-            runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "") }
-            isXIncludeAware = false
-            setExpandEntityReferences(false)
+        val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser().apply {
+            setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false)
+            setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+            setInput(ByteArrayInputStream(bytes), Charsets.UTF_8.name())
         }
-        val document = factory.newDocumentBuilder().parse(ByteArrayInputStream(bytes))
-        return document.getElementsByTagNameNS("DAV:", "response").asSequence().mapNotNull { node ->
-            val response = node as? Element ?: return@mapNotNull null
-            val href = response.text("href")?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val contentLength = response.text("getcontentlength")?.trim()?.toLongOrNull()
-            val contentType = response.text("getcontenttype")?.trim()?.takeIf { it.isNotBlank() }
-            val modified = response.text("getlastmodified")?.let {
-                runCatching {
-                    SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).apply {
-                        isLenient = false
-                    }.parse(it.trim())?.time
-                }.getOrNull()
+        val resources = mutableListOf<WebDavResource>()
+        var current: MutableWebDavResource? = null
+        var currentTextElement: String? = null
+        val text = StringBuilder()
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                XmlPullParser.DOCDECL -> throw IllegalArgumentException("WebDAV XML document types are not allowed")
+                XmlPullParser.START_TAG -> when (parser.name.lowercase(Locale.ROOT)) {
+                    "response" -> current = MutableWebDavResource()
+                    "collection" -> current?.directory = true
+                    "href", "getcontentlength", "getcontenttype", "getlastmodified" -> {
+                        currentTextElement = parser.name.lowercase(Locale.ROOT)
+                        text.setLength(0)
+                    }
+                }
+                XmlPullParser.TEXT, XmlPullParser.CDSECT -> if (currentTextElement != null) text.append(parser.text)
+                XmlPullParser.END_TAG -> {
+                    val name = parser.name.lowercase(Locale.ROOT)
+                    if (name == currentTextElement) {
+                        current?.set(name, text.toString().trim())
+                        currentTextElement = null
+                        text.setLength(0)
+                    }
+                    if (name == "response") {
+                        current?.build()?.let(resources::add)
+                        current = null
+                    }
+                }
             }
-            WebDavResource(
-                href = href,
-                directory = response.getElementsByTagNameNS("DAV:", "collection").length > 0,
-                sizeBytes = contentLength,
-                contentType = contentType,
-                modifiedAtMs = modified,
-            )
-        }.toList()
+            event = parser.nextToken()
+        }
+        return resources
     }
 
-    private fun Element.text(localName: String): String? = getElementsByTagNameNS("DAV:", localName).item(0)?.textContent
-    private fun org.w3c.dom.NodeList.asSequence(): Sequence<Node> = sequence {
-        for (index in 0 until length) yield(item(index))
+    private class MutableWebDavResource {
+        var href: String? = null
+        var directory: Boolean = false
+        var sizeBytes: Long? = null
+        var contentType: String? = null
+        var modifiedAtMs: Long? = null
+
+        fun set(name: String, value: String) {
+            when (name) {
+                "href" -> href = value.takeIf(String::isNotBlank)
+                "getcontentlength" -> sizeBytes = value.toLongOrNull()
+                "getcontenttype" -> contentType = value.takeIf(String::isNotBlank)
+                "getlastmodified" -> modifiedAtMs = runCatching {
+                    SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).apply {
+                        isLenient = false
+                    }.parse(value)?.time
+                }.getOrNull()
+            }
+        }
+
+        fun build(): WebDavResource? = href?.let {
+            WebDavResource(it, directory, sizeBytes, contentType, modifiedAtMs)
+        }
     }
 }
