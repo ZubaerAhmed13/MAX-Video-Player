@@ -15,10 +15,13 @@ class OneDriveClient(
     override val accountId: String,
     private val tokenProvider: CloudAccessTokenProvider,
     private val driveId: String? = null,
+    graphBase: String = PRODUCTION_GRAPH,
 ) : CloudProviderClient {
+    private val graph = graphBase.trimEnd('/')
+
     override suspend fun browse(parentId: String?, pageToken: String?, pageSize: Int): CloudPage {
         if (!pageToken.isNullOrBlank()) return fetchPage(pageToken)
-        val base = if (driveId.isNullOrBlank()) "$GRAPH/me/drive" else "$GRAPH/drives/$driveId"
+        val base = if (driveId.isNullOrBlank()) "$graph/me/drive" else "$graph/drives/$driveId"
         val endpoint = if (parentId.isNullOrBlank() || parentId == "root") "$base/root/children" else "$base/items/$parentId/children"
         val url = endpoint.toHttpUrl().newBuilder()
             .addQueryParameter("\$select", SELECT)
@@ -31,7 +34,7 @@ class OneDriveClient(
     override suspend fun search(query: String, pageToken: String?, pageSize: Int): CloudPage {
         if (!pageToken.isNullOrBlank()) return fetchPage(pageToken)
         val escaped = query.replace("'", "''")
-        val base = if (driveId.isNullOrBlank()) "$GRAPH/me/drive/root/search(q='$escaped')" else "$GRAPH/drives/$driveId/root/search(q='$escaped')"
+        val base = if (driveId.isNullOrBlank()) "$graph/me/drive/root/search(q='$escaped')" else "$graph/drives/$driveId/root/search(q='$escaped')"
         val url = base.toHttpUrl().newBuilder()
             .addQueryParameter("\$select", SELECT)
             .addQueryParameter("\$top", pageSize.coerceIn(1, 200).toString())
@@ -42,7 +45,7 @@ class OneDriveClient(
     override suspend fun get(identity: CloudFileIdentity): CloudEntry {
         requireIdentity(identity)
         val resolvedDrive = identity.driveId ?: driveId
-        val endpoint = if (resolvedDrive.isNullOrBlank()) "$GRAPH/me/drive/items/${identity.providerFileId}" else "$GRAPH/drives/$resolvedDrive/items/${identity.providerFileId}"
+        val endpoint = if (resolvedDrive.isNullOrBlank()) "$graph/me/drive/items/${identity.providerFileId}" else "$graph/drives/$resolvedDrive/items/${identity.providerFileId}"
         val url = endpoint.toHttpUrl().newBuilder().addQueryParameter("\$select", SELECT).build()
         val response = authorizedRequest(url.toString())
         response.use {
@@ -57,7 +60,7 @@ class OneDriveClient(
         val entry = get(identity)
         if (entry.isFolder) throw CloudFailure.PermissionDenied("Folders cannot be streamed.")
         val resolvedDrive = identity.driveId ?: driveId
-        val endpoint = if (resolvedDrive.isNullOrBlank()) "$GRAPH/me/drive/items/${identity.providerFileId}" else "$GRAPH/drives/$resolvedDrive/items/${identity.providerFileId}"
+        val endpoint = if (resolvedDrive.isNullOrBlank()) "$graph/me/drive/items/${identity.providerFileId}" else "$graph/drives/$resolvedDrive/items/${identity.providerFileId}"
         val url = endpoint.toHttpUrl().newBuilder()
             .addQueryParameter("\$select", "id,size,file,eTag,cTag,@microsoft.graph.downloadUrl")
             .build()
@@ -131,7 +134,7 @@ class OneDriveClient(
     }
 
     private companion object {
-        const val GRAPH = "https://graph.microsoft.com/v1.0"
+        const val PRODUCTION_GRAPH = "https://graph.microsoft.com/v1.0"
         const val SELECT = "id,name,size,file,folder,parentReference,lastModifiedDateTime,eTag,cTag"
     }
 }
