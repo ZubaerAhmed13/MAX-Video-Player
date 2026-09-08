@@ -8,8 +8,8 @@ import com.zubaer.maxvideoplayer.feature.cloud.model.CloudMediaPolicy
 import com.zubaer.maxvideoplayer.feature.cloud.model.CloudPage
 import com.zubaer.maxvideoplayer.feature.cloud.model.CloudPlaybackResource
 import com.zubaer.maxvideoplayer.feature.cloud.model.CloudProvider
-import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
 import org.json.JSONObject
 
 class GoogleDriveClient(
@@ -57,7 +57,7 @@ class GoogleDriveClient(
             mimeType = metadata.mimeType,
             sizeBytes = metadata.sizeBytes,
             revision = metadata.revision,
-            authorizationHeader = "Bearer $token",
+            requestHeaders = mapOf("Authorization" to "Bearer $token"),
             supportsRange = true,
         )
     }
