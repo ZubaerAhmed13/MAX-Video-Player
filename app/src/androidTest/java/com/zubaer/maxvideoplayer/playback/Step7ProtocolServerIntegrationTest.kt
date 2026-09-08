@@ -99,6 +99,7 @@ class Step7ProtocolServerIntegrationTest {
         } finally {
             instrumentation.runOnMainSync {
                 connection.pause()
+                connection.playerOrNull()?.stop()
                 connection.disconnect()
             }
             scenario.close()

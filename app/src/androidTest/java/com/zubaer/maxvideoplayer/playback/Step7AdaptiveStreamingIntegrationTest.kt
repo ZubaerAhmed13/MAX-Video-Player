@@ -17,7 +17,6 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import okio.Buffer
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,7 +31,8 @@ class Step7AdaptiveStreamingIntegrationTest {
         val app = context.applicationContext as MaxVideoPlayerApplication
         val server = assetServer(instrumentation.context)
         val hls = app.container.networkRepository.prepareDirect(server.url("/step7_hls/master.m3u8").toString(), "Step 7 HLS")
-        val dash = app.container.networkRepository.prepareDirect(server.url("/step7_dash/manifest.mpd").toString(), "Step 7 DASH")
+        val hlsLive = app.container.networkRepository.prepareDirect(server.url("/step7_hls/live.m3u8").toString(), "Step 7 live HLS")
+        val dash = app.container.networkRepository.prepareDirect(server.url("/step7_dash/multi.mpd").toString(), "Step 7 DASH")
         context.stopService(Intent(context, PlaybackService::class.java))
         instrumentation.waitForIdleSync()
         val scenario = ActivityScenario.launch(MainActivity::class.java)
@@ -63,10 +63,23 @@ class Step7AdaptiveStreamingIntegrationTest {
             })
             assertNull("DASH failed: ${connection.state.value.error}", connection.state.value.error)
             assertEquals(NetworkProtocol.DASH, connection.state.value.network.protocol)
-            assertFalse(connection.state.value.videoTracks.isEmpty())
+            assertTrue("DASH representations were not exposed as actual Media3 tracks", connection.state.value.videoTracks.mapNotNull { it.height }.toSet().containsAll(setOf(90, 180)))
+
+            instrumentation.runOnMainSync { connection.load(hlsLive, playWhenReady = false) }
+            assertTrue("Live HLS did not expose Media3 live state", await(15_000L) {
+                connection.state.value.mediaId == hlsLive.stableId &&
+                    (connection.state.value.isLive || connection.state.value.error != null)
+            })
+            assertNull("Live HLS failed: ${connection.state.value.error}", connection.state.value.error)
+            assertTrue(connection.state.value.isLive)
+            instrumentation.runOnMainSync { connection.goLive() }
+            assertTrue("Go Live did not retain a real live offset", await(5_000L) {
+                connection.state.value.mediaId == hlsLive.stableId && connection.state.value.liveOffsetMs != null
+            })
         } finally {
             instrumentation.runOnMainSync {
                 connection.pause()
+                connection.playerOrNull()?.stop()
                 connection.disconnect()
             }
             scenario.close()
@@ -79,6 +92,13 @@ class Step7AdaptiveStreamingIntegrationTest {
         dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.url.encodedPath.removePrefix("/")
+                if (path == "step7_hls/live.m3u8") {
+                    return MockResponse.Builder()
+                        .code(200)
+                        .setHeader("Content-Type", "application/x-mpegURL")
+                        .body(LIVE_PLAYLIST)
+                        .build()
+                }
                 val bytes = runCatching { context.assets.open(path).use { it.readBytes() } }.getOrNull()
                     ?: return MockResponse.Builder().code(404).build()
                 val contentType = when {
@@ -106,5 +126,19 @@ class Step7AdaptiveStreamingIntegrationTest {
             Thread.sleep(50L)
         }
         return condition()
+    }
+
+    private companion object {
+        val LIVE_PLAYLIST = """
+            #EXTM3U
+            #EXT-X-VERSION:6
+            #EXT-X-TARGETDURATION:1
+            #EXT-X-MEDIA-SEQUENCE:0
+            #EXT-X-INDEPENDENT-SEGMENTS
+            #EXTINF:1.000000,
+            low/segment0.ts
+            #EXTINF:1.000000,
+            low/segment1.ts
+        """.trimIndent()
     }
 }

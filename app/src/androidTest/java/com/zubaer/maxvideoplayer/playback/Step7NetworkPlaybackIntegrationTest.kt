@@ -76,6 +76,7 @@ class Step7NetworkPlaybackIntegrationTest {
         } finally {
             instrumentation.runOnMainSync {
                 connection.pause()
+                connection.playerOrNull()?.stop()
                 connection.disconnect()
             }
             scenario.close()

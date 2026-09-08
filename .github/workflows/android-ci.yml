@@ -113,9 +113,10 @@ jobs:
           sudo chmod -R a+rX /tmp/max-video-step7
           sudo useradd --system --no-create-home --shell /usr/sbin/nologin maxci
           printf 'max-network-ci\nmax-network-ci\n' | sudo smbpasswd -s -a maxci
+          sudo systemctl stop smbd.service nmbd.service
           sudo smbd --configfile="$PWD/ci/step7/smb.conf" --daemon
           RUNNER_TRACKING_ID='' nohup python3 -m pyftpdlib -p 2121 -w -u maxci -P max-network-ci -d /tmp/max-video-step7 > /tmp/max-video-step7-ftp.log 2>&1 &
-          docker run --detach --name max-video-step7-rtsp --publish 8554:8554 -e MTX_RTSPTRANSPORTS=tcp bluenviron/mediamtx:1.21.0
+          docker run --detach --name max-video-step7-rtsp --publish 8554:8554 -e MTX_RTSPTRANSPORTS=tcp bluenviron/mediamtx:1.21.0@sha256:19fddade8d6110a3d718ac0045681fbeba344ae563a066205fe5929a87f7582f
           timeout 30 bash -c 'until nc -z 127.0.0.1 8554; do sleep 1; done'
           RUNNER_TRACKING_ID='' nohup ffmpeg -nostdin -re -stream_loop -1 -i /tmp/max-video-step7/step5_multi_audio.mp4 -map 0:v:0 -map 0:a:0 -c copy -f rtsp -rtsp_transport tcp rtsp://127.0.0.1:8554/step7 > /tmp/max-video-step7-ffmpeg.log 2>&1 &
           for port in 1445 2121; do
