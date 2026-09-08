@@ -1,5 +1,7 @@
 package com.zubaer.maxvideoplayer.playback.session
 
+import androidx.media3.cast.CastPlayer
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -7,6 +9,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.feature.audio.AudioRouteMonitor
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 import com.zubaer.maxvideoplayer.playback.engine.Media3PlaybackEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,11 +19,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackService : MediaSessionService() {
     private lateinit var engine: Media3PlaybackEngine
+    private lateinit var castPlayer: CastPlayer
     private lateinit var mediaSession: MediaSession
     private lateinit var routeMonitor: AudioRouteMonitor
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -29,7 +32,8 @@ class PlaybackService : MediaSessionService() {
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(engine.player)
+            val player = authoritativePlayerOrNull() ?: return
+            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(player)
             if (isPlaying) startPersistenceTicker() else {
                 persistenceJob?.cancel()
                 persistenceJob = null
@@ -38,7 +42,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(engine.player)
+            val player = authoritativePlayerOrNull() ?: return
+            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(player)
             if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) persistCurrent()
         }
 
@@ -75,16 +80,27 @@ class PlaybackService : MediaSessionService() {
             container.decoderRepository,
             container.networkRequestRegistry,
         )
-        engine.player.addListener(listener)
-        container.audioRepository.activateMedia(engine.player.currentMediaItem?.mediaId)
-        container.decoderRepository.activateMedia(engine.player.currentMediaItem?.mediaId)
+        // Step 8 keeps the Step-1..7 ExoPlayer as the local playback engine. CastPlayer is the
+        // single authoritative Player exposed by the service and MediaSession; it transfers the
+        // existing queue/state between the local player and the Cast receiver when a Cast session
+        // becomes available.
+        castPlayer = CastPlayer.Builder(this)
+            .setLocalPlayer(engine.player)
+            .build()
+        castPlayer.addListener(listener)
+        container.audioRepository.activateMedia(castPlayer.currentMediaItem?.mediaId)
+        container.decoderRepository.activateMedia(castPlayer.currentMediaItem?.mediaId)
         serviceScope.launch {
             container.decoderRepository.modeRequests.collect { mode ->
-                if (::engine.isInitialized) engine.reconfigureVideoDecoder(mode)
+                // Decoder selection is a local-device feature. Keep the requested setting while
+                // casting but never rebuild the inactive local player on behalf of a remote target.
+                if (::castPlayer.isInitialized && castPlayer.deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE) {
+                    engine.reconfigureVideoDecoder(mode)
+                }
             }
         }
         routeMonitor = AudioRouteMonitor(this, container.audioRepository::setRoute).also { it.start() }
-        mediaSession = MediaSession.Builder(this, engine.player).build()
+        mediaSession = MediaSession.Builder(this, castPlayer).build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession = mediaSession
@@ -98,9 +114,10 @@ class PlaybackService : MediaSessionService() {
         persistCurrent()
         persistenceJob?.cancel()
         if (::routeMonitor.isInitialized) routeMonitor.stop()
-        engine.player.removeListener(listener)
-        mediaSession.release()
-        engine.release()
+        if (::castPlayer.isInitialized) castPlayer.removeListener(listener)
+        if (::mediaSession.isInitialized) mediaSession.release()
+        if (::castPlayer.isInitialized) castPlayer.release()
+        if (::engine.isInitialized) engine.release()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -115,9 +132,14 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun authoritativePlayerOrNull(): Player? = when {
+        ::castPlayer.isInitialized -> castPlayer
+        ::engine.isInitialized -> engine.player
+        else -> null
+    }
+
     private fun persistCurrent() {
-        if (!::engine.isInitialized) return
-        val player = engine.player
+        val player = authoritativePlayerOrNull() ?: return
         val item = player.currentMediaItem ?: return
         val rawUri = item.localConfiguration?.uri?.toString() ?: return
         val uri = if (rawUri.substringBefore(':').lowercase() in setOf("http", "https", "rtsp", "ftp", "ftps", "maxsmb")) {
