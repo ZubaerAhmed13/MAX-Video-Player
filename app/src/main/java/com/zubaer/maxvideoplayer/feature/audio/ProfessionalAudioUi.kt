@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -126,6 +127,14 @@ fun ProfessionalAudioPlayerHost(
             onTrack = audioController::selectTrack,
             onExternal = audioController::selectExternal,
             onLoadExternal = { audioPicker.launch(arrayOf("audio/*", "application/ogg")) },
+            onLoadExternalUrl = { url ->
+                val descriptor = audioRepository.describeNetworkUrl(url)
+                if (descriptor == null) pickerError = "Enter a direct HTTP/HTTPS AAC, M4A, MP3, FLAC, WAV, OGG, or Opus URL."
+                else {
+                    audioController.attachExternal(descriptor)
+                    pickerError = null
+                }
+            },
             onRelinkExternal = { id -> relinkAssociationId = id; audioPicker.launch(arrayOf("audio/*", "application/ogg")) },
             onRemoveExternal = audioController::removeExternal,
             onEqEnabled = audioController::setEqualizerEnabled,
@@ -167,6 +176,7 @@ fun ProfessionalAudioDialog(
     onTrack: (String) -> Unit,
     onExternal: (String) -> Unit,
     onLoadExternal: () -> Unit,
+    onLoadExternalUrl: (String) -> Unit,
     onRelinkExternal: (String) -> Unit,
     onRemoveExternal: (String) -> Unit,
     onEqEnabled: (Boolean) -> Unit,
@@ -187,6 +197,8 @@ fun ProfessionalAudioDialog(
     onRouteCompensationReset: () -> Unit,
     onRefreshExternal: () -> Unit,
 ) {
+    var networkAudioUrl by remember { mutableStateOf("") }
+    var showNetworkAudio by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Audio") },
@@ -249,6 +261,20 @@ fun ProfessionalAudioDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onLoadExternal) { Text("Open external audio") }
                     TextButton(onClick = onRefreshExternal) { Text("Refresh") }
+                }
+                TextButton(onClick = { showNetworkAudio = !showNetworkAudio }) { Text("Open external audio from URL") }
+                if (showNetworkAudio) {
+                    OutlinedTextField(
+                        value = networkAudioUrl,
+                        onValueChange = { networkAudioUrl = it },
+                        modifier = Modifier.fillMaxWidth().testTag("network_audio_url"),
+                        label = { Text("HTTPS audio URL") },
+                        singleLine = true,
+                    )
+                    Button(
+                        onClick = { onLoadExternalUrl(networkAudioUrl); showNetworkAudio = false },
+                        enabled = networkAudioUrl.isNotBlank(),
+                    ) { Text("Attach URL") }
                 }
                 state.recoverableError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 

@@ -10,6 +10,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.zubaer.maxvideoplayer.core.model.AppMedia
@@ -18,12 +19,15 @@ import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
 import com.zubaer.maxvideoplayer.core.model.SubtitlePlaybackState
 import com.zubaer.maxvideoplayer.core.model.SubtitleTrackInfo
+import com.zubaer.maxvideoplayer.core.model.VideoTrackInfo
+import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.feature.subtitle.ExternalSubtitleAttachment
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleAvailability
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleEncoding
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleFileDescriptor
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleMatcher
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
+import com.zubaer.maxvideoplayer.feature.network.diagnostics.NetworkDiagnosticsMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,11 +41,16 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackConnection(
     context: Context,
     private val subtitleRepository: SubtitleRepository = SubtitleRepository(context.applicationContext),
+    networkDiagnosticsMonitor: NetworkDiagnosticsMonitor? = null,
 ) {
     private val appContext = context.applicationContext
+    private val networkDiagnosticsMonitor = networkDiagnosticsMonitor
+        ?: (appContext as? MaxVideoPlayerApplication)?.container?.networkDiagnosticsMonitor
+        ?: NetworkDiagnosticsMonitor(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val directExecutor = Executor { it.run() }
     private val _state = MutableStateFlow(PlaybackUiState())
@@ -59,6 +68,14 @@ class PlaybackConnection(
     private var pendingSeekMediaId: String? = null
     private var pendingSeekPositionMs: Long? = null
     private val knownMediaById = ConcurrentHashMap<String, AppMedia>()
+
+    init {
+        scope.launch {
+            this@PlaybackConnection.networkDiagnosticsMonitor.state.collect { diagnostics ->
+                _state.value = _state.value.copy(network = diagnostics)
+            }
+        }
+    }
 
     fun connect() {
         if (connectRequested || controller != null) return
@@ -151,6 +168,7 @@ class PlaybackConnection(
     fun play() = withController { it.play() }
     fun pause() = withController { it.pause() }
     fun retry() = withController {
+        networkDiagnosticsMonitor.recordReconnect()
         if (it.playbackState == Player.STATE_ENDED) it.seekTo(0L)
         it.prepare()
         it.play()
@@ -166,6 +184,14 @@ class PlaybackConnection(
         } else if (mediaId != null) {
             pendingSeekMediaId = mediaId
             pendingSeekPositionMs = safe
+        }
+    }
+
+    fun goLive() = withController { player ->
+        if (player.isCurrentMediaItemLive) {
+            clearPendingSeek()
+            player.seekToDefaultPosition()
+            player.play()
         }
     }
 
@@ -190,6 +216,27 @@ class PlaybackConnection(
     }
 
     fun setShuffleEnabled(enabled: Boolean) = withController { it.shuffleModeEnabled = enabled }
+
+    fun selectVideoQualityAuto() = withController { player ->
+        if (!player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return@withController
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            .build()
+        publish(player)
+    }
+
+    fun selectVideoTrack(trackKey: String) = withController { player ->
+        if (!player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return@withController
+        val parsed = parseTrackKey(trackKey) ?: return@withController
+        val group = player.currentTracks.groups.getOrNull(parsed.first) ?: return@withController
+        if (group.type != C.TRACK_TYPE_VIDEO || parsed.second !in 0 until group.length) return@withController
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, parsed.second))
+            .build()
+        publish(player)
+    }
 
     fun setSubtitlesEnabled(enabled: Boolean) = withController { player ->
         if (!player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return@withController
@@ -402,6 +449,11 @@ class PlaybackConnection(
             },
             shuffleEnabled = player.shuffleModeEnabled,
             subtitles = subtitleState,
+            network = networkDiagnosticsMonitor.state.value,
+            videoTracks = buildVideoTracks(player),
+            videoQualityAuto = player.trackSelectionParameters.overrides.keys.none { it.type == C.TRACK_TYPE_VIDEO },
+            isLive = player.isCurrentMediaItemLive,
+            liveOffsetMs = player.currentLiveOffset.takeIf { player.isCurrentMediaItemLive && it != C.TIME_UNSET },
             error = player.playerError?.let(PlaybackErrorMapper::map),
         )
 
@@ -530,6 +582,30 @@ class PlaybackConnection(
             .build()
         recoverableSubtitleError = null
         publish(player)
+    }
+
+    private fun buildVideoTracks(player: Player): List<VideoTrackInfo> {
+        if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS)) return emptyList()
+        return buildList {
+            player.currentTracks.groups.forEachIndexed { groupIndex, group ->
+                if (group.type != C.TRACK_TYPE_VIDEO) return@forEachIndexed
+                for (trackIndex in 0 until group.length) {
+                    val format = group.getTrackFormat(trackIndex)
+                    add(
+                        VideoTrackInfo(
+                            key = trackKey(groupIndex, trackIndex),
+                            width = format.width.takeIf { it > 0 },
+                            height = format.height.takeIf { it > 0 },
+                            bitrate = format.bitrate.takeIf { it > 0 },
+                            codec = format.codecs ?: format.sampleMimeType,
+                            selected = group.isTrackSelected(trackIndex),
+                            supported = group.isTrackSupported(trackIndex),
+                        ),
+                    )
+                }
+            }
+        }.distinctBy { listOf(it.width, it.height, it.bitrate, it.codec) }
+            .sortedWith(compareByDescending<VideoTrackInfo> { it.height ?: 0 }.thenByDescending { it.bitrate ?: 0 })
     }
 
     private fun applyAutoPolicy(player: Player) {

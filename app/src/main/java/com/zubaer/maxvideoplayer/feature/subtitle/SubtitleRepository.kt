@@ -12,6 +12,7 @@ import com.zubaer.maxvideoplayer.core.database.SubtitleAssociationEntity
 import com.zubaer.maxvideoplayer.core.database.SubtitleMediaStateEntity
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -99,6 +100,24 @@ class SubtitleRepository(
             encoding = prefix?.let(SubtitleEncodingPolicy::detect) ?: SubtitleEncoding.AUTO,
             sizeBytes = size,
             sourceType = sourceType,
+        )
+    }
+
+    fun describeNetworkUrl(rawUrl: String): SubtitleFileDescriptor? {
+        val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return null
+        if (uri.scheme?.lowercase(Locale.ROOT) !in setOf("http", "https")) return null
+        if (uri.host.isNullOrBlank()) return null
+        if (NetworkUriPolicy.containsSensitiveMaterial(uri.toString())) return null
+        val displayName = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "Network subtitle"
+        val mimeType = SubtitleFormatPolicy.resolveMimeType(displayName, null) ?: return null
+        val format = SubtitleFormatPolicy.resolveFormat(displayName, null) ?: return null
+        return SubtitleFileDescriptor(
+            uri = uri.toString(),
+            displayName = displayName,
+            mimeType = mimeType,
+            format = format,
+            encoding = SubtitleEncoding.AUTO,
+            sourceType = SubtitleSourceType.NETWORK_URL,
         )
     }
 
@@ -572,6 +591,7 @@ class SubtitleRepository(
     }.getOrNull()
 
     private fun probeAvailability(uri: Uri): SubtitleAvailability = try {
+        if (uri.scheme?.lowercase(Locale.ROOT) in setOf("http", "https")) return SubtitleAvailability.AVAILABLE
         resolver.openAssetFileDescriptor(uri, "r")?.use { SubtitleAvailability.AVAILABLE }
             ?: SubtitleAvailability.MISSING
     } catch (_: SecurityException) {

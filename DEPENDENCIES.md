@@ -1,8 +1,8 @@
-# Dependency Register — through Step 6
+# Dependency Register — through Step 7
 
-MAX Video Player remains a clean-room native Android application. **Step 6 adds no new third-party runtime or native decoder dependency.** The professional decoder engine is implemented with the Android platform `MediaCodec`/`MediaCodecList` capability surface and the Media3 / ExoPlayer stack already present through Step 5.
+MAX Video Player remains a clean-room native Android application. Step 7 adds narrowly scoped Java/Kotlin networking libraries and no new NDK payload, proprietary protocol implementation, cloud SDK or second playback engine.
 
-| Dependency | Version | Purpose through Step 6 | License family |
+| Dependency | Version | Purpose through Step 7 | License family |
 |---|---:|---|---|
 | Android Gradle Plugin | 9.4.0 | Android build tooling | Android SDK / Apache-style tooling terms |
 | Kotlin Compose plugin | 2.3.21 | Compose compiler integration | Apache 2.0 |
@@ -11,11 +11,39 @@ MAX Video Player remains a clean-room native Android application. **Step 6 adds 
 | Activity Compose | 1.11.0 | Native Activity, PiP/lifecycle and activity-result/OpenDocument integration | Apache 2.0 |
 | Lifecycle | 2.10.0 | Lifecycle-aware StateFlow collection and ViewModels | Apache 2.0 |
 | Navigation Compose | 2.9.8 | Navigation foundation | Apache 2.0 |
-| Media3 | 1.11.0 | ExoPlayer, MediaSession, MediaCodec renderer/selector extension points, decoder analytics, tracks, playback parameters, source composition, subtitles and custom PCM AudioProcessor/AudioSink integration | Apache 2.0 |
-| Room | 2.8.4 | History/library/subtitle/audio state plus Step-6 per-media decoder override; explicit migrations through v5 | Apache 2.0 |
+| Media3 | 1.11.0 | ExoPlayer, MediaSession, HLS, DASH, RTSP, OkHttp DataSource integration, decoder routing, tracks, source composition, subtitles and custom PCM audio | Apache 2.0 |
+| OkHttp | 5.1.0 | TLS-verified HTTP/HTTPS/WebDAV transport, redirects, scoped headers and Media3 HTTP DataSource | Apache 2.0 |
+| SMBJ | 0.14.0 | SMB2/SMB3 authentication, directory listing, signing and random-access reads | Apache 2.0 |
+| Apache Commons Net | 3.13.0 | FTP/explicit-FTPS login, listing, binary transfer, REST offsets and protected TLS data channels | Apache 2.0 |
+| Room | 2.8.4 | History/library/subtitle/audio/decoder state and Step-7 saved network locations; explicit migrations through v6 | Apache 2.0 |
 | Kotlin Coroutines | 1.10.2 | Structured I/O, persistence, codec-inventory scans, URI probing and service-safe asynchronous operations | Apache 2.0 |
 | Material Components | 1.13.0 | Android theme interoperability | Apache 2.0 |
-| JUnit / AndroidX Test / Compose UI test | pinned in version catalog | JVM policy tests, migration tests, production playback integration and API-35 certification | respective open-source licenses |
+| MockWebServer | 5.1.0 | Test-only deterministic HTTP, HLS, DASH and WebDAV responses | Apache 2.0 |
+| JUnit / AndroidX Test / Compose UI test | pinned in version catalog | JVM policy, migration, UI, production playback and protocol certification | respective open-source licenses |
+
+## Step-7 dependency decisions
+
+- **OkHttp 5.1.0** is the single HTTP-family client. Media3's OkHttp DataSource adapter uses the same request registry and TLS behavior for progressive, HLS, DASH, WebDAV files and HTTP sidecars.
+- **SMBJ 0.14.0** is pure Java and is limited to SMB 2.0.2 through 3.1.1. SMB1 is excluded. Signing is enabled; server/share-required SMB3 encryption is honored.
+- **Apache Commons Net 3.13.0** supplies FTP and explicit FTPS. Binary mode is mandatory. FTPS enables endpoint checking and a private data channel.
+- **No full-file download library or network cache was added.** SMB/FTP media is read by custom bounded random-access DataSources, and HTTP-family media streams through Media3.
+- **No trust-all certificate helper was added.** HTTPS/WebDAV/FTPS use platform validation.
+- **No SFTP dependency was added.** SFTP remains NOT IMPLEMENTED rather than being mislabeled as FTP.
+- **No native protocol library or ABI payload was added.** APK networking remains Java/Kotlin.
+- **No cloud, casting, discovery or provider SDK was added.** Those are outside Step 7.
+
+## CI-only protocol tools
+
+These are not runtime or APK dependencies:
+
+| Tool | Exact tested version/source | CI purpose | License family |
+|---|---|---|---|
+| Samba | 4.19.5 Ubuntu 24.04 package | isolated authenticated SMB2/3 listing, random-read and playback server | GPLv3 (CI only) |
+| pyftpdlib | 1.5.9 Ubuntu 24.04 package | isolated authenticated FTP server with REST support | MIT |
+| MediaMTX | 1.21.0, pinned container digest `sha256:19fddade8d6110a3d718ac0045681fbeba344ae563a066205fe5929a87f7582f` | isolated RTSP server | MIT |
+| FFmpeg | 6.1.1 Ubuntu 24.04 package | publish repository-owned H.264/AAC fixture to the isolated RTSP server | Ubuntu GPL-enabled build; CI only |
+
+MockWebServer runs in the instrumentation process; none of the protocol tests depends on a public media server or personal NAS.
 
 ## Step-6 dependency decision
 
@@ -77,4 +105,4 @@ An opaque binary DSP/decoder library must not be introduced simply to avoid impl
 
 ## Later-step boundary
 
-Step 6 does not bundle a universal software codec backend. Cross-OEM decoder certification, physical 4K/HDR/high-bitrate/thermal/battery behavior and any future decision to bundle a native software video decoder remain separate work requiring an explicit dependency/license review and physical certification in Step 10 where specified.
+Step 7 does not add cloud-provider OAuth, casting/DLNA, final TV/USB workflows, local-network discovery or private-vault features. Cross-OEM/network-device certification, physical 4K/HDR/high-bitrate/large-remote-file/thermal/battery behavior and any future native dependency remain separate work requiring an explicit dependency/license review and Step-10 physical certification where specified.

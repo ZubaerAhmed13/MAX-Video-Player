@@ -119,3 +119,24 @@ data class LibraryPreferenceEntity(
     @PrimaryKey val key: String,
     val value: String,
 )
+
+@Entity(
+    tableName = "network_locations",
+    indices = [Index(value = ["credentialRef"])],
+)
+data class NetworkLocationEntity(
+    @PrimaryKey val id: String,
+    val displayName: String,
+    val protocol: String,
+    val host: String,
+    val port: Int,
+    val basePath: String,
+    val credentialRef: String?,
+    val usernameHint: String?,
+    val useGuest: Boolean,
+    val ftpPassiveMode: Boolean,
+    val ftpSecurityAcknowledged: Boolean,
+    val createdAtMs: Long,
+    val updatedAtMs: Long,
+    val lastConnectedAtMs: Long?,
+)

@@ -33,7 +33,7 @@ class MaxDatabaseMigrationTest {
         }
 
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_1_2, MaxDatabase.MIGRATION_2_3, MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5)
+            .addMigrations(MaxDatabase.MIGRATION_1_2, MaxDatabase.MIGRATION_2_3, MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6)
             .allowMainThreadQueries()
             .build()
         try {
@@ -71,7 +71,7 @@ class MaxDatabaseMigrationTest {
         }
 
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_2_3, MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5)
+            .addMigrations(MaxDatabase.MIGRATION_2_3, MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6)
             .allowMainThreadQueries()
             .build()
         try {
@@ -142,7 +142,7 @@ class MaxDatabaseMigrationTest {
         }
 
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5)
+            .addMigrations(MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6)
             .allowMainThreadQueries()
             .build()
         try {
@@ -199,7 +199,7 @@ class MaxDatabaseMigrationTest {
         }
 
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_4_5)
+            .addMigrations(MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6)
             .allowMainThreadQueries()
             .build()
         try {
@@ -219,6 +219,62 @@ class MaxDatabaseMigrationTest {
 
             migrated.decoderMediaStateDao().upsert(DecoderMediaStateEntity("media-C", "HARDWARE", 709L))
             assertEquals("HARDWARE", migrated.decoderMediaStateDao().get("media-C")?.requestedMode)
+        } finally {
+            migrated.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun migration5To6PreservesAllPriorDataAndAddsSecretFreeNetworkLocations() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "migration-5-6-test.db"
+        context.deleteDatabase(name)
+        context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { db ->
+            createV5Tables(db)
+            db.execSQL("INSERT INTO media_history VALUES('media-D','content://video/D','Movie D','video/mp4',8200000000,3840,2160,120000,360000,900,0)")
+            db.execSQL("INSERT INTO playback_preferences VALUES('speed','1.85')")
+            db.execSQL("INSERT INTO favourites VALUES('media-D',901)")
+            db.execSQL("INSERT INTO playlists(id,name,createdAtMs,updatedAtMs) VALUES(13,'Step6',901,902)")
+            db.execSQL("INSERT INTO playlist_items VALUES(13,'media-D',0,903)")
+            db.execSQL("INSERT INTO library_sources VALUES('tree-D','content://provider/tree/d','Library D','SAF','AVAILABLE',1,904,NULL)")
+            db.execSQL("INSERT INTO media_index VALUES('media-D','tree-D','content://video/D','Movie D','Movie.D.mkv','video/x-matroska',360000,8200000000,3840,2160,10,20,'Movies/','folder-D','Movies','SAF','AVAILABLE')")
+            db.execSQL("INSERT INTO library_preferences VALUES('view_mode','list')")
+            db.execSQL("INSERT INTO subtitle_associations VALUES('sub-D','media-D','content://subtitle/D.srt','Movie.D.srt','en','application/x-subrip','SRT','UTF_8',905,1,'AVAILABLE',400)")
+            db.execSQL("INSERT INTO subtitle_media_state VALUES('media-D','sub-D',400,906)")
+            db.execSQL("INSERT INTO audio_associations VALUES('audio-D','media-D','content://audio/D.flac','Movie.D.flac','en','audio/flac',907,1,'AVAILABLE')")
+            db.execSQL("INSERT INTO audio_media_state VALUES('media-D','audio-D','MANUAL','en','Movie.D.flac','audio/flac',2,350,908)")
+            db.execSQL("INSERT INTO decoder_media_state VALUES('media-D','SOFTWARE',901)")
+            db.version = 5
+        }
+        val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
+            .addMigrations(MaxDatabase.MIGRATION_5_6)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            migrated.openHelper.writableDatabase
+            assertEquals(8_200_000_000L, migrated.mediaHistoryDao().getBlockingForMigrationTest("media-D")?.sizeBytes)
+            assertEquals("1.85", migrated.playbackPreferenceDao().get("speed")?.value)
+            assertTrue("media-D" in migrated.favouriteDao().ids())
+            assertEquals("Step6", migrated.playlistDao().getPlaylist(13)?.name)
+            assertEquals("media-D", migrated.playlistDao().items(13).single().stableMediaId)
+            assertEquals("Movie D", migrated.mediaIndexDao().get("media-D")?.title)
+            assertEquals("list", migrated.libraryPreferenceDao().get("view_mode")?.value)
+            assertEquals("sub-D", migrated.subtitleDao().mediaStateBlockingForMigrationTest("media-D")?.selectedExternalId)
+            assertEquals(400L, migrated.subtitleDao().mediaStateBlockingForMigrationTest("media-D")?.delayMs)
+            assertEquals("audio-D", migrated.audioDao().mediaStateBlockingForMigrationTest("media-D")?.selectedExternalId)
+            assertEquals(350L, migrated.audioDao().mediaStateBlockingForMigrationTest("media-D")?.delayMs)
+            assertEquals("SOFTWARE", migrated.decoderMediaStateDao().get("media-D")?.requestedMode)
+            migrated.networkLocationDao().upsert(
+                NetworkLocationEntity(
+                    id = "nas-1", displayName = "Home NAS", protocol = "SMB", host = "nas.local", port = 445,
+                    basePath = "Movies", credentialRef = "vault-ref-only", usernameHint = "zubaer", useGuest = false,
+                    ftpPassiveMode = true, ftpSecurityAcknowledged = false, createdAtMs = 1L, updatedAtMs = 1L, lastConnectedAtMs = null,
+                ),
+            )
+            val row = migrated.networkLocationDao().get("nas-1")
+            assertEquals("vault-ref-only", row?.credentialRef)
+            assertEquals("zubaer", row?.usernameHint)
         } finally {
             migrated.close()
             context.deleteDatabase(name)
@@ -262,5 +318,10 @@ class MaxDatabaseMigrationTest {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_audio_associations_stableMediaId` ON `audio_associations` (`stableMediaId`)")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_audio_associations_stableMediaId_isPreferred` ON `audio_associations` (`stableMediaId`, `isPreferred`)")
         db.execSQL("CREATE TABLE IF NOT EXISTS `audio_media_state` (`stableMediaId` TEXT NOT NULL, `selectedExternalId` TEXT, `selectionMode` TEXT NOT NULL, `selectedLanguage` TEXT, `selectedLabel` TEXT, `selectedMimeType` TEXT, `selectedChannelCount` INTEGER, `delayMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`stableMediaId`))")
+    }
+
+    private fun createV5Tables(db: android.database.sqlite.SQLiteDatabase) {
+        createV4Tables(db)
+        db.execSQL("CREATE TABLE IF NOT EXISTS `decoder_media_state` (`stableMediaId` TEXT NOT NULL, `requestedMode` TEXT NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`stableMediaId`))")
     }
 }

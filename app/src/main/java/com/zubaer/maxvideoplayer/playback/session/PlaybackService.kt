@@ -16,6 +16,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackService : MediaSessionService() {
@@ -28,6 +29,7 @@ class PlaybackService : MediaSessionService() {
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(engine.player)
             if (isPlaying) startPersistenceTicker() else {
                 persistenceJob?.cancel()
                 persistenceJob = null
@@ -36,12 +38,14 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(engine.player)
             if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) persistCurrent()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val container = (application as MaxVideoPlayerApplication).container
             val mediaId = mediaItem?.mediaId
+            container.networkDiagnosticsMonitor.activate(mediaItem?.localConfiguration?.uri?.toString())
             container.audioRepository.activateMedia(mediaId)
             // Decoder reconfiguration restores the same MediaItem through setMediaItems(), which
             // produces another transition callback. Re-activating decoder state for that identical
@@ -55,6 +59,10 @@ class PlaybackService : MediaSessionService() {
             if (mediaItem != null) container.audioRepository.refreshExternalAvailability(mediaItem.mediaId)
             persistCurrent()
         }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onFailure(error)
+        }
     }
 
     override fun onCreate() {
@@ -65,6 +73,7 @@ class PlaybackService : MediaSessionService() {
             container.subtitleRepository,
             container.audioRepository,
             container.decoderRepository,
+            container.networkRequestRegistry,
         )
         engine.player.addListener(listener)
         container.audioRepository.activateMedia(engine.player.currentMediaItem?.mediaId)
@@ -110,7 +119,10 @@ class PlaybackService : MediaSessionService() {
         if (!::engine.isInitialized) return
         val player = engine.player
         val item = player.currentMediaItem ?: return
-        val uri = item.localConfiguration?.uri?.toString() ?: return
+        val rawUri = item.localConfiguration?.uri?.toString() ?: return
+        val uri = if (rawUri.substringBefore(':').lowercase() in setOf("http", "https", "rtsp", "ftp", "ftps", "maxsmb")) {
+            NetworkUriPolicy.persistenceSafeUri(rawUri)
+        } else rawUri
         val mediaId = item.mediaId.takeIf { it.isNotBlank() } ?: return
         val duration = player.duration.takeIf { it > 0L } ?: 0L
         val position = player.currentPosition.coerceAtLeast(0L)

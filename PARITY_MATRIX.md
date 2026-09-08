@@ -1,8 +1,49 @@
-# MAX Video Player — Parity Matrix through Step 6
+# MAX Video Player — Parity Matrix through Step 7
 
-Status vocabulary: `PASS`, `PARTIAL`, `FAIL`, `NOT VERIFIED`, `NOT IMPLEMENTED`, `NOT APPLICABLE`.
+Status vocabulary: `PASS`, `BRANCH PASS` (exact implementation head certified; documentation/main gates pending), `PENDING`, `PARTIAL`, `FAIL`, `NOT VERIFIED`, `NOT IMPLEMENTED`, `NOT APPLICABLE`.
 
 A `PASS` requires implementation, a real product flow, error handling and automated evidence where feasible. Physical-device requirements are never inferred from emulator/software evidence.
+
+## Step-7 professional network playback and sources
+
+| Area | Capability | Status | Evidence / boundary |
+|---|---|---|---|
+| Architecture | One service-owned player for local and network media | BRANCH PASS | `NetworkDataSourceRouter -> ProfessionalMediaSourceFactory -> PlaybackService`; no protocol player/full download |
+| HTTP | Direct progressive playback | BRANCH PASS | Real API-35 Media3/OkHttp production-path fixture |
+| HTTP | Byte ranges and seek | BRANCH PASS | Recorded Media3 `Range` request and 206 response; capability remains server-dependent |
+| HTTP | Basic/bearer/custom headers | BRANCH PASS | Process-local request registry; exact origin/directory scope |
+| HTTP | Redirects and loop bound | BRANCH PASS | Deterministic redirect success and bounded loop failure |
+| HTTP | Cross-host auth isolation | BRANCH PASS | Destination test server receives no Authorization |
+| HTTPS | TLS verification | BRANCH PASS | Android system trust/hostname verification; no trust-all code |
+| Cleartext | HTTP warning/acknowledgement | BRANCH PASS | Compose test requires explicit acknowledgement; saved-source editor excludes HTTP |
+| HLS | VOD/master/variants | BRANCH PASS | Real Media3 playback of two synthetic variants |
+| HLS | Manual quality and Auto | BRANCH PASS | Real Media3 track override and removal |
+| HLS | Live / Go Live | BRANCH PASS | Rolling local playlist, advancing media sequence, DVR-window seek and measured live-offset reduction |
+| DASH | MPD VOD / adaptive representations / audio | BRANCH PASS | Static local MPD with two AVC representations and AAC adaptation set |
+| RTSP | Production playback | BRANCH PASS | Media3 RTP-over-RTSP/TCP against isolated MediaMTX H.264/AAC server; run #242 |
+| RTSP | Credential safety | BRANCH PASS | URL userinfo rejected; authenticated RTSP not falsely claimed |
+| SMB | SMB2/SMB3 browse/auth/play | BRANCH PASS | SMBJ against isolated authenticated Samba; SMB1 excluded; run #242 |
+| SMB | Random seek / >3 GB offsets | BRANCH PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
+| SMB | Signing/encryption truth | BRANCH PASS | signing enabled; SMB3 server/share encryption honored, not claimed for SMB2 |
+| WebDAV | HTTPS PROPFIND/browse/auth | BRANCH PASS | deterministic authenticated PROPFIND, Depth, Unicode and folders-first mapping |
+| WebDAV | Secure XML/root confinement | BRANCH PASS | DTD/XXE and off-origin/off-root response rejection |
+| WebDAV | Playback/range | BRANCH PASS | resolved HTTPS entries use the shared Media3 OkHttp range path |
+| FTP | Browse/login/binary playback | BRANCH PASS | Commons Net against isolated authenticated pyftpdlib server; run #242 |
+| FTP | REST seek / >3 GB offsets | BRANCH PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
+| FTP | Cleartext warning | BRANCH PASS | domain validation and UI test require explicit acknowledgement |
+| FTPS | Explicit TLS implementation | PARTIAL | endpoint checking + `PBSZ 0` + `PROT P`; no real TLS FTP server test yet |
+| SFTP | SSH file transfer | NOT IMPLEMENTED | not aliased to FTP/FTPS |
+| Credentials | Keystore-backed encrypted vault | BRANCH PASS | AES/GCM ciphertext lifecycle and invalidation recovery test |
+| Credentials | No plaintext Room/media/log secret | BRANCH PASS | opaque Room ref, userinfo rejection, sanitized diagnostics/header tests |
+| Saved sources | Add/edit/test/rename/remove/forget | BRANCH PASS | Network center and reference-counted repository flows |
+| Browser | Breadcrumbs/Up/refresh/search/sort/Unicode | BRANCH PASS | Compose surface + isolated Unicode listings |
+| History | Stable network identity/resume | BRANCH PASS | signed tokens removed from canonical ID; sanitized URI persistence |
+| Playlist | Bounded HTTP/WebDAV M3U mixed queue | BRANCH PASS | 2 MiB/1,000 item non-recursive parser |
+| Sidecars | HTTP/HTTPS subtitle and external audio | BRANCH PASS | existing Step-4/5 repositories and shared MediaSource timeline; secret URLs rejected |
+| Diagnostics | Loading/buffering/reconnecting/error | BRANCH PASS | shared player monitor, connectivity state, buffer/bandwidth/retry/redacted URI |
+| Database | Room v5→v6 | BRANCH PASS | explicit migration preserves Steps 1–6 and adds secret-free network locations |
+| CI | Isolated network protocol job | BRANCH PASS | Samba/pyftpdlib/MediaMTX, run #242, no public media server or personal NAS |
+| Physical network/device matrix | NAS/router/WAN/OEM/large remote media | NOT VERIFIED | Deferred to Step 10 |
 
 ## Step-6 professional decoder engine
 
@@ -58,7 +99,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | Physical performance | 4K60/high bitrate/HDR/10-bit | NOT VERIFIED | Deferred to Step 10 |
 | Physical endurance | thermal/battery/long play | NOT VERIFIED | Deferred to Step 10 |
 
-## Step-5 professional audio engine — preserved through Step 6
+## Step-5 professional audio engine — preserved through Step 7
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
@@ -80,7 +121,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | Numerical safety | NaN/Infinity/filter/DC/output bounds | PASS | Existing Step-5 exact-DSP certification retained |
 | Sample rates | 44.1/48/96 kHz | PASS | Existing Step-5 exact-DSP certification retained |
 
-## Step-4 professional subtitle engine — preserved through Step 6
+## Step-4 professional subtitle engine — preserved through Step 7
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
@@ -93,7 +134,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | Appearance | Size/colour/background/edge/bottom margin | PASS | Existing Media3 SubtitleView path retained |
 | Android system caption style toggle | NOT IMPLEMENTED | Still intentionally not exposed as a fake control |
 
-## Step-3 player experience — preserved through Step 6
+## Step-3 player experience — preserved through Step 7
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
@@ -107,7 +148,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | PiP | Same-session continuity | PASS | Existing PiP certification retained |
 | Seek preview | Frame thumbnail preview | PARTIAL | Architecture/foundation only; Step 6 does not fabricate thumbnails |
 
-## Step-2 library — preserved through Step 6
+## Step-2 library — preserved through Step 7
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
@@ -119,7 +160,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | Files | Rename/delete | PASS | Existing provider-aware flows retained |
 | Media | Thumbnails | PASS | API-26/API-28 regression lanes retained |
 
-## Step-1 foundations — preserved through Step 6
+## Step-1 foundations — preserved through Step 7
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
@@ -130,26 +171,26 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | Media | Large-file-safe application types | PASS | Long-safe media/timing values retained |
 | Device | Capability foundation | PASS | Extended into Step-6 decoder inventory rather than replaced |
 
-## Step-6 certification evidence
+## Step-7 certification gate
 
-The Step-6 branch requires the exact final head to pass:
+The Step-7 branch requires the exact documentation-complete head to pass:
 
 - debug build
 - JVM/unit tests
 - release compilation
 - lint
-- complete API-35 instrumentation including real decoder integration and capability report
+- complete API-35 instrumentation including Steps 1–7 integration and decoder capability report
 - API-26 thumbnail regression
 - API-28 thumbnail regression
+- isolated API-35 SMB/FTP/RTSP protocol certification
 
-After the branch is green, the Step-6 PR must be merged and the exact `main` merge head must pass the same configured workflow before the overall result can be declared complete.
+After the branch is green, PR #12 must be merged with an expected-head lock and the exact `main` merge head must pass the same configured workflow before the overall result can be declared complete.
 
 See:
 
-- `STEP_6_ARCHITECTURE.md`
-- `STEP_6_TEST_MATRIX.md`
-- `STEP_6_DEPENDENCIES.md`
-- `STEP_6_COMPLETION_REPORT.md` once final exact-head evidence is recorded
+- `STEP_7_COMPLETION_REPORT.md`
+- `STEP_7_TEST_MATRIX.md`
+- `STEP_7_PROTOCOL_SECURITY.md`
 
 ## Physical certification deferred to Step 10
 
@@ -171,6 +212,6 @@ The following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
 
 ## Overall result
 
-Step 1–5 software/emulator functionality remains `PASS` as previously certified.
+Steps 1–6 software/emulator functionality remains `PASS` as previously certified.
 
-**Step 6 implementation is complete in scope, but the overall Step-6 result remains pending until the exact final branch head and post-merge `main` head both pass the required CI matrix.**
+**Step 7 implementation is complete in its declared software/emulator scope, but the overall Step-7 result remains certification pending until the exact documentation-complete branch head and exact resulting `main` head pass every required CI job. FTPS remains PARTIAL and physical network/device certification remains deferred to Step 10.**

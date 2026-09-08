@@ -8,6 +8,10 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ForwardingMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.rtsp.RtspMediaSource
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import com.zubaer.maxvideoplayer.feature.network.playback.NetworkDataSourceRouter
+import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
 import com.zubaer.maxvideoplayer.feature.subtitle.OffsetSubtitleParserFactory
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
@@ -20,19 +24,32 @@ class ProfessionalMediaSourceFactory(
     context: Context,
     private val subtitleRepository: SubtitleRepository,
     private val audioRepository: AudioRepository,
-) : ForwardingMediaSourceFactory(DefaultMediaSourceFactory(context.applicationContext)) {
+    private val networkRequestRegistry: NetworkRequestRegistry,
+) : ForwardingMediaSourceFactory(baseFactory(context, networkRequestRegistry)) {
     private val appContext = context.applicationContext
+    private val dataSourceFactory = NetworkDataSourceRouter.Factory(appContext, networkRequestRegistry)
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
-        val primary = DefaultMediaSourceFactory(appContext)
-            .setSubtitleParserFactory(
-                OffsetSubtitleParserFactory(
-                    mediaId = mediaItem.mediaId,
-                    delayMs = subtitleRepository.subtitleDelayFor(mediaItem.mediaId),
-                    subtitleRepository = subtitleRepository,
-                ),
-            )
-            .createMediaSource(mediaItem)
+        val primary = if (mediaItem.localConfiguration?.uri?.scheme.equals("rtsp", ignoreCase = true)) {
+            // RTP-over-RTSP/TCP works through NAT and with servers that reject UDP SETUP rather
+            // than waiting for Media3's UDP-inactivity fallback. This remains the same service-
+            // owned ExoPlayer and MediaSession; only the RTSP transport is selected explicitly.
+            RtspMediaSource.Factory()
+                .setForceUseRtpTcp(true)
+                .setTimeoutMs(RTSP_TIMEOUT_MS)
+                .createMediaSource(mediaItem)
+        } else {
+            DefaultMediaSourceFactory(dataSourceFactory)
+                .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(NETWORK_RETRY_COUNT))
+                .setSubtitleParserFactory(
+                    OffsetSubtitleParserFactory(
+                        mediaId = mediaItem.mediaId,
+                        delayMs = subtitleRepository.subtitleDelayFor(mediaItem.mediaId),
+                        subtitleRepository = subtitleRepository,
+                    ),
+                )
+                .createMediaSource(mediaItem)
+        }
 
         val external = audioRepository.selectedExternalFor(mediaItem.mediaId) ?: return primary
         val externalItem = MediaItem.Builder()
@@ -41,7 +58,18 @@ class ProfessionalMediaSourceFactory(
             .setMimeType(external.mimeType)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(external.displayName).build())
             .build()
-        val externalSource = DefaultMediaSourceFactory(appContext).createMediaSource(externalItem)
+        val externalSource = DefaultMediaSourceFactory(dataSourceFactory)
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(NETWORK_RETRY_COUNT))
+            .createMediaSource(externalItem)
         return MergingMediaSource(true, false, primary, externalSource)
+    }
+
+    private companion object {
+        const val NETWORK_RETRY_COUNT = 5
+        const val RTSP_TIMEOUT_MS = 15_000L
+
+        fun baseFactory(context: Context, registry: NetworkRequestRegistry): DefaultMediaSourceFactory =
+            DefaultMediaSourceFactory(NetworkDataSourceRouter.Factory(context.applicationContext, registry))
+                .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(NETWORK_RETRY_COUNT))
     }
 }

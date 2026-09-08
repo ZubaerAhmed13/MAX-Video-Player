@@ -83,6 +83,7 @@ fun LibraryScreen(
     onAddFolder: (Uri) -> Unit,
     onPlay: (LibraryPlaybackRequest) -> Unit,
     onOpenNetworkUrl: (String) -> Unit,
+    onOpenNetworkCenter: () -> Unit,
     onSection: (LibrarySection) -> Unit,
     onQuery: (String) -> Unit,
     onSort: (VideoSort) -> Unit,
@@ -180,6 +181,7 @@ fun LibraryScreen(
                     Button(onClick = { fileLauncher.launch(arrayOf("video/*", "audio/*")) }, modifier = Modifier.testTag("open_file_button")) { Text("Open file") }
                 }
                 item { OutlinedButton(onClick = { treeLauncher.launch(null) }, modifier = Modifier.testTag("add_folder_button")) { Text("Add folder") } }
+                item { OutlinedButton(onClick = onOpenNetworkCenter, modifier = Modifier.testTag("open_network_button")) { Text("Network") } }
                 item {
                     OutlinedButton(onClick = { if (hasPermission) onRefresh() else permissionLauncher.launch(mediaPermission) }) {
                         Text(if (hasPermission) "Refresh" else "Allow videos")

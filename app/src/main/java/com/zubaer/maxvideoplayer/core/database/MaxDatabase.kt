@@ -25,8 +25,9 @@ import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateEn
         AudioAssociationEntity::class,
         AudioMediaStateEntity::class,
         DecoderMediaStateEntity::class,
+        NetworkLocationEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class MaxDatabase : RoomDatabase() {
@@ -41,6 +42,7 @@ abstract class MaxDatabase : RoomDatabase() {
     abstract fun subtitleDao(): SubtitleDao
     abstract fun audioDao(): AudioDao
     abstract fun decoderMediaStateDao(): DecoderMediaStateDao
+    abstract fun networkLocationDao(): NetworkLocationDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -86,9 +88,16 @@ abstract class MaxDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `network_locations` (`id` TEXT NOT NULL, `displayName` TEXT NOT NULL, `protocol` TEXT NOT NULL, `host` TEXT NOT NULL, `port` INTEGER NOT NULL, `basePath` TEXT NOT NULL, `credentialRef` TEXT, `usernameHint` TEXT, `useGuest` INTEGER NOT NULL, `ftpPassiveMode` INTEGER NOT NULL, `ftpSecurityAcknowledged` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, `lastConnectedAtMs` INTEGER, PRIMARY KEY(`id`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_network_locations_credentialRef` ON `network_locations` (`credentialRef`)")
+            }
+        }
+
         fun create(context: Context): MaxDatabase =
             Room.databaseBuilder(context, MaxDatabase::class.java, "max-video-player.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }
