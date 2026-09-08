@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+fun String.asBuildConfigString(): String = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 android {
     namespace = "com.zubaer.maxvideoplayer"
     compileSdk = 36
@@ -16,6 +18,40 @@ android {
         versionName = "0.1.0-step1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Public OAuth client identifiers/redirect URIs are build-time configuration, never
+        // secrets. Empty values keep the provider visibly NOT_CONFIGURED instead of shipping fake
+        // credentials. Configure them in gradle.properties or CI for production distribution.
+        buildConfigField(
+            "String",
+            "CLOUD_GOOGLE_CLIENT_ID",
+            providers.gradleProperty("MAX_GOOGLE_DRIVE_CLIENT_ID").orElse("").get().asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "CLOUD_GOOGLE_REDIRECT_URI",
+            providers.gradleProperty("MAX_GOOGLE_DRIVE_REDIRECT_URI").orElse("maxvideoplayer://oauth/google").get().asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "CLOUD_MICROSOFT_CLIENT_ID",
+            providers.gradleProperty("MAX_ONEDRIVE_CLIENT_ID").orElse("").get().asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "CLOUD_MICROSOFT_REDIRECT_URI",
+            providers.gradleProperty("MAX_ONEDRIVE_REDIRECT_URI").orElse("maxvideoplayer://oauth/microsoft").get().asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "CLOUD_DROPBOX_CLIENT_ID",
+            providers.gradleProperty("MAX_DROPBOX_CLIENT_ID").orElse("").get().asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "CLOUD_DROPBOX_REDIRECT_URI",
+            providers.gradleProperty("MAX_DROPBOX_REDIRECT_URI").orElse("maxvideoplayer://oauth/dropbox").get().asBuildConfigString(),
+        )
     }
 
     buildTypes {
