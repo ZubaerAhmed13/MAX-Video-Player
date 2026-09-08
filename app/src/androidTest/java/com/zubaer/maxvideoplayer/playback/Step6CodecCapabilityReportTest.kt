@@ -1,7 +1,8 @@
 package com.zubaer.maxvideoplayer.playback
 
 import android.media.MediaCodecList
-import android.util.Base64
+import android.os.Build
+import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
@@ -11,7 +12,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.FileInputStream
 
 /** Produces the Step-6 CI emulator decoder inventory without treating it as universal Android support. */
 @RunWith(AndroidJUnit4::class)
@@ -37,7 +37,7 @@ class Step6CodecCapabilityReportTest {
         profile.availableVideoDecoders.forEach { decoder ->
             val platform = platformDecoders[decoder.name]
             assertTrue("Inventory contains a decoder Android no longer reports: ${decoder.name}", platform != null)
-            if (android.os.Build.VERSION.SDK_INT >= 29 && platform != null) {
+            if (Build.VERSION.SDK_INT >= 29 && platform != null) {
                 when (decoder.backend) {
                     DeviceDecoderBackend.HARDWARE -> assertTrue(platform.isHardwareAccelerated)
                     DeviceDecoderBackend.SOFTWARE -> assertTrue(platform.isSoftwareOnly)
@@ -84,26 +84,39 @@ class Step6CodecCapabilityReportTest {
         }
         assertTrue(context.getFileStreamPath(REPORT_FILE).length() > 0L)
 
-        // connectedDebugAndroidTest uninstalls the target package before the emulator-runner script
-        // resumes. Write the already-validated report through the shell while instrumentation is
-        // alive so CI can pull a shell-owned copy after Gradle finishes. Base64 keeps every report
-        // byte out of shell quoting/escaping semantics.
-        val encodedReport = Base64.encodeToString(report.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-        val exportCommand = "sh -c 'printf %s $encodedReport | base64 -d > $SHELL_REPORT_FILE'"
-        instrumentation.uiAutomation.executeShellCommand(exportCommand).use { descriptor ->
-            FileInputStream(descriptor.fileDescriptor).use { it.readBytes() }
+        // This report-export test is part of the API-35 certification lane. connectedDebugAndroidTest
+        // removes the target package before the emulator-runner script resumes, so use UiAutomation's
+        // explicit stdin pipe (API 31+) to let the shell own a durable copy in /data/local/tmp.
+        assertTrue("Step-6 capability report export requires API 31+", Build.VERSION.SDK_INT >= 31)
+        if (Build.VERSION.SDK_INT >= 31) {
+            val reportBytes = report.toByteArray(Charsets.UTF_8)
+            val descriptors = instrumentation.uiAutomation.executeShellCommandRw("cat > $SHELL_REPORT_FILE")
+            try {
+                ParcelFileDescriptor.AutoCloseOutputStream(descriptors[1]).use { stdin ->
+                    stdin.write(reportBytes)
+                    stdin.flush()
+                }
+                ParcelFileDescriptor.AutoCloseInputStream(descriptors[0]).use { stdout ->
+                    stdout.readBytes()
+                }
+            } finally {
+                descriptors.forEach { descriptor -> runCatching { descriptor.close() } }
+            }
+
+            val exportedBytes = instrumentation.uiAutomation
+                .executeShellCommand("wc -c $SHELL_REPORT_FILE")
+                .use { descriptor ->
+                    ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { reader ->
+                        reader.readText().trim().substringBefore(' ').toLongOrNull()
+                    }
+                }
+                ?: 0L
+            assertEquals(
+                "Shell-owned Step-6 decoder capability report size differs from source report",
+                reportBytes.size.toLong(),
+                exportedBytes,
+            )
         }
-        val exportedBytes = instrumentation.uiAutomation
-            .executeShellCommand("wc -c < $SHELL_REPORT_FILE")
-            .use { descriptor -> FileInputStream(descriptor.fileDescriptor).bufferedReader().use { it.readText() } }
-            .trim()
-            .toLongOrNull()
-            ?: 0L
-        assertEquals(
-            "Shell-owned Step-6 decoder capability report size differs from source report",
-            report.toByteArray(Charsets.UTF_8).size.toLong(),
-            exportedBytes,
-        )
     }
 
     private companion object {
