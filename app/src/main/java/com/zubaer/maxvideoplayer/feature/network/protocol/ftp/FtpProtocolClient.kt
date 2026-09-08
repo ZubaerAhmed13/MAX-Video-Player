@@ -18,6 +18,7 @@ import org.apache.commons.net.ftp.FTPReply
 import org.apache.commons.net.ftp.FTPSClient
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.net.URLEncoder
 
 class FtpProtocolClient : NetworkProtocolClient {
     override suspend fun testConnection(location: NetworkLocation, credential: NetworkCredential?): ConnectionTestResult =
@@ -82,7 +83,10 @@ class FtpProtocolClient : NetworkProtocolClient {
         val scheme = if (location.protocol == NetworkProtocol.FTPS) "ftps" else "ftp"
         val defaultPort = if (scheme == "ftp") 21 else 21
         val authority = if (location.port == defaultPort) location.host else "${location.host}:${location.port}"
-        return "$scheme://$authority/${remotePath(location, remotePath).trimStart('/')}"
+        val encodedPath = remotePath(location, remotePath).trimStart('/').split('/').joinToString("/") { segment ->
+            URLEncoder.encode(segment, Charsets.UTF_8.name()).replace("+", "%20")
+        }
+        return "$scheme://$authority/$encodedPath"
     }
 
     internal fun createConnectedClient(location: NetworkLocation, credential: NetworkCredential?): FTPClient {

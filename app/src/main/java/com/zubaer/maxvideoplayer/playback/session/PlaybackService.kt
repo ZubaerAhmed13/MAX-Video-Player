@@ -29,6 +29,7 @@ class PlaybackService : MediaSessionService() {
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(engine.player)
             if (isPlaying) startPersistenceTicker() else {
                 persistenceJob?.cancel()
                 persistenceJob = null
@@ -39,10 +40,6 @@ class PlaybackService : MediaSessionService() {
         override fun onPlaybackStateChanged(playbackState: Int) {
             (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(engine.player)
             if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) persistCurrent()
-        }
-
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
-            (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(engine.player)
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {

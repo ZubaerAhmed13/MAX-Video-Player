@@ -175,7 +175,7 @@ private fun NetworkHome(
 }
 
 @Composable
-private fun OpenStreamForm(
+internal fun OpenStreamForm(
     onCancel: () -> Unit,
     onOpen: (String, String, String, String, String, String, String) -> Unit,
 ) {
@@ -197,7 +197,7 @@ private fun OpenStreamForm(
         item { OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Display title (optional)") }, singleLine = true) }
         if (insecure) {
             item { Text("This HTTP connection is not encrypted. Passwords, tokens, and media traffic can be intercepted.", color = MaterialTheme.colorScheme.error) }
-            item { SettingSwitch("I understand the HTTP security risk", insecureAcknowledged) { insecureAcknowledged = it } }
+            item { SettingSwitch("I understand the HTTP security risk", insecureAcknowledged, Modifier.testTag("http_risk_ack")) { insecureAcknowledged = it } }
         }
         item { TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced options" else "Advanced authentication and headers") } }
         if (advanced) {
@@ -223,7 +223,7 @@ private fun OpenStreamForm(
 }
 
 @Composable
-private fun LocationEditor(
+internal fun LocationEditor(
     draft: NetworkLocationDraft,
     onDraft: (NetworkLocationDraft) -> Unit,
     onTest: (NetworkLocationDraft) -> Unit,
@@ -345,8 +345,8 @@ private fun NetworkEntryRow(entry: NetworkEntry, onClick: () -> Unit) {
 @Composable private fun SectionTitle(text: String) { Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
 
 @Composable
-private fun SettingSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+private fun SettingSwitch(label: String, checked: Boolean, modifier: Modifier = Modifier, onChange: (Boolean) -> Unit) {
+    Row(modifier.fillMaxWidth().clickable { onChange(!checked) }, verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
     }

@@ -20,6 +20,7 @@ import com.zubaer.maxvideoplayer.core.model.RepeatMode
 import com.zubaer.maxvideoplayer.core.model.SubtitlePlaybackState
 import com.zubaer.maxvideoplayer.core.model.SubtitleTrackInfo
 import com.zubaer.maxvideoplayer.core.model.VideoTrackInfo
+import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.feature.subtitle.ExternalSubtitleAttachment
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleAvailability
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleEncoding
@@ -44,9 +45,12 @@ import java.util.concurrent.Executor
 class PlaybackConnection(
     context: Context,
     private val subtitleRepository: SubtitleRepository = SubtitleRepository(context.applicationContext),
-    private val networkDiagnosticsMonitor: NetworkDiagnosticsMonitor = NetworkDiagnosticsMonitor(context.applicationContext),
+    networkDiagnosticsMonitor: NetworkDiagnosticsMonitor? = null,
 ) {
     private val appContext = context.applicationContext
+    private val networkDiagnosticsMonitor = networkDiagnosticsMonitor
+        ?: (appContext as? MaxVideoPlayerApplication)?.container?.networkDiagnosticsMonitor
+        ?: NetworkDiagnosticsMonitor(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val directExecutor = Executor { it.run() }
     private val _state = MutableStateFlow(PlaybackUiState())
