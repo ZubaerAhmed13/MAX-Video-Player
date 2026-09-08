@@ -24,7 +24,7 @@ class Step8UsbVirtualProviderTest {
 
     @Test
     fun contentPlaybackReadsCorrectBytesBeyondTwoGiBWithoutWholeFileCopy() {
-        val context = InstrumentationRegistry.getInstrumentation().context
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
         val source = NetworkDataSourceRouter.Factory(
             context,
             NetworkRequestRegistry(),
@@ -58,7 +58,7 @@ class Step8UsbVirtualProviderTest {
 
     @Test
     fun disconnectedRemovableProviderFailsCleanly() {
-        val context = InstrumentationRegistry.getInstrumentation().context
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
         Step8LargeVirtualContentProvider.available = false
         val source = NetworkDataSourceRouter.Factory(
             context,
