@@ -13,7 +13,7 @@ enum class NetworkProtocol(val defaultPort: Int, val browsable: Boolean, val enc
     HLS(443, false, true),
     DASH(443, false, true),
     RTSP(554, false, false),
-    SMB(445, true, true),
+    SMB(445, true, false),
     WEBDAV(443, true, true),
     FTP(21, true, false),
     FTPS(21, true, true),
@@ -141,6 +141,12 @@ object NetworkUriPolicy {
     )
     private val sensitiveHeaders = setOf("authorization", "cookie", "proxy-authorization", "x-api-key")
 
+    private fun isSensitiveQuery(name: String): Boolean {
+        val lower = name.lowercase(Locale.ROOT)
+        return lower in sensitiveQueryNames || lower.contains("token") || lower.contains("signature") ||
+            lower.contains("credential") || lower.startsWith("x-amz-") || lower.startsWith("x-goog-")
+    }
+
     fun normalizeForPlayback(raw: String): String {
         val trimmed = raw.trim()
         val uri = Uri.parse(trimmed)
@@ -161,7 +167,7 @@ object NetworkUriPolicy {
         }
         builder.clearQuery()
         uri.queryParameterNames.forEach { name ->
-            val value = if (name.lowercase(Locale.ROOT) in sensitiveQueryNames) "***" else uri.getQueryParameter(name).orEmpty()
+            val value = if (isSensitiveQuery(name)) "***" else uri.getQueryParameter(name).orEmpty()
             builder.appendQueryParameter(name, value)
         }
         builder.build().toString()
@@ -180,7 +186,7 @@ object NetworkUriPolicy {
             builder.encodedAuthority(if (user.isBlank()) hostPort else "$user@$hostPort")
         }
         uri.queryParameterNames.sorted().forEach { name ->
-            if (name.lowercase(Locale.ROOT) !in sensitiveQueryNames) {
+            if (!isSensitiveQuery(name)) {
                 uri.getQueryParameters(name).forEach { builder.appendQueryParameter(name, it) }
             }
         }

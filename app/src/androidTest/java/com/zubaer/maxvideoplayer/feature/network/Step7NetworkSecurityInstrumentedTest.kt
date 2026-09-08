@@ -1,0 +1,182 @@
+package com.zubaer.maxvideoplayer.feature.network
+
+import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkCredential
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkLocation
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkProtocol
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
+import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
+import com.zubaer.maxvideoplayer.feature.network.presentation.NetworkLocationDraft
+import com.zubaer.maxvideoplayer.feature.network.protocol.http.NetworkHttpClientFactory
+import com.zubaer.maxvideoplayer.feature.network.protocol.webdav.SecureWebDavParser
+import com.zubaer.maxvideoplayer.feature.network.security.CredentialVault
+import mockwebserver3.MockResponse
+import mockwebserver3.MockWebServer
+import okhttp3.Request
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.IOException
+
+@RunWith(AndroidJUnit4::class)
+class Step7NetworkSecurityInstrumentedTest {
+    private val servers = mutableListOf<MockWebServer>()
+
+    @After
+    fun closeServers() {
+        servers.forEach { runCatching { it.close() } }
+        servers.clear()
+    }
+
+    @Test
+    fun signedTokensAreRedactedAndDoNotChangeStableCanonicalIdentity() {
+        val first = "https://Media.Example.test/video/Feature.mkv?quality=4k&token=first&X-Amz-Signature=secret-one"
+        val refreshed = "https://Media.Example.test/video/Feature.mkv?X-Amz-Signature=secret-two&token=second&quality=4k"
+
+        val sanitized = NetworkUriPolicy.sanitize(first)
+        assertFalse(sanitized.contains("first"))
+        assertFalse(sanitized.contains("secret-one"))
+        assertTrue(sanitized.contains("quality=4k"))
+        assertEquals(NetworkUriPolicy.canonicalIdentity(first), NetworkUriPolicy.canonicalIdentity(refreshed))
+    }
+
+    @Test
+    fun traversalCannotEscapeSavedSourceRoot() {
+        assertThrows(IllegalArgumentException::class.java) { NetworkUriPolicy.safeRemotePath("../../secret/video.mkv") }
+        assertEquals("folder/video.mkv", NetworkUriPolicy.safeRemotePath("folder/./sub/../video.mkv"))
+    }
+
+    @Test
+    fun authorizationIsScopedToTheExactOriginAndDirectoryBoundary() {
+        val registry = NetworkRequestRegistry()
+        val root = "https://media.example.test/library/a/master.m3u8"
+        registry.registerUri(root, null, NetworkCredential(username = "alice", password = "secret"))
+
+        assertTrue(registry.resolveHttp("https://media.example.test/library/a/segment-1.ts")?.requestHeaders()?.containsKey("Authorization") == true)
+        assertNull(registry.resolveHttp("https://media.example.test/library/another/segment.ts"))
+        assertNull(registry.resolveHttp("https://cdn.example.test/library/a/segment.ts"))
+        assertFalse(registry.safeHeaders(root).values.any { it.contains("secret") })
+    }
+
+    @Test
+    fun webDavParserRejectsExternalEntitiesAndParsesUnicodeWithoutMutation() {
+        val malicious = """<?xml version="1.0"?><!DOCTYPE x [<!ENTITY leak SYSTEM="file:///etc/passwd">]><d:multistatus xmlns:d="DAV:"><d:response><d:href>&leak;</d:href></d:response></d:multistatus>"""
+        assertThrows(Exception::class.java) { SecureWebDavParser.parse(malicious.toByteArray()) }
+
+        val safe = """<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/ভিডিও/日本語%20video.mkv</d:href><d:propstat><d:prop><d:getcontentlength>4294967297</d:getcontentlength><d:getcontenttype>video/x-matroska</d:getcontenttype></d:prop></d:propstat></d:response></d:multistatus>"""
+        val resource = SecureWebDavParser.parse(safe.toByteArray()).single()
+        assertEquals("/ভিডিও/日本語%20video.mkv", resource.href)
+        assertEquals(4_294_967_297L, resource.sizeBytes)
+    }
+
+    @Test
+    fun credentialVaultEncryptsUpdatesDeletesAndRecoversFromInvalidPayload() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val vault = CredentialVault(context)
+        val ref = vault.save(NetworkCredential(username = "alice", password = "known-plain-password", bearerToken = "known-token"))
+
+        assertEquals("known-plain-password", vault.get(ref)?.password)
+        assertEquals(ref, vault.save(NetworkCredential(username = "alice", password = "updated-password"), ref))
+        assertEquals("updated-password", vault.get(ref)?.password)
+        val persisted = context.getSharedPreferences("network_credential_vault_v1", android.content.Context.MODE_PRIVATE).getString(ref, "").orEmpty()
+        assertFalse(persisted.contains("updated-password"))
+
+        context.getSharedPreferences("network_credential_vault_v1", android.content.Context.MODE_PRIVATE).edit().putString(ref, "invalid").commit()
+        assertNull(vault.get(ref))
+        assertFalse(vault.contains(ref))
+
+        val disposable = vault.save(NetworkCredential(password = "delete-me"))
+        vault.delete(disposable)
+        assertNull(vault.get(disposable))
+    }
+
+    @Test
+    fun plainFtpCredentialRequiresExplicitAcknowledgement() {
+        val unsafe = NetworkLocationDraft(
+            displayName = "FTP",
+            protocol = NetworkProtocol.FTP,
+            host = "ftp.example.test",
+            port = "21",
+            password = "secret",
+            ftpSecurityAcknowledged = false,
+        )
+        assertThrows(IllegalStateException::class.java) { unsafe.location() }
+        assertEquals("ftp.example.test", unsafe.copy(ftpSecurityAcknowledged = true).location().host)
+    }
+
+    @OptIn(UnstableApi::class)
+    @Test
+    fun media3HttpDataSourceUsesRangesAndPreservesAuthentication() {
+        val server = server()
+        server.enqueue(MockResponse.Builder().code(206).setHeader("Content-Range", "bytes 5-9/10").body("56789").build())
+        val url = server.url("/media/movie.mp4").toString()
+        val registry = NetworkRequestRegistry().apply {
+            registerUri(url, null, NetworkCredential(username = "range-user", password = "range-password"))
+        }
+        val source = OkHttpDataSource.Factory(NetworkHttpClientFactory.create(registry)).createDataSource()
+
+        val length = source.open(DataSpec.Builder().setUri(url).setPosition(5L).build())
+        val buffer = ByteArray(8)
+        val count = source.read(buffer, 0, buffer.size)
+        source.close()
+
+        val recorded = server.takeRequest()
+        assertEquals("bytes=5-", recorded.headers["Range"])
+        assertTrue(recorded.headers["Authorization"].orEmpty().startsWith("Basic "))
+        assertEquals(5L, length)
+        assertEquals("56789", String(buffer, 0, count))
+    }
+
+    @Test
+    fun redirectsWorkButCrossHostAuthorizationIsNotForwarded() {
+        val origin = server()
+        val destination = server()
+        origin.enqueue(MockResponse.Builder().code(302).setHeader("Location", destination.url("/final")).build())
+        destination.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val start = origin.url("/stream/start").toString()
+        val registry = NetworkRequestRegistry().apply {
+            registerUri(start, null, NetworkCredential(bearerToken = "must-not-leak"))
+        }
+        val response = NetworkHttpClientFactory.create(registry).newCall(Request.Builder().url(start).build()).execute()
+        response.use { assertEquals(200, it.code) }
+
+        assertEquals("Bearer must-not-leak", origin.takeRequest().headers["Authorization"])
+        assertNull(destination.takeRequest().headers["Authorization"])
+    }
+
+    @Test
+    fun redirectLoopsFailWithinTheHttpStacksBoundedPolicy() {
+        val server = server()
+        repeat(22) { server.enqueue(MockResponse.Builder().code(302).setHeader("Location", "/loop").build()) }
+        val request = Request.Builder().url(server.url("/loop")).build()
+
+        assertThrows(IOException::class.java) {
+            NetworkHttpClientFactory.create(NetworkRequestRegistry()).newCall(request).execute().use { }
+        }
+        assertTrue(server.requestCount in 2..21)
+    }
+
+    @Test
+    fun largeOffsetsRemainLongAcrossNetworkModels() {
+        val location = NetworkLocation(displayName = "SMB", protocol = NetworkProtocol.SMB, host = "nas", basePath = "media")
+        val spec = DataSpec.Builder().setUri("maxsmb://${location.id}/huge.mkv").setPosition(3_221_225_472L).setLength(C.LENGTH_UNSET.toLong()).build()
+        assertNotEquals(spec.position.toInt().toLong(), spec.position)
+        assertEquals(3_221_225_472L, spec.position)
+    }
+
+    private fun server(): MockWebServer = MockWebServer().also {
+        it.start()
+        servers += it
+    }
+}

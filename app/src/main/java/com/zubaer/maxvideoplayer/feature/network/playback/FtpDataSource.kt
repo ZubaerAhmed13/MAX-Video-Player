@@ -20,6 +20,7 @@ class FtpDataSource(
     private var openedUri: Uri? = null
     private var client: FTPClient? = null
     private var input: InputStream? = null
+    private var remoteSize: Long? = null
     private var position = 0L
     private var bytesRemaining = C.LENGTH_UNSET.toLong()
     private var opened = false
@@ -31,14 +32,19 @@ class FtpDataSource(
         openedUri = dataSpec.uri
         position = dataSpec.position
         reconnectCount = 0
-        openRemote()
-        val path = openedUri?.path.orEmpty()
-        val size = client?.mlistFile(path)?.size?.takeIf { it >= 0L }
-        if (size != null && position > size) throw DataSourceException(DataSourceException.POSITION_OUT_OF_RANGE)
-        bytesRemaining = when {
-            dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
-            size != null -> size - position
-            else -> C.LENGTH_UNSET.toLong()
+        try {
+            openRemote()
+            val size = remoteSize
+            if (size != null && position > size) throw DataSourceException(DataSourceException.POSITION_OUT_OF_RANGE)
+            bytesRemaining = when {
+                dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
+                size != null -> size - position
+                else -> C.LENGTH_UNSET.toLong()
+            }
+        } catch (error: Throwable) {
+            closeRemote()
+            remoteSize = null
+            throw error
         }
         opened = true
         transferStarted(dataSpec)
@@ -77,6 +83,7 @@ class FtpDataSource(
             opened = false
             transferEnded()
         }
+        remoteSize = null
     }
 
     private fun openRemote() {
@@ -85,6 +92,11 @@ class FtpDataSource(
         val location = context.location ?: throw IOException("FTP location is unavailable")
         val connected = protocolClient.createConnectedClient(location, context.credential)
         try {
+            val observedSize = connected.mlistFile(uri.path.orEmpty())?.size?.takeIf { it >= 0L }
+            if (remoteSize != null && observedSize != null && remoteSize != observedSize) {
+                throw IOException("The remote FTP file changed during playback")
+            }
+            remoteSize = observedSize ?: remoteSize
             connected.restartOffset = position
             val stream = connected.retrieveFileStream(uri.path.orEmpty())
                 ?: throw IOException("FTP server rejected the media range (${connected.replyCode})")

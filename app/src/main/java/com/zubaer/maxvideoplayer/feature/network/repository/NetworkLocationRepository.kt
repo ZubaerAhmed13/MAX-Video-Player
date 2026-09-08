@@ -13,10 +13,10 @@ class NetworkLocationRepository(
     private val dao: NetworkLocationDao,
     private val vault: CredentialVault,
 ) {
-    fun observeAll(): Flow<List<NetworkLocation>> = dao.observeAll().map { rows -> rows.map(NetworkLocationEntity::toModel) }
+    fun observeAll(): Flow<List<NetworkLocation>> = dao.observeAll().map { rows -> rows.map { it.toModel() } }
 
     suspend fun get(id: String): NetworkLocation? = dao.get(id)?.toModel()
-    suspend fun all(): List<NetworkLocation> = dao.all().map(NetworkLocationEntity::toModel)
+    suspend fun all(): List<NetworkLocation> = dao.all().map { it.toModel() }
 
     suspend fun save(location: NetworkLocation, credential: NetworkCredential?, rememberCredential: Boolean): NetworkLocation {
         val old = dao.get(location.id)?.toModel()

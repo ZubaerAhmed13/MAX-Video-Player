@@ -38,10 +38,15 @@ class SmbDataSource(
         openedUri = dataSpec.uri
         position = dataSpec.position
         reconnectCount = 0
-        openRemote()
-        val size = remoteFile!!.getFileInformation(FileStandardInformation::class.java).endOfFile
-        if (position > size) throw DataSourceException(DataSourceException.POSITION_OUT_OF_RANGE)
-        bytesRemaining = if (dataSpec.length == C.LENGTH_UNSET.toLong()) size - position else minOf(dataSpec.length, size - position)
+        try {
+            openRemote()
+            val size = remoteFile!!.getFileInformation(FileStandardInformation::class.java).endOfFile
+            if (position > size) throw DataSourceException(DataSourceException.POSITION_OUT_OF_RANGE)
+            bytesRemaining = if (dataSpec.length == C.LENGTH_UNSET.toLong()) size - position else minOf(dataSpec.length, size - position)
+        } catch (error: Throwable) {
+            closeRemote()
+            throw error
+        }
         opened = true
         transferStarted(dataSpec)
         return bytesRemaining

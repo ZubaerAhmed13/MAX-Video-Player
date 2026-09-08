@@ -23,7 +23,6 @@ import java.io.ByteArrayInputStream
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Locale
-import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
 class WebDavProtocolClient(
@@ -124,8 +123,8 @@ internal object SecureWebDavParser {
             setFeature("http://xml.org/sax/features/external-general-entities", false)
             setFeature("http://xml.org/sax/features/external-parameter-entities", false)
             setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
+            runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "") }
+            runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "") }
             isXIncludeAware = false
             setExpandEntityReferences(false)
         }
