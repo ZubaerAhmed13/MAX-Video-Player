@@ -20,8 +20,8 @@ import com.zubaer.maxvideoplayer.feature.audio.ProfessionalMediaSourceFactory
 import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderFormatSnapshot
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.ProfessionalRenderersFactory
-import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class Media3PlaybackEngine(
@@ -124,7 +124,7 @@ class Media3PlaybackEngine(
     override val player: Player get() = exoPlayer
 
     fun reconfigureVideoDecoder(mode: DecoderMode = decoderRepository.requestedMode()) {
-        if (exoPlayer.mediaItemCount == 0) return
+        if (exoPlayer.isReleased || exoPlayer.mediaItemCount == 0) return
         if (C.TRACK_TYPE_VIDEO in exoPlayer.trackSelectionParameters.disabledTrackTypes) {
             decoderRepository.markVideoDecoderInactive("Video decoder inactive — audio-only mode")
             return
@@ -180,9 +180,15 @@ class Media3PlaybackEngine(
     }
 
     override fun release() {
-        exoPlayer.removeAnalyticsListener(decoderAnalyticsListener)
-        exoPlayer.removeListener(decoderFailureListener)
-        exoPlayer.release()
+        // CastPlayer.release() releases whichever delegate is active. If local playback was active,
+        // ExoPlayer may already have been released by the service-owned CastPlayer. Avoid performing
+        // a second renderer release while still ensuring the inactive local delegate is released
+        // when the service was casting at shutdown.
+        if (!exoPlayer.isReleased) {
+            exoPlayer.removeAnalyticsListener(decoderAnalyticsListener)
+            exoPlayer.removeListener(decoderFailureListener)
+            exoPlayer.release()
+        }
         decoderRepository.markVideoDecoderInactive("Playback released")
         audioRepository.setDspPipelineInstalled(false)
     }
