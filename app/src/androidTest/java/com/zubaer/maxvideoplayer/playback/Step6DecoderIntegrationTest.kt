@@ -76,13 +76,11 @@ class Step6DecoderIntegrationTest {
                 connection.state.value.mediaId == media.stableId && repository.state.value.mediaId == media.stableId
             })
             repository.requestModeForCurrentMedia(media.stableId, DecoderMode.AUTO)
-            assertTrue("Auto did not initialize a decoder or report a failure for the Step-6 fixture", await(15_000L) {
+            assertTrue("Auto did not initialize the actual decoder for the Step-6 fixture", await(15_000L) {
                 val playback = connection.state.value
                 playback.mediaId == media.stableId &&
-                    playback.error == null && (
-                    repository.state.value.diagnostics.activeDecoderName != null ||
-                        repository.state.value.diagnostics.lastFailure != null
-                    )
+                    playback.error == null &&
+                    repository.state.value.diagnostics.activeDecoderName != null
             })
             assertEquals(media.stableId, connection.state.value.mediaId)
             assertNull("Auto playback failed: ${connection.state.value.error}", connection.state.value.error)
