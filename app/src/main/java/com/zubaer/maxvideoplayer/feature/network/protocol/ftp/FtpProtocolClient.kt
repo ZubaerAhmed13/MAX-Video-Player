@@ -93,6 +93,11 @@ class FtpProtocolClient : NetworkProtocolClient {
         val client: FTPClient = if (location.protocol == NetworkProtocol.FTPS) {
             FTPSClient(false).apply { setEndpointCheckingEnabled(true) }
         } else FTPClient()
+        // FTP's historical default control encoding is ISO-8859-1. Modern servers advertise and
+        // use UTF-8, but relying on a library default corrupts non-ASCII directory names before
+        // path confinement and file classification run. Select UTF-8 before opening the control
+        // connection so LIST/MLSD names and commands use the same encoding end to end.
+        client.controlEncoding = Charsets.UTF_8.name()
         client.connectTimeout = 15_000
         client.defaultTimeout = 15_000
         @Suppress("DEPRECATION")

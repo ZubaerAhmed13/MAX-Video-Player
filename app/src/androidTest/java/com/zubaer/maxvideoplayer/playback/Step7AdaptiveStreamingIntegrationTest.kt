@@ -48,7 +48,9 @@ class Step7AdaptiveStreamingIntegrationTest {
             })
             assertNull("HLS failed: ${connection.state.value.error}", connection.state.value.error)
             assertEquals(NetworkProtocol.HLS, connection.state.value.network.protocol)
-            assertTrue("HLS variants were not exposed as actual Media3 tracks", connection.state.value.videoTracks.mapNotNull { it.height }.toSet().containsAll(setOf(90, 180)))
+            assertTrue("HLS variants were not exposed as actual Media3 tracks", await(5_000L) {
+                connection.state.value.videoTracks.mapNotNull { it.height }.toSet().containsAll(setOf(90, 180))
+            })
             val low = connection.state.value.videoTracks.minBy { it.height ?: Int.MAX_VALUE }
             instrumentation.runOnMainSync { connection.selectVideoTrack(low.key) }
             assertTrue("Manual HLS quality override did not become effective", await(5_000L) {
