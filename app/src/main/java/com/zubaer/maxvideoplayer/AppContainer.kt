@@ -10,6 +10,7 @@ import com.zubaer.maxvideoplayer.core.media.SafTreeScanner
 import com.zubaer.maxvideoplayer.core.media.UriAvailabilityChecker
 import com.zubaer.maxvideoplayer.feature.audio.AudioPlaybackController
 import com.zubaer.maxvideoplayer.feature.audio.AudioRepository
+import com.zubaer.maxvideoplayer.feature.cloud.auth.CloudOAuthCoordinator
 import com.zubaer.maxvideoplayer.feature.cloud.auth.CloudTokenVault
 import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudPlaybackRegistry
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
@@ -33,6 +34,9 @@ class AppContainer(context: Context) {
     val credentialVault: CredentialVault by lazy { CredentialVault(appContext) }
     val cloudTokenVault: CloudTokenVault by lazy { CloudTokenVault(appContext) }
     val cloudPlaybackRegistry: CloudPlaybackRegistry by lazy { CloudPlaybackRegistry() }
+    val cloudOAuthCoordinator: CloudOAuthCoordinator by lazy {
+        CloudOAuthCoordinator(database.cloudAccountDao(), cloudTokenVault, cloudPlaybackRegistry)
+    }
     val networkRequestRegistry: NetworkRequestRegistry by lazy { NetworkRequestRegistry() }
     val networkDiagnosticsMonitor: NetworkDiagnosticsMonitor by lazy { NetworkDiagnosticsMonitor(appContext) }
     val networkLocationRepository: NetworkLocationRepository by lazy {
