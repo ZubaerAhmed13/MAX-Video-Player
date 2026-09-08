@@ -1,6 +1,7 @@
 package com.zubaer.maxvideoplayer.playback
 
 import android.media.MediaCodecList
+import android.util.Base64
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
@@ -84,10 +85,11 @@ class Step6CodecCapabilityReportTest {
         assertTrue(context.getFileStreamPath(REPORT_FILE).length() > 0L)
 
         // connectedDebugAndroidTest uninstalls the target package before the emulator-runner script
-        // resumes. Export a shell-owned copy while instrumentation is still alive so CI can collect
-        // the truthful device report after Gradle finishes without depending on app-private storage.
-        val exportCommand =
-            "sh -c 'run-as ${context.packageName} cat files/$REPORT_FILE > $SHELL_REPORT_FILE'"
+        // resumes. Write the already-validated report through the shell while instrumentation is
+        // alive so CI can pull a shell-owned copy after Gradle finishes. Base64 keeps every report
+        // byte out of shell quoting/escaping semantics.
+        val encodedReport = Base64.encodeToString(report.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val exportCommand = "sh -c 'printf %s $encodedReport | base64 -d > $SHELL_REPORT_FILE'"
         instrumentation.uiAutomation.executeShellCommand(exportCommand).use { descriptor ->
             FileInputStream(descriptor.fileDescriptor).use { it.readBytes() }
         }
@@ -97,7 +99,11 @@ class Step6CodecCapabilityReportTest {
             .trim()
             .toLongOrNull()
             ?: 0L
-        assertTrue("Shell-owned Step-6 decoder capability report was not exported", exportedBytes > 0L)
+        assertEquals(
+            "Shell-owned Step-6 decoder capability report size differs from source report",
+            report.toByteArray(Charsets.UTF_8).size.toLong(),
+            exportedBytes,
+        )
     }
 
     private companion object {
