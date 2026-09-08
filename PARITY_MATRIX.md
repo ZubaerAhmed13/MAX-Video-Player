@@ -24,6 +24,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | RTSP | Credential safety | PASS | URL userinfo rejected at input; private source injection is masked from controller-visible timeline/history/logs |
 | SMB | SMB2/SMB3 browse/auth/play | PASS | SMBJ against isolated authenticated Samba; SMB1 excluded; run #242 |
 | SMB | Random seek / >3 GB offsets | PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
+| SMB | Remote-file-change detection | PASS | full SMB metadata identity compared after reconnect; same-size replacement rejected in run #251 |
 | SMB | Signing/encryption truth | PASS | signing enabled; SMB3 server/share encryption honored, not claimed for SMB2 |
 | WebDAV | HTTPS and acknowledged-HTTP PROPFIND/browse/auth | PASS | deterministic authenticated PROPFIND, Depth, Unicode and folders-first mapping |
 | WebDAV | Secure XML/root confinement | PASS | DTD/XXE and off-origin/off-root response rejection |
@@ -43,7 +44,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | Sidecars | HTTP/HTTPS subtitle and external audio | PASS | existing Step-4/5 repositories and shared MediaSource timeline; secret URLs rejected |
 | Diagnostics | Loading/buffering/reconnecting/error | PASS | shared player monitor, connectivity state, buffer/bandwidth/retry/redacted URI |
 | Database | Room v5→v6 | PASS | explicit migration preserves Steps 1–6 and adds secret-free network locations |
-| CI | Isolated network protocol job | PASS | Samba/plain FTP/TLS-required FTPS/authenticated MediaMTX, run #248 |
+| CI | Isolated network protocol job | PASS | Samba including forced reconnect/same-size replacement, plain FTP, TLS-required FTPS and authenticated MediaMTX; run #251 |
 | Physical network/device matrix | NAS/router/WAN/OEM/large remote media | NOT VERIFIED | Deferred to Step 10 |
 
 ## Step-6 professional decoder engine

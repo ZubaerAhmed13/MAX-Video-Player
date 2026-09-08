@@ -10,7 +10,7 @@ MX Player Pro is used only as a functionality/workflow reference. This repositor
 
 Step 7 adds real HTTP/HTTPS progressive playback, HLS, DASH, RTSP, SMB2/3, WebDAV, FTP and explicit FTPS integration to the existing single service-owned Media3 player. It includes direct streams, authenticated saved locations, server browsing, stable remote history, network playlists, remote subtitle/audio attachment, adaptive quality, live controls, bounded reconnect, secure credential storage and redacted diagnostics.
 
-The original Step-7 chain passed runs #242–#244. Review-gap implementation head `3addcee62754afb61479415d67e8e654cf171e16` passed every build, release, lint, emulator and expanded Samba/FTP/explicit-FTPS/authenticated-RTSP test step in run #248. PR #14's documentation-complete head and resulting `main` gate are authoritative in GitHub history and the final handoff. See `STEP_7_FINAL_CERTIFICATION.md`.
+The original Step-7 chain passed runs #242–#244. Review-gap implementation head `3addcee62754afb61479415d67e8e654cf171e16` passed every functional gate in run #248, and its documentation-complete PR #14 head and resulting `main` passed runs #249–#250. SMB change-detection implementation head `762e9e894063d2a9fd203432f367d3eeea50bd19` passed run #251. PR #15's exact closure head and resulting `main` gate are authoritative in GitHub history and the final handoff. See `STEP_7_FINAL_CERTIFICATION.md`.
 
 Explicit FTPS is fully automated with required control/data TLS and hostname verification. SFTP is not implemented. Physical NAS, weak-network, large remote media, 4K/HDR, long-play, battery, thermal and OEM certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
@@ -34,7 +34,7 @@ This is a fully native Android application. It does not use WebView, Capacitor, 
 
 ## Step-7 professional network playback
 
-Network sources flow through `NetworkRepository`, protocol-specific clients and `NetworkDataSourceRouter` into the existing `ProfessionalMediaSourceFactory`, `PlaybackService`, MediaSession and ExoPlayer. SMB and FTP use bounded random-access DataSources; HTTP/WebDAV/HLS/DASH use the shared OkHttp-backed Media3 path; RTSP uses Media3's RTSP module with RTP-over-RTSP/TCP selected explicitly. No normal protocol path copies a full movie before playback.
+Network sources flow through `NetworkRepository`, protocol-specific clients and `NetworkDataSourceRouter` into the existing `ProfessionalMediaSourceFactory`, `PlaybackService`, MediaSession and ExoPlayer. SMB and FTP use bounded random-access DataSources; HTTP/WebDAV/HLS/DASH use the shared OkHttp-backed Media3 path; RTSP uses Media3's RTSP module with RTP-over-RTSP/TCP selected explicitly. SMB reconnects compare size, persistent file index, creation time, last-write time and change time before resuming at the current 64-bit offset. No normal protocol path copies a full movie before playback.
 
 The Network center supports saved HTTP/HTTPS, WebDAV over HTTPS or explicitly acknowledged HTTP, SMB, FTP and FTPS locations with add/edit/test/browse/remove/forget flows. Direct and saved cleartext transports require explicit acknowledgement. Authenticated RTSP BASIC/DIGEST uses credentials entered separately from the URL.
 

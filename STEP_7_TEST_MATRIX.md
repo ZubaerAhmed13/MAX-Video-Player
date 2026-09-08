@@ -2,7 +2,7 @@
 
 Status terms: `PASS`, `PARTIAL`, `PENDING`, `NOT IMPLEMENTED`, `NOT VERIFIED — DEFERRED TO STEP 10`.
 
-This matrix separates software/emulator evidence from physical-network certification. The implementation head passed run #242, the documentation-complete branch head passed run #243, and the exact resulting `main` head passed run #244. Step 7 is PASS within the declared boundary.
+This matrix separates software/emulator evidence from physical-network certification. The original exact-head chain passed runs #242–#244, review-gap closure passed runs #248–#250, and SMB change-detection implementation head `762e9e894063d2a9fd203432f367d3eeea50bd19` passed run #251. Step 7 is PASS within the declared boundary.
 
 ## Deterministic HTTP and security instrumentation
 
@@ -51,7 +51,7 @@ The emulator reaches only the isolated runner host. Assertions cover:
 
 | Protocol | Browse/auth | Random access / large offset | Production playback | Candidate status |
 |---|---|---|---|---|
-| SMB | authenticated listing, Unicode directory, rejected wrong password | exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `SmbDataSource` | PASS — run #242 |
+| SMB | authenticated listing, Unicode directory, rejected wrong password | exact bytes, 3,221,225,472 offset, and same-size replacement rejected after forced reconnect | service-owned Media3 through `SmbDataSource` | PASS — run #251 |
 | FTP | authenticated listing, Unicode directory, rejected wrong password | REST-backed exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `FtpDataSource` | PASS — run #242 |
 | FTPS | authenticated TLS listing, Unicode directory, rejected wrong password | TLS-protected REST exact bytes and >3 GB offset | service-owned Media3 through `FtpDataSource` | PASS — run #248 |
 | RTSP | authenticated isolated server | explicitly configured Media3 RTP-over-RTSP/TCP transport | READY/playing with credential-free public MediaItem | PASS — run #248 |
@@ -102,7 +102,7 @@ Every final branch and main gate retains:
 
 ## Exact-head gates
 
-Original implementation certification: exact SHA `4cb661b978de502b99bef864cc99a53c1540939a`, Android CI run #242 (`34239231820`) — PASS. Review-gap implementation SHA `3addcee62754afb61479415d67e8e654cf171e16` passed the expanded workflow in run #248 (`34251887641`). See `STEP_7_FINAL_CERTIFICATION.md` for job and artifact evidence.
+Original implementation certification: exact SHA `4cb661b978de502b99bef864cc99a53c1540939a`, Android CI run #242 (`34239231820`) — PASS. Review-gap implementation SHA `3addcee62754afb61479415d67e8e654cf171e16` passed every functional gate in run #248 (`34251887641`), followed by exact-head/main passes #249–#250. SMB change-detection SHA `762e9e894063d2a9fd203432f367d3eeea50bd19` passed run #251 (`34259916178`). See `STEP_7_FINAL_CERTIFICATION.md` for job and artifact evidence.
 
 Completed gates for documentation-complete SHA `1a89ecc48906e151378373eb4af7f5210b8353c9` in run #243:
 
