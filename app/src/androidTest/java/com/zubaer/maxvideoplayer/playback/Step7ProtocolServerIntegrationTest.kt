@@ -18,6 +18,7 @@ import com.zubaer.maxvideoplayer.feature.network.model.NetworkEntryType
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkLocation
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkProtocol
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkDataSourceRouter
+import com.zubaer.maxvideoplayer.feature.network.playback.SmbDataSource
 import com.zubaer.maxvideoplayer.feature.network.protocol.ftp.FtpProtocolClient
 import com.zubaer.maxvideoplayer.feature.network.protocol.smb.SmbProtocolClient
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
@@ -27,9 +28,13 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Runs only in the dedicated CI lane, which provisions isolated Samba, FTP, FTPS and RTSP servers on
@@ -76,7 +81,7 @@ class Step7ProtocolServerIntegrationTest {
             port = 2122,
         )
 
-        certifySmb(app, smbLocation, credential, fixture)
+        certifySmb(app, smbLocation, credential, fixture, host)
         certifyFtp(app, ftpLocation, credential, fixture)
         certifyFtp(app, ftpsLocation, credential, fixture)
 
@@ -132,6 +137,7 @@ class Step7ProtocolServerIntegrationTest {
         location: NetworkLocation,
         credential: NetworkCredential,
         fixture: ByteArray,
+        host: String,
     ) {
         val client = SmbProtocolClient()
         val entries = runBlocking { client.list(location, credential, "") }
@@ -143,6 +149,45 @@ class Step7ProtocolServerIntegrationTest {
         app.container.networkRequestRegistry.registerUri(uri, location, credential)
         certifyRandomRead(app, uri, fixture)
         certifyLargeOffset(app, client.playbackUri(location, LARGE_FILE), location, credential)
+        certifySmbRemoteChange(app, client, location, credential, host)
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun certifySmbRemoteChange(
+        app: MaxVideoPlayerApplication,
+        client: SmbProtocolClient,
+        location: NetworkLocation,
+        credential: NetworkCredential,
+        host: String,
+    ) {
+        val uri = client.playbackUri(location, SMB_CHANGE_FILE)
+        app.container.networkRequestRegistry.registerUri(uri, location, credential)
+        val source = SmbDataSource(app.container.networkRequestRegistry, client)
+        try {
+            source.open(DataSpec.Builder().setUri(uri).build())
+            assertEquals(64, source.read(ByteArray(64), 0, 64))
+            requestSameSizeSmbReplacement(host)
+
+            val error = assertThrows(IOException::class.java) {
+                source.read(ByteArray(64), 0, 64)
+            }
+            assertEquals("The remote SMB file changed during playback", error.message)
+        } finally {
+            source.close()
+        }
+    }
+
+    private fun requestSameSizeSmbReplacement(host: String) {
+        val connection = URL("http://$host:18080/replace-same-size").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 20_000
+            assertEquals(200, connection.responseCode)
+            connection.inputStream.use { it.readBytes() }
+        } finally {
+            connection.disconnect()
+        }
     }
 
     @OptIn(UnstableApi::class)
@@ -271,6 +316,7 @@ class Step7ProtocolServerIntegrationTest {
     private companion object {
         const val FIXTURE_NAME = "step5_multi_audio.mp4"
         const val LARGE_FILE = "sparse-large.bin"
+        const val SMB_CHANGE_FILE = "smb-change-detection.bin"
         const val UNICODE_DIRECTORY = "বাংলা-日本語"
         const val RANDOM_READ_OFFSET = 512
         const val RANDOM_READ_LENGTH = 2_048

@@ -108,6 +108,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y samba python3-pyftpdlib python3-openssl ffmpeg netcat-openbsd
           sudo mkdir -p /tmp/max-video-step7/বাংলা-日本語
           sudo cp app/src/androidTest/assets/step5_multi_audio.mp4 /tmp/max-video-step7/step5_multi_audio.mp4
+          sudo cp app/src/androidTest/assets/step5_multi_audio.mp4 /tmp/max-video-step7/smb-change-detection.bin
           sudo truncate -s 3221225473 /tmp/max-video-step7/sparse-large.bin
           printf 'Z' | sudo dd of=/tmp/max-video-step7/sparse-large.bin bs=1 seek=3221225472 conv=notrunc status=none
           sudo chmod -R a+rX /tmp/max-video-step7
@@ -115,6 +116,7 @@ jobs:
           printf 'max-network-ci\nmax-network-ci\n' | sudo smbpasswd -s -a maxci
           sudo systemctl stop smbd.service nmbd.service
           sudo smbd --configfile="$PWD/ci/step7/smb.conf" --daemon
+          sudo env RUNNER_TRACKING_ID='' nohup python3 "$PWD/ci/step7/smb_change_server.py" "$PWD/ci/step7/smb.conf" /tmp/max-video-step7/smb-change-detection.bin > /tmp/max-video-step7-smb-change.log 2>&1 &
           RUNNER_TRACKING_ID='' nohup python3 -m pyftpdlib -p 2121 -w -u maxci -P max-network-ci -d /tmp/max-video-step7 > /tmp/max-video-step7-ftp.log 2>&1 &
           cp ci/step7/ftps_server.pem /tmp/max-video-step7-ftps-server.pem
           cp ci/step7/ftps_server.key /tmp/max-video-step7-ftps-server.key
@@ -123,7 +125,7 @@ jobs:
           docker run --detach --name max-video-step7-rtsp --publish 8554:8554 --volume "$PWD/ci/step7/mediamtx.yml:/mediamtx.yml:ro" bluenviron/mediamtx:1.21.0@sha256:19fddade8d6110a3d718ac0045681fbeba344ae563a066205fe5929a87f7582f
           timeout 30 bash -c 'until nc -z 127.0.0.1 8554; do sleep 1; done'
           RUNNER_TRACKING_ID='' nohup ffmpeg -nostdin -loglevel warning -re -f lavfi -i 'testsrc2=size=160x90:rate=15' -re -f lavfi -i 'sine=frequency=880:sample_rate=48000' -c:v libx264 -preset ultrafast -tune zerolatency -profile:v baseline -pix_fmt yuv420p -g 30 -keyint_min 30 -sc_threshold 0 -c:a aac -b:a 64k -ar 48000 -ac 1 -f rtsp -rtsp_transport tcp rtsp://maxci:max-network-ci@127.0.0.1:8554/step7 > /tmp/max-video-step7-ffmpeg.log 2>&1 &
-          for port in 1445 2121 2122; do
+          for port in 1445 2121 2122 18080; do
             timeout 30 bash -c "until nc -z 127.0.0.1 $port; do sleep 1; done" || {
               cat /tmp/max-video-step7-ftps.log
               exit 1
@@ -149,7 +151,7 @@ jobs:
           else
             echo "/dev/kvm is not available on this runner; emulator runner will use its supported fallback."
           fi
-      - name: Certify real SMB, FTP, explicit FTPS and authenticated RTSP playback on API 35
+      - name: Certify real SMB change detection, FTP, explicit FTPS and authenticated RTSP playback on API 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -172,6 +174,7 @@ jobs:
             app/build/reports/androidTests/connected/**
             app/build/outputs/androidTest-results/connected/**
             /tmp/max-video-step7-samba.log
+            /tmp/max-video-step7-smb-change.log
             /tmp/max-video-step7-ftp.log
             /tmp/max-video-step7-ftps.log
             /tmp/max-video-step7-ffmpeg.log
