@@ -316,10 +316,15 @@ class AudioPlaybackController(
         if (error.errorCode !in SOURCE_ERROR_CODE_RANGE) return false
         val uri = external.uri
         val path = runCatching { Uri.parse(uri).path }.getOrNull()
-        val messages = generateSequence<Throwable?>(error) { it.cause }
-            .take(MAX_ERROR_CAUSE_DEPTH)
-            .mapNotNull { it.message }
-            .joinToString("\n")
+        val errorMessages = mutableListOf<String>()
+        var cause: Throwable? = error
+        var depth = 0
+        while (cause != null && depth < MAX_ERROR_CAUSE_DEPTH) {
+            cause.message?.let(errorMessages::add)
+            cause = cause.cause
+            depth++
+        }
+        val messages = errorMessages.joinToString("\n")
         return messages.contains(uri) || (!path.isNullOrBlank() && messages.contains(path))
     }
 
