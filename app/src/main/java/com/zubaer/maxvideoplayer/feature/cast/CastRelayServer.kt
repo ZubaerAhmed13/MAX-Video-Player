@@ -5,7 +5,6 @@ import java.io.BufferedOutputStream
 import java.io.Closeable
 import java.io.EOFException
 import java.io.InputStream
-import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -40,11 +39,10 @@ class CastRelayServer(
     @Synchronized
     fun start(primary: CastRelayResource): CastRelayEndpoint {
         check(!running.get()) { "Cast relay is already running." }
-        require(!bindAddress.isAnyLocalAddress) { "Cast relay must bind a concrete LAN address." }
+        require(!bindAddress.isAnyLocalAddress) { "Cast relay must bind a concrete interface address." }
         sessionToken = CastRelaySecurity.newSessionToken()
         resources.clear()
         resources[PRIMARY_RESOURCE_ID] = primary
-
         val server = ServerSocket(0, BACKLOG, bindAddress).apply { reuseAddress = false }
         socket = server
         running.set(true)
@@ -75,10 +73,7 @@ class CastRelayServer(
             is Inet6Address -> "[${bindAddress.hostAddress.substringBefore('%')}]"
             else -> bindAddress.hostAddress
         }
-        return CastRelayEndpoint(
-            uri = URI("http://$host:$port/cast/$token/$resourceId"),
-            resourceId = resourceId,
-        )
+        return CastRelayEndpoint(URI("http://$host:$port/cast/$token/$resourceId"), resourceId)
     }
 
     @Synchronized
@@ -102,7 +97,7 @@ class CastRelayServer(
                 val client = server.accept()
                 workers.execute { handle(client) }
             } catch (_: SocketException) {
-                if (running.get()) continue else return
+                if (!running.get()) return
             } catch (_: Throwable) {
                 if (!running.get()) return
             }
@@ -124,18 +119,11 @@ class CastRelayServer(
                 writeSimple(output, 400, "Bad Request")
                 return
             }
-
             if (request.method != "GET" && request.method != "HEAD") {
-                writeResponseHeaders(
-                    output = output,
-                    status = 405,
-                    reason = "Method Not Allowed",
-                    headers = mapOf("Allow" to "GET, HEAD", "Content-Length" to "0"),
-                )
+                writeResponseHeaders(output, 405, "Method Not Allowed", mapOf("Allow" to "GET, HEAD", "Content-Length" to "0", "Connection" to "close"))
                 output.flush()
                 return
             }
-
             val parsed = parsePath(request.target)
             val token = sessionToken
             if (parsed == null || token == null || parsed.token != token) {
@@ -147,7 +135,6 @@ class CastRelayServer(
                 writeSimple(output, 404, "Not Found")
                 return
             }
-
             serve(resource, request, output)
         }
     }
@@ -163,24 +150,18 @@ class CastRelayServer(
                     put("Accept-Ranges", if (resource.seekable) "bytes" else "none")
                     if (rangeResult.totalLength != null) put("Content-Range", "bytes */${rangeResult.totalLength}")
                     put("Content-Length", "0")
+                    put("Connection", "close")
                 }
                 writeResponseHeaders(output, 416, "Range Not Satisfiable", headers)
                 output.flush()
                 return
             }
         }
-
         if (range != null && !resource.seekable) {
-            writeResponseHeaders(
-                output,
-                416,
-                "Range Not Satisfiable",
-                mapOf("Accept-Ranges" to "none", "Content-Length" to "0"),
-            )
+            writeResponseHeaders(output, 416, "Range Not Satisfiable", mapOf("Accept-Ranges" to "none", "Content-Length" to "0", "Connection" to "close"))
             output.flush()
             return
         }
-
         val start = range?.startInclusive ?: 0L
         val requestedLength = range?.length ?: total
         val status = if (range == null) 200 else 206
@@ -192,16 +173,11 @@ class CastRelayServer(
             "X-Content-Type-Options" to "nosniff",
         )
         if (requestedLength != null) headers["Content-Length"] = requestedLength.toString()
-        if (range != null && total != null) {
-            headers["Content-Range"] = "bytes ${range.startInclusive}-${range.endInclusive}/$total"
-        }
+        if (range != null && total != null) headers["Content-Range"] = "bytes ${range.startInclusive}-${range.endInclusive}/$total"
         writeResponseHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
         output.flush()
         if (request.method == "HEAD") return
-
-        resource.open(start, requestedLength).use { source ->
-            copyBounded(source, output, requestedLength)
-        }
+        resource.open(start, requestedLength).use { source -> copyBounded(source, output, requestedLength) }
         output.flush()
     }
 
@@ -255,32 +231,18 @@ class CastRelayServer(
     }
 
     private fun parsePath(target: String): RelayPath? {
-        if (!target.startsWith('/')) return null
-        if (target.contains("\\") || target.contains("%2e", ignoreCase = true) || target.contains("%2f", ignoreCase = true)) return null
+        if (!target.startsWith('/') || target.contains("\\")) return null
+        if (target.contains("%2e", ignoreCase = true) || target.contains("%2f", ignoreCase = true) || target.contains("%5c", ignoreCase = true)) return null
         val path = target.substringBefore('?')
         val segments = path.split('/')
-        if (segments.size != 5 || segments[0].isNotEmpty() || segments[1] != "cast") return null
+        if (segments.size != 4 || segments[0].isNotEmpty() || segments[1] != "cast") return null
         val token = segments[2]
         val resourceId = segments[3]
-        if (segments[4].isNotEmpty()) return null
-        // Current endpoints do not end with a slash, so support the canonical four-segment form too.
-        return null
-    }
-
-    private fun parseCanonicalPath(target: String): RelayPath? {
-        val path = target.substringBefore('?')
-        val segments = path.split('/').filterIndexed { index, value -> index != 0 || value.isNotEmpty() }
-        if (segments.size != 3 || segments[0] != "cast") return null
-        val token = segments[1]
-        val resourceId = segments[2]
         if (!TOKEN.matches(token) || !RESOURCE_ID.matches(resourceId) || resourceId == "." || resourceId == "..") return null
         return RelayPath(token, resourceId)
     }
 
-    private fun sanitizeMime(value: String?): String {
-        val mime = value?.trim()?.takeIf { MIME.matches(it) }
-        return mime ?: "application/octet-stream"
-    }
+    private fun sanitizeMime(value: String?): String = value?.trim()?.takeIf { MIME.matches(it) } ?: "application/octet-stream"
 
     private fun writeSimple(socket: Socket, status: Int, reason: String) {
         BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES).use { writeSimple(it, status, reason) }
@@ -291,12 +253,7 @@ class CastRelayServer(
         output.flush()
     }
 
-    private fun writeResponseHeaders(
-        output: BufferedOutputStream,
-        status: Int,
-        reason: String,
-        headers: Map<String, String>,
-    ) {
+    private fun writeResponseHeaders(output: BufferedOutputStream, status: Int, reason: String, headers: Map<String, String>) {
         val builder = StringBuilder("HTTP/1.1 $status $reason\r\n")
         headers.forEach { (name, value) ->
             if (!name.contains('\r') && !name.contains('\n') && !value.contains('\r') && !value.contains('\n')) {
@@ -306,8 +263,6 @@ class CastRelayServer(
         builder.append("\r\n")
         output.write(builder.toString().toByteArray(StandardCharsets.US_ASCII))
     }
-
-    private fun parsePathOrCanonical(target: String): RelayPath? = parseCanonicalPath(target)
 
     private data class RelayRequest(val method: String, val target: String, val headers: Map<String, String>)
     private data class RelayPath(val token: String, val resourceId: String)
@@ -327,16 +282,11 @@ class CastRelayServer(
     }
 }
 
-data class CastRelayEndpoint(
-    val uri: URI,
-    val resourceId: String,
-)
+data class CastRelayEndpoint(val uri: URI, val resourceId: String)
 
 interface CastRelayResource {
     val length: Long?
     val mimeType: String?
     val seekable: Boolean
-
-    /** Opens the source at [position] without materializing preceding bytes. */
     fun open(position: Long, length: Long?): InputStream
 }
