@@ -71,10 +71,10 @@ class Step6DecoderIntegrationTest {
             instrumentation.runOnMainSync { connection.load(media, startPositionMs = 0L, playWhenReady = true) }
             assertTrue("Auto did not initialize a decoder or report a failure for the Step-6 fixture", await(15_000L) {
                 val playback = connection.state.value
-                playback.mediaId == media.stableId && (
+                playback.mediaId == media.stableId &&
+                    playback.error == null && (
                     repository.state.value.diagnostics.activeDecoderName != null ||
-                        repository.state.value.diagnostics.lastFailure != null ||
-                        playback.error != null
+                        repository.state.value.diagnostics.lastFailure != null
                     )
             })
             assertEquals(media.stableId, connection.state.value.mediaId)
