@@ -2,13 +2,10 @@ package com.zubaer.maxvideoplayer.core.database
 
 import android.content.Context
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.zubaer.maxvideoplayer.feature.cloud.persistence.CloudAccountEntity
-import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateEntity
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -16,7 +13,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class Step8DatabaseMigrationTest {
     @Test
-    fun migration6To7PreservesStep1To7RowsAndAddsSecretFreeCloudAccounts() = runBlocking {
+    fun migration6To7PreservesStep1To7RowsAndAddsSecretFreeCloudAccounts() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "migration-6-7-step8.db"
         context.deleteDatabase(name)
@@ -44,42 +41,39 @@ class Step8DatabaseMigrationTest {
             .allowMainThreadQueries()
             .build()
         try {
-            migrated.openHelper.writableDatabase
-            assertEquals(9_200_000_000L, migrated.mediaHistoryDao().getBlockingForMigrationTest("media-step8")?.sizeBytes)
-            assertEquals("1.90", migrated.playbackPreferenceDao().get("speed")?.value)
-            assertTrue("media-step8" in migrated.favouriteDao().ids())
-            assertEquals("Step8", migrated.playlistDao().getPlaylist(17)?.name)
-            assertEquals("media-step8", migrated.playlistDao().items(17).single().stableMediaId)
-            assertEquals("Step 8 Movie", migrated.mediaIndexDao().get("media-step8")?.title)
-            assertEquals("sub-step8", migrated.subtitleDao().mediaStateBlockingForMigrationTest("media-step8")?.selectedExternalId)
-            assertEquals("audio-step8", migrated.audioDao().mediaStateBlockingForMigrationTest("media-step8")?.selectedExternalId)
-            assertEquals("SOFTWARE", migrated.decoderMediaStateDao().get("media-step8")?.requestedMode)
-            assertEquals("vault-ref-step8", migrated.networkLocationDao().get("nas-step8")?.credentialRef)
+            val db = migrated.openHelper.writableDatabase
+            assertEquals(9_200_000_000L, longValue(db, "SELECT sizeBytes FROM media_history WHERE stableMediaId='media-step8'"))
+            assertEquals("1.90", stringValue(db, "SELECT value FROM playback_preferences WHERE `key`='speed'"))
+            assertEquals("media-step8", stringValue(db, "SELECT stableMediaId FROM favourites WHERE stableMediaId='media-step8'"))
+            assertEquals("Step8", stringValue(db, "SELECT name FROM playlists WHERE id=17"))
+            assertEquals("media-step8", stringValue(db, "SELECT stableMediaId FROM playlist_items WHERE playlistId=17 AND orderIndex=0"))
+            assertEquals("content://provider/tree/usb", stringValue(db, "SELECT uri FROM library_sources WHERE id='tree-step8'"))
+            assertEquals("Step 8 Movie", stringValue(db, "SELECT title FROM media_index WHERE stableMediaId='media-step8'"))
+            assertEquals("sub-step8", stringValue(db, "SELECT selectedExternalId FROM subtitle_media_state WHERE stableMediaId='media-step8'"))
+            assertEquals("audio-step8", stringValue(db, "SELECT selectedExternalId FROM audio_media_state WHERE stableMediaId='media-step8'"))
+            assertEquals("SOFTWARE", stringValue(db, "SELECT requestedMode FROM decoder_media_state WHERE stableMediaId='media-step8'"))
+            assertEquals("vault-ref-step8", stringValue(db, "SELECT credentialRef FROM network_locations WHERE id='nas-step8'"))
 
-            migrated.cloudAccountDao().upsert(
-                CloudAccountEntity(
-                    id = "google:user-1",
-                    provider = "GOOGLE_DRIVE",
-                    providerAccountId = "user-1",
-                    displayName = "Google Drive",
-                    emailHint = "u***@example.com",
-                    authReference = "keystore-token-cache-ref",
-                    createdAtMs = 2000L,
-                    lastUsedAtMs = 2001L,
-                ),
+            db.execSQL(
+                "INSERT INTO cloud_accounts VALUES('google:user-1','GOOGLE_DRIVE','user-1','Google Drive','u***@example.com','keystore-token-cache-ref',2000,2001)",
             )
-            val cloud = migrated.cloudAccountDao().get("google:user-1")
-            assertNotNull(cloud)
-            assertEquals("keystore-token-cache-ref", cloud?.authReference)
-
-            migrated.openHelper.readableDatabase.query("SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_accounts'").use { cursor ->
-                assertTrue(cursor.moveToFirst())
-            }
+            assertEquals("keystore-token-cache-ref", stringValue(db, "SELECT authReference FROM cloud_accounts WHERE id='google:user-1'"))
+            assertEquals(1L, longValue(db, "SELECT COUNT(*) FROM cloud_accounts WHERE provider='GOOGLE_DRIVE' AND providerAccountId='user-1'"))
+            assertTrue(tableExists(db, "cloud_accounts"))
         } finally {
             migrated.close()
             context.deleteDatabase(name)
         }
     }
+
+    private fun tableExists(db: SupportSQLiteDatabase, table: String): Boolean =
+        db.query("SELECT name FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use { it.moveToFirst() }
+
+    private fun stringValue(db: SupportSQLiteDatabase, sql: String): String? =
+        db.query(sql).use { cursor -> if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null }
+
+    private fun longValue(db: SupportSQLiteDatabase, sql: String): Long =
+        db.query(sql).use { cursor -> check(cursor.moveToFirst()) { "Query returned no rows: $sql" }; cursor.getLong(0) }
 
     private fun createV6Tables(db: android.database.sqlite.SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS media_history (stableMediaId TEXT NOT NULL PRIMARY KEY, uri TEXT NOT NULL, title TEXT NOT NULL, mimeType TEXT, sizeBytes INTEGER, width INTEGER, height INTEGER, lastPositionMs INTEGER NOT NULL, durationMs INTEGER NOT NULL, lastPlayedAtMs INTEGER NOT NULL, completed INTEGER NOT NULL)")
