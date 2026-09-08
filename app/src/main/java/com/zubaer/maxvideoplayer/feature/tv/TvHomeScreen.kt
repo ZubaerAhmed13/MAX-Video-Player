@@ -28,10 +28,6 @@ enum class TvDestination {
     USB,
 }
 
-/**
- * TV-first entry surface. It uses Compose-for-TV controls and an explicit focus-restoration group
- * so D-pad navigation never depends on touch-only phone chrome.
- */
 @Composable
 fun TvHomeScreen(
     lastFocused: TvDestination,
@@ -40,17 +36,23 @@ fun TvHomeScreen(
     onDestination: (TvDestination) -> Unit,
 ) {
     val libraryFocus = remember { FocusRequester() }
-    val groupFocus = remember { FocusRequester() }
+    val networkFocus = remember { FocusRequester() }
+    val cloudFocus = remember { FocusRequester() }
+    val usbFocus = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) {
-        if (lastFocused == TvDestination.LIBRARY) libraryFocus.requestFocus()
-        else groupFocus.requestFocus()
+    fun requester(destination: TvDestination): FocusRequester = when (destination) {
+        TvDestination.LIBRARY -> libraryFocus
+        TvDestination.NETWORK -> networkFocus
+        TvDestination.CLOUD -> cloudFocus
+        TvDestination.USB -> usbFocus
+    }
+
+    LaunchedEffect(lastFocused) {
+        requester(lastFocused).requestFocus()
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 56.dp, vertical = 42.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 42.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         Text("MAX Video Player", style = MaterialTheme.typography.displaySmall)
@@ -59,19 +61,15 @@ fun TvHomeScreen(
             style = MaterialTheme.typography.bodyLarge,
         )
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRestorer(libraryFocus),
+            modifier = Modifier.fillMaxWidth().focusRestorer(requester(lastFocused)),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TvDestination.entries.forEach { destination ->
-                val focusModifier = if (destination == TvDestination.LIBRARY) {
-                    Modifier.focusRequester(libraryFocus)
-                } else Modifier
                 Button(
                     onClick = { onDestination(destination) },
-                    modifier = focusModifier
+                    modifier = Modifier
+                        .focusRequester(requester(destination))
                         .weight(1f)
                         .testTag("tv_destination_${destination.name.lowercase()}")
                         .onFocusChanged { state -> if (state.isFocused) onFocused(destination) },
