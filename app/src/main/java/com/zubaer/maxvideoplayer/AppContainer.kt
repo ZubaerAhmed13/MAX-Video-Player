@@ -10,24 +10,28 @@ import com.zubaer.maxvideoplayer.core.media.SafTreeScanner
 import com.zubaer.maxvideoplayer.core.media.UriAvailabilityChecker
 import com.zubaer.maxvideoplayer.feature.audio.AudioPlaybackController
 import com.zubaer.maxvideoplayer.feature.audio.AudioRepository
+import com.zubaer.maxvideoplayer.feature.cloud.auth.CloudTokenVault
+import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudPlaybackRegistry
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.feature.library.LibraryRepository
 import com.zubaer.maxvideoplayer.feature.library.MediaFileActionRepository
 import com.zubaer.maxvideoplayer.feature.library.ThumbnailRepository
+import com.zubaer.maxvideoplayer.feature.network.diagnostics.NetworkDiagnosticsMonitor
+import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
+import com.zubaer.maxvideoplayer.feature.network.protocol.http.NetworkHttpClientFactory
+import com.zubaer.maxvideoplayer.feature.network.repository.NetworkLocationRepository
+import com.zubaer.maxvideoplayer.feature.network.repository.NetworkRepository
+import com.zubaer.maxvideoplayer.feature.network.security.CredentialVault
 import com.zubaer.maxvideoplayer.feature.player.PlayerPreferences
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
-import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
-import com.zubaer.maxvideoplayer.feature.network.repository.NetworkLocationRepository
-import com.zubaer.maxvideoplayer.feature.network.security.CredentialVault
-import com.zubaer.maxvideoplayer.feature.network.repository.NetworkRepository
-import com.zubaer.maxvideoplayer.feature.network.protocol.http.NetworkHttpClientFactory
-import com.zubaer.maxvideoplayer.feature.network.diagnostics.NetworkDiagnosticsMonitor
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
     val database: MaxDatabase by lazy { MaxDatabase.create(appContext) }
     val credentialVault: CredentialVault by lazy { CredentialVault(appContext) }
+    val cloudTokenVault: CloudTokenVault by lazy { CloudTokenVault(appContext) }
+    val cloudPlaybackRegistry: CloudPlaybackRegistry by lazy { CloudPlaybackRegistry() }
     val networkRequestRegistry: NetworkRequestRegistry by lazy { NetworkRequestRegistry() }
     val networkDiagnosticsMonitor: NetworkDiagnosticsMonitor by lazy { NetworkDiagnosticsMonitor(appContext) }
     val networkLocationRepository: NetworkLocationRepository by lazy {
