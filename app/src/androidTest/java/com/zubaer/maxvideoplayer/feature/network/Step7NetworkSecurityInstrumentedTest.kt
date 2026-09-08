@@ -15,6 +15,7 @@ import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
 import com.zubaer.maxvideoplayer.feature.network.presentation.NetworkLocationDraft
 import com.zubaer.maxvideoplayer.feature.network.protocol.http.NetworkHttpClientFactory
 import com.zubaer.maxvideoplayer.feature.network.protocol.webdav.SecureWebDavParser
+import com.zubaer.maxvideoplayer.feature.network.protocol.webdav.WebDavProtocolClient
 import com.zubaer.maxvideoplayer.feature.network.security.CredentialVault
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -75,6 +76,42 @@ class Step7NetworkSecurityInstrumentedTest {
     fun traversalCannotEscapeSavedSourceRoot() {
         assertThrows(IllegalArgumentException::class.java) { NetworkUriPolicy.safeRemotePath("../../secret/video.mkv") }
         assertEquals("folder/video.mkv", NetworkUriPolicy.safeRemotePath("folder/./sub/../video.mkv"))
+        assertThrows(IllegalArgumentException::class.java) {
+            NetworkUriPolicy.normalizeForPlayback("https://user:password@media.example.test/private.mp4")
+        }
+    }
+
+    @Test
+    fun webDavPropfindUsesAuthenticationAndRejectsEntriesOutsideTheSavedRoot() {
+        val server = server()
+        val safeBody = """<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/media/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response><d:response><d:href>/dav/media/%E6%97%A5%E6%9C%AC%E8%AA%9E%20video.mp4</d:href><d:propstat><d:prop><d:getcontentlength>9941</d:getcontentlength><d:getcontenttype>video/mp4</d:getcontenttype></d:prop></d:propstat></d:response></d:multistatus>"""
+        server.enqueue(MockResponse.Builder().code(207).setHeader("Content-Type", "application/xml").body(safeBody).build())
+        val rewritingClient = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            chain.proceed(request.newBuilder().url(request.url.newBuilder().scheme("http").build()).build())
+        }.build()
+        val location = NetworkLocation(
+            displayName = "WebDAV",
+            protocol = NetworkProtocol.WEBDAV,
+            host = "localhost",
+            port = server.port,
+            basePath = "dav/media",
+        )
+        val client = WebDavProtocolClient(rewritingClient)
+        val entries = kotlinx.coroutines.runBlocking {
+            client.list(location, NetworkCredential(username = "dav-user", password = "dav-password"), "")
+        }
+        assertEquals(listOf("日本語 video.mp4"), entries.map { java.net.URLDecoder.decode(it.name, Charsets.UTF_8.name()) })
+        val request = server.takeRequest()
+        assertEquals("PROPFIND", request.method)
+        assertEquals("1", request.headers["Depth"])
+        assertTrue(request.headers["Authorization"].orEmpty().startsWith("Basic "))
+
+        val escapingBody = """<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/media/</d:href></d:response><d:response><d:href>/outside/secret.mp4</d:href></d:response></d:multistatus>"""
+        server.enqueue(MockResponse.Builder().code(207).body(escapingBody).build())
+        assertThrows(Exception::class.java) {
+            kotlinx.coroutines.runBlocking { client.list(location, null, "") }
+        }
     }
 
     @Test

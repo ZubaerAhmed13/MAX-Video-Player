@@ -80,10 +80,18 @@ class WebDavProtocolClient(
     }
 
     private fun WebDavResource.toEntry(location: NetworkLocation, requestUrl: String): NetworkEntry {
-        val absolute = URI(requestUrl).resolve(href).toString()
-        val decodedPath = runCatching { URI(absolute).path }.getOrDefault(href)
-        val rootPath = URI(playbackUri(location, "")).path.trimEnd('/')
-        val remote = decodedPath.removePrefix(rootPath).trim('/')
+        val absoluteUri = URI(requestUrl).resolve(href).normalize()
+        val rootUri = URI(playbackUri(location, "")).normalize()
+        val rootPath = rootUri.path.trimEnd('/')
+        val decodedPath = absoluteUri.path
+        val sameOrigin = absoluteUri.scheme.equals(rootUri.scheme, ignoreCase = true) &&
+            absoluteUri.host.equals(rootUri.host, ignoreCase = true) && effectivePort(absoluteUri) == effectivePort(rootUri)
+        val insideRoot = decodedPath == rootPath || decodedPath.startsWith("$rootPath/")
+        if (!sameOrigin || !insideRoot) {
+            throw NetworkProtocolException(NetworkFailure.MalformedResponse, "WebDAV response escaped the saved server root")
+        }
+        val absolute = absoluteUri.toString()
+        val remote = NetworkUriPolicy.safeRemotePath(decodedPath.removePrefix(rootPath).trim('/'))
         val name = decodedPath.trimEnd('/').substringAfterLast('/').ifBlank { location.displayName }
         return NetworkEntry(
             name = name,
@@ -99,6 +107,7 @@ class WebDavProtocolClient(
 
     private fun String.ensureTrailingSlash() = if (endsWith('/')) this else "$this/"
     private fun canonicalUrl(url: String) = runCatching { URI(url).normalize().toString().trimEnd('/') }.getOrDefault(url.trimEnd('/'))
+    private fun effectivePort(uri: URI): Int = if (uri.port > 0) uri.port else if (uri.scheme.equals("https", true)) 443 else 80
 
     private companion object {
         const val MAX_XML_BYTES = 4 * 1024 * 1024

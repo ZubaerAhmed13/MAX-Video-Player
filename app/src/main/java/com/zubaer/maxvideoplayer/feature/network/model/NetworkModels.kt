@@ -154,6 +154,7 @@ object NetworkUriPolicy {
             "Unsupported network protocol."
         }
         require(!uri.host.isNullOrBlank()) { "A server host is required." }
+        require(uri.userInfo == null) { "Credentials must be entered separately from the network URL." }
         return trimmed
     }
 

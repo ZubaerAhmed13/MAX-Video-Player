@@ -155,15 +155,9 @@ class NetworkRepository(
         val canonical = NetworkUriPolicy.canonicalIdentity(url)
         val uri = Uri.parse(url)
         val protocol = detectProtocol(url)
-        val playbackUrl = if (protocol == NetworkProtocol.RTSP && uri.userInfo == null && credential?.username?.isNotBlank() == true) {
-            val hostPort = uri.host.orEmpty() + if (uri.port > 0) ":${uri.port}" else ""
-            uri.buildUpon().encodedAuthority(
-                "${Uri.encode(credential.username)}:${Uri.encode(credential.password)}@$hostPort",
-            ).build().toString()
-        } else url
         val media = AppMedia(
             stableId = StableMediaIdentity.forNetwork(canonical),
-            uri = playbackUrl,
+            uri = url,
             title = title.ifBlank { uri.lastPathSegment?.takeIf(String::isNotBlank) ?: uri.host ?: "Network stream" },
             mimeType = when (protocol) {
                 NetworkProtocol.HLS -> "application/x-mpegURL"

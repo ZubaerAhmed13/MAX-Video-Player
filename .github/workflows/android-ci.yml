@@ -96,6 +96,77 @@ jobs:
             app/build/outputs/androidTest-results/connected/**
             app/build/reports/step6/**
 
+  network-protocol-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provision deterministic SMB, FTP and RTSP servers
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y samba python3-pyftpdlib ffmpeg netcat-openbsd
+          sudo mkdir -p /tmp/max-video-step7/বাংলা-日本語
+          sudo cp app/src/androidTest/assets/step5_multi_audio.mp4 /tmp/max-video-step7/step5_multi_audio.mp4
+          sudo truncate -s 3221225473 /tmp/max-video-step7/sparse-large.bin
+          printf 'Z' | sudo dd of=/tmp/max-video-step7/sparse-large.bin bs=1 seek=3221225472 conv=notrunc status=none
+          sudo chmod -R a+rX /tmp/max-video-step7
+          sudo useradd --system --no-create-home --shell /usr/sbin/nologin maxci
+          printf 'max-network-ci\nmax-network-ci\n' | sudo smbpasswd -s -a maxci
+          sudo smbd --configfile="$PWD/ci/step7/smb.conf" --daemon
+          RUNNER_TRACKING_ID='' nohup python3 -m pyftpdlib -p 2121 -w -u maxci -P max-network-ci -d /tmp/max-video-step7 > /tmp/max-video-step7-ftp.log 2>&1 &
+          docker run --detach --name max-video-step7-rtsp --publish 8554:8554 -e MTX_RTSPTRANSPORTS=tcp bluenviron/mediamtx:1.21.0
+          timeout 30 bash -c 'until nc -z 127.0.0.1 8554; do sleep 1; done'
+          RUNNER_TRACKING_ID='' nohup ffmpeg -nostdin -re -stream_loop -1 -i /tmp/max-video-step7/step5_multi_audio.mp4 -map 0:v:0 -map 0:a:0 -c copy -f rtsp -rtsp_transport tcp rtsp://127.0.0.1:8554/step7 > /tmp/max-video-step7-ffmpeg.log 2>&1 &
+          for port in 1445 2121; do
+            timeout 30 bash -c "until nc -z 127.0.0.1 $port; do sleep 1; done"
+          done
+          timeout 30 bash -c 'until ffprobe -v error -rtsp_transport tcp -show_streams rtsp://127.0.0.1:8554/step7 >/dev/null 2>&1; do sleep 1; done' || { docker logs max-video-step7-rtsp; cat /tmp/max-video-step7-ffmpeg.log; exit 1; }
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install compile SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "/dev/kvm is not available on this runner; emulator runner will use its supported fallback."
+          fi
+      - name: Certify real SMB, FTP and RTSP playback on API 35
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace \
+              -Pandroid.testInstrumentationRunnerArguments.class=com.zubaer.maxvideoplayer.playback.Step7ProtocolServerIntegrationTest \
+              -Pandroid.testInstrumentationRunnerArguments.step7ProtocolServers=true \
+              -Pandroid.testInstrumentationRunnerArguments.step7ServerHost=10.0.2.2
+      - name: Upload network protocol reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-protocol-reports
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            app/build/reports/androidTests/connected/**
+            app/build/outputs/androidTest-results/connected/**
+            /tmp/max-video-step7-samba.log
+            /tmp/max-video-step7-ftp.log
+            /tmp/max-video-step7-ffmpeg.log
+
   legacy-thumbnail-instrumentation:
     runs-on: ubuntu-latest
     timeout-minutes: 35

@@ -30,7 +30,7 @@ class Step7AdaptiveStreamingIntegrationTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val app = context.applicationContext as MaxVideoPlayerApplication
-        val server = assetServer(context)
+        val server = assetServer(instrumentation.context)
         val hls = app.container.networkRepository.prepareDirect(server.url("/step7_hls/master.m3u8").toString(), "Step 7 HLS")
         val dash = app.container.networkRepository.prepareDirect(server.url("/step7_dash/manifest.mpd").toString(), "Step 7 DASH")
         context.stopService(Intent(context, PlaybackService::class.java))
@@ -43,7 +43,8 @@ class Step7AdaptiveStreamingIntegrationTest {
 
             instrumentation.runOnMainSync { connection.load(hls, playWhenReady = false) }
             assertTrue("HLS did not reach ready/error state", await(15_000L) {
-                connection.state.value.durationMs >= 1_500L || connection.state.value.error != null
+                connection.state.value.mediaId == hls.stableId &&
+                    (connection.state.value.durationMs >= 1_500L || connection.state.value.error != null)
             })
             assertNull("HLS failed: ${connection.state.value.error}", connection.state.value.error)
             assertEquals(NetworkProtocol.HLS, connection.state.value.network.protocol)

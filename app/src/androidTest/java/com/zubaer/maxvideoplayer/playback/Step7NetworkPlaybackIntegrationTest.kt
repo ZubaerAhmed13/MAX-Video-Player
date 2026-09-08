@@ -60,7 +60,8 @@ class Step7NetworkPlaybackIntegrationTest {
             assertTrue("MediaController did not connect", await(10_000L) { connection.state.value.connected })
             instrumentation.runOnMainSync { connection.load(media, playWhenReady = false) }
             assertTrue("HTTP media did not reach ready/error state", await(15_000L) {
-                connection.state.value.durationMs >= 1_500L || connection.state.value.error != null
+                connection.state.value.mediaId == media.stableId &&
+                    (connection.state.value.durationMs >= 1_500L || connection.state.value.error != null)
             })
             assertNull("HTTP media failed: ${connection.state.value.error}", connection.state.value.error)
             assertEquals(media.stableId, connection.state.value.mediaId)
