@@ -48,6 +48,16 @@ class CastAdaptiveManifestRewriterTest {
         assertFalse(output.contains("%24Number%24"))
     }
 
+    @Test
+    fun harmless_live_sequence_query_is_not_treated_as_a_secret() {
+        val input = "#EXTM3U\nsegment.ts?sequence=12\n"
+
+        val output = CastManifestRewriter.rewrite(input, source, relay)
+
+        assertTrue(output.contains("$relay?p="))
+        assertTrue(output.contains("sequence%3D12"))
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun sensitive_child_query_is_never_copied_into_receiver_url() {
         CastManifestRewriter.rewrite(
