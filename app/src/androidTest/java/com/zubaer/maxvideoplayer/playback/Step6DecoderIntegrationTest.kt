@@ -67,8 +67,15 @@ class Step6DecoderIntegrationTest {
             instrumentation.runOnMainSync { connection.connect() }
             assertTrue("MediaController did not connect", await(10_000L) { connection.state.value.connected })
 
-            repository.requestModeForCurrentMedia(media.stableId, DecoderMode.AUTO)
+            // requestModeForCurrentMedia is deliberately a current-media API. First make the
+            // Step-6 fixture authoritative in both MediaController and DecoderRepository. Issuing
+            // a mode request for a future media ID would reconfigure the preceding item's queue and
+            // can race its snapshot/restore over this load in a shared instrumentation process.
             instrumentation.runOnMainSync { connection.load(media, startPositionMs = 0L, playWhenReady = true) }
+            assertTrue("Step-6 fixture did not become the authoritative current media", await(10_000L) {
+                connection.state.value.mediaId == media.stableId && repository.state.value.mediaId == media.stableId
+            })
+            repository.requestModeForCurrentMedia(media.stableId, DecoderMode.AUTO)
             assertTrue("Auto did not initialize a decoder or report a failure for the Step-6 fixture", await(15_000L) {
                 val playback = connection.state.value
                 playback.mediaId == media.stableId &&
