@@ -6,8 +6,6 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.keyDown
-import androidx.compose.ui.test.keyUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.tv.material3.MaterialTheme
 import org.junit.Assert.assertEquals
