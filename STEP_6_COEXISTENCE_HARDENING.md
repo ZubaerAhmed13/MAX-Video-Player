@@ -76,9 +76,34 @@ Media3 decoder reprepare is asynchronous. The certification therefore distinguis
 
 The first hardening attempt exposed these asynchronous windows. Run #223 certifies the corrected end-state assertions without changing or relaxing the product requirements.
 
+## Documentation-complete head and merge
+
+Exact hardening documentation-complete head:
+
+`4a7c1e351dab7e5dc1e6d1acd4e1954cec3ceee8`
+
+Android CI run #225 (`34215510508`) passed the complete configured matrix on that exact PR head.
+
+Pull request #10 — `Step 6 — coexistence hardening certification` — merged that exact head with an expected-head SHA lock.
+
+Resulting exact `main` merge commit:
+
+`4921f43deae9c1b3ff221071a30cc1dab26efa0b`
+
+Android CI run #226 (`34215929984`) passed on that exact `main` merge commit:
+
+- debug build + JVM/unit tests — PASS
+- release compilation — PASS
+- Android lint — PASS
+- API-35 full instrumentation — PASS
+- API-26 thumbnail regression — PASS
+- API-28 thumbnail regression — PASS
+
+The Step-6 coexistence hardening merge gate is therefore **SATISFIED**.
+
 ## Existing Step-6 guarantees retained
 
-The hardening pass does not replace the original decoder certification. The following remain required and passed in run #223:
+The hardening pass does not replace the original decoder certification. The following remain required and passed:
 
 - Auto / Hardware / Enhanced Hardware / Software are distinct routing policies
 - actual initialized decoder is reported separately from requested mode
@@ -101,8 +126,10 @@ This certification is API-35 emulator software/integration evidence. The followi
 - battery / thermal / long-play stability
 - broad phone/tablet matrix
 
-## Merge gate
+## Final status
 
-This hardening branch must not be merged solely from the implementation run above. After this evidence is committed, the exact documentation-complete PR head must pass the same complete configured CI matrix. After merge, the resulting exact `main` head must pass that matrix again before the hardening certification is considered repository-complete.
+**STEP 6 COEXISTENCE HARDENING: PASS**
+
+**STEP 6: PASS**
 
 **STEP 7: NOT STARTED**
