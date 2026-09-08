@@ -17,6 +17,7 @@ import com.zubaer.maxvideoplayer.core.model.RepeatMode
 import com.zubaer.maxvideoplayer.feature.audio.AudioRepository
 import com.zubaer.maxvideoplayer.feature.audio.MaxAudioProcessor
 import com.zubaer.maxvideoplayer.feature.audio.ProfessionalMediaSourceFactory
+import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudPlaybackRegistry
 import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderFormatSnapshot
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.ProfessionalRenderersFactory
@@ -30,6 +31,7 @@ class Media3PlaybackEngine(
     private val audioRepository: AudioRepository,
     private val decoderRepository: DecoderRepository,
     networkRequestRegistry: NetworkRequestRegistry,
+    cloudPlaybackRegistry: CloudPlaybackRegistry,
 ) : PlaybackEngine {
     val audioProcessor = MaxAudioProcessor(audioRepository)
     private val appContext = context.applicationContext
@@ -103,7 +105,13 @@ class Media3PlaybackEngine(
     private val exoPlayer: ExoPlayer = ExoPlayer.Builder(
         appContext,
         renderersFactory,
-        ProfessionalMediaSourceFactory(appContext, subtitleRepository, audioRepository, networkRequestRegistry),
+        ProfessionalMediaSourceFactory(
+            appContext,
+            subtitleRepository,
+            audioRepository,
+            networkRequestRegistry,
+            cloudPlaybackRegistry,
+        ),
     )
         .build()
         .apply {
@@ -180,10 +188,6 @@ class Media3PlaybackEngine(
     }
 
     override fun release() {
-        // CastPlayer.release() releases whichever delegate is active. If local playback was active,
-        // ExoPlayer may already have been released by the service-owned CastPlayer. Avoid performing
-        // a second renderer release while still ensuring the inactive local delegate is released
-        // when the service was casting at shutdown.
         if (!exoPlayer.isReleased) {
             exoPlayer.removeAnalyticsListener(decoderAnalyticsListener)
             exoPlayer.removeListener(decoderFailureListener)
