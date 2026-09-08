@@ -53,7 +53,7 @@ class CastRelayServer(
         return endpointFor(PRIMARY_RESOURCE_ID)
     }
 
-    /** Registers another active-session resource, used by manifest/subtitle relays. */
+    /** Registers another active-session resource, used by queue/manifest/subtitle relays. */
     fun register(resource: CastRelayResource): CastRelayEndpoint {
         check(running.get()) { "Cast relay is not running." }
         check(resources.size < maxResources) { "Cast relay resource registry is full." }
@@ -140,7 +140,7 @@ class CastRelayServer(
     }
 
     private fun serve(resource: CastRelayResource, request: RelayRequest, output: BufferedOutputStream) {
-        val total = resource.length
+        val total = runCatching { resource.length }.getOrNull()
         val rangeResult = CastRangeParser.parse(request.headers["range"], total)
         val range = when (rangeResult) {
             RangeParseResult.NotRequested -> null
@@ -162,8 +162,18 @@ class CastRelayServer(
             output.flush()
             return
         }
+
         val start = range?.startInclusive ?: 0L
-        val requestedLength = range?.length ?: total
+        val requestedLength = range?.boundedLength ?: if (range == null) total else null
+        if (range != null && total == null && range.endInclusive == Long.MAX_VALUE) {
+            // We cannot produce a standards-compliant Content-Range for an unknown open-ended
+            // resource. DataSource-backed relay resources probe length first, so this is only a
+            // truthful fallback for genuinely lengthless sources.
+            writeResponseHeaders(output, 416, "Range Not Satisfiable", mapOf("Accept-Ranges" to "bytes", "Content-Range" to "bytes */*", "Content-Length" to "0", "Connection" to "close"))
+            output.flush()
+            return
+        }
+
         val status = if (range == null) 200 else 206
         val headers = linkedMapOf(
             "Content-Type" to sanitizeMime(resource.mimeType),
@@ -173,7 +183,10 @@ class CastRelayServer(
             "X-Content-Type-Options" to "nosniff",
         )
         if (requestedLength != null) headers["Content-Length"] = requestedLength.toString()
-        if (range != null && total != null) headers["Content-Range"] = "bytes ${range.startInclusive}-${range.endInclusive}/$total"
+        if (range != null) {
+            val complete = total?.toString() ?: "*"
+            headers["Content-Range"] = "bytes ${range.startInclusive}-${range.endInclusive}/$complete"
+        }
         writeResponseHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
         output.flush()
         if (request.method == "HEAD") return
