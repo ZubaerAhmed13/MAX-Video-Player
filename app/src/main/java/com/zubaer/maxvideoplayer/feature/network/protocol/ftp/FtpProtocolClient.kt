@@ -19,6 +19,7 @@ import org.apache.commons.net.ftp.FTPSClient
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.URLEncoder
+import javax.net.ssl.SSLException
 
 class FtpProtocolClient : NetworkProtocolClient {
     override suspend fun testConnection(location: NetworkLocation, credential: NetworkCredential?): ConnectionTestResult =
@@ -138,6 +139,8 @@ class FtpProtocolClient : NetworkProtocolClient {
             createConnectedClient(location, credential)
         } catch (error: NetworkProtocolException) {
             throw error
+        } catch (error: SSLException) {
+            throw NetworkProtocolException(NetworkFailure.TlsFailure, "FTPS certificate verification failed", error)
         } catch (error: IOException) {
             throw NetworkProtocolException(NetworkFailure.ServerNotFound, "FTP server unavailable", error)
         }

@@ -4,6 +4,7 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkCredential
@@ -13,13 +14,20 @@ import com.zubaer.maxvideoplayer.feature.network.model.NetworkProtocol
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
 import com.zubaer.maxvideoplayer.feature.network.presentation.NetworkLocationDraft
+import com.zubaer.maxvideoplayer.feature.network.repository.NetworkLocationRepository
 import com.zubaer.maxvideoplayer.feature.network.protocol.http.NetworkHttpClientFactory
 import com.zubaer.maxvideoplayer.feature.network.protocol.webdav.SecureWebDavParser
 import com.zubaer.maxvideoplayer.feature.network.protocol.webdav.WebDavProtocolClient
+import com.zubaer.maxvideoplayer.feature.network.protocol.webdav.WEB_DAV_MAX_XML_BYTES
+import com.zubaer.maxvideoplayer.feature.network.protocol.webdav.readBoundedWebDavBody
 import com.zubaer.maxvideoplayer.feature.network.security.CredentialVault
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.Request
+import okhttp3.MediaType
+import okhttp3.ResponseBody
+import okio.Buffer
+import okio.BufferedSource
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -30,6 +38,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
+import com.zubaer.maxvideoplayer.core.database.MaxDatabase
 
 @RunWith(AndroidJUnit4::class)
 class Step7NetworkSecurityInstrumentedTest {
@@ -115,6 +124,114 @@ class Step7NetworkSecurityInstrumentedTest {
     }
 
     @Test
+    fun savedHttpAndWebDavHttpBuildAndUseCleartextUrisOnlyAfterConsent() {
+        val server = server()
+        server.enqueue(MockResponse.Builder().code(207).body(
+            """<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/</d:href></d:response><d:response><d:href>/dav/movie.mp4</d:href></d:response></d:multistatus>""",
+        ).build())
+        val webDavLocation = NetworkLocationDraft(
+            displayName = "LAN WebDAV",
+            protocol = NetworkProtocol.WEBDAV_HTTP,
+            host = "localhost",
+            port = server.port.toString(),
+            basePath = "dav",
+            cleartextSecurityAcknowledged = true,
+        ).location()
+        val entries = kotlinx.coroutines.runBlocking { WebDavProtocolClient(okhttp3.OkHttpClient()).list(webDavLocation, null, "") }
+        assertEquals("http://localhost:${server.port}/dav/movie.mp4", entries.single().uri)
+
+        val httpLocation = NetworkLocationDraft(
+            displayName = "LAN HTTP",
+            protocol = NetworkProtocol.HTTP,
+            host = "media.lan",
+            port = "8080",
+            basePath = "movie.mp4",
+            cleartextSecurityAcknowledged = true,
+        ).location()
+        assertEquals(
+            "http://media.lan:8080/movie.mp4",
+            com.zubaer.maxvideoplayer.feature.network.protocol.http.HttpProtocolClient(okhttp3.OkHttpClient()).playbackUri(httpLocation, ""),
+        )
+        assertThrows(IllegalStateException::class.java) {
+            NetworkLocationDraft(
+                displayName = "Unsafe",
+                protocol = NetworkProtocol.HTTP,
+                host = "media.lan",
+                port = "80",
+            ).location()
+        }
+    }
+
+    @Test
+    fun savedHttpLocationAndCredentialRoundTripThroughRoomAndTheKeystoreVault() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, MaxDatabase::class.java).allowMainThreadQueries().build()
+        val vault = CredentialVault(context)
+        val repository = NetworkLocationRepository(database.networkLocationDao(), vault)
+        var credentialRef: String? = null
+        try {
+            val location = NetworkLocationDraft(
+                id = "saved-http-test",
+                displayName = "Saved HTTP",
+                protocol = NetworkProtocol.HTTP,
+                host = "media.lan",
+                port = "8080",
+                basePath = "library/movie.mp4",
+                username = "alice",
+                password = "saved-http-password",
+                cleartextSecurityAcknowledged = true,
+            ).location()
+            val saved = kotlinx.coroutines.runBlocking {
+                repository.save(location, NetworkCredential(username = "alice", password = "saved-http-password"), true)
+            }
+            credentialRef = saved.credentialRef
+            val reloaded = kotlinx.coroutines.runBlocking { repository.all().single() }
+            assertEquals(NetworkProtocol.HTTP, reloaded.protocol)
+            assertTrue(reloaded.cleartextSecurityAcknowledged)
+            assertEquals("saved-http-password", repository.credential(reloaded)?.password)
+        } finally {
+            credentialRef?.let(vault::delete)
+            database.close()
+        }
+    }
+
+    @Test
+    fun webDavBodyBoundRejectsDeclaredAndStreamingOverflowBeforeOversizedAllocation() {
+        var declaredBodyRead = false
+        val declaredOversize = object : ResponseBody() {
+            override fun contentType(): MediaType? = null
+            override fun contentLength(): Long = WEB_DAV_MAX_XML_BYTES.toLong() + 1L
+            override fun source(): BufferedSource {
+                declaredBodyRead = true
+                return Buffer()
+            }
+        }
+        assertThrows(Exception::class.java) { readBoundedWebDavBody(declaredOversize) }
+        assertFalse(declaredBodyRead)
+
+        val streamedOversize = object : ResponseBody() {
+            override fun contentType(): MediaType? = null
+            override fun contentLength(): Long = -1L
+            override fun source(): BufferedSource = Buffer().write(ByteArray(WEB_DAV_MAX_XML_BYTES + 1))
+        }
+        assertThrows(Exception::class.java) { readBoundedWebDavBody(streamedOversize) }
+    }
+
+    @Test
+    fun rtspCredentialsAreProcessLocalAndCanonicalMediaUriStaysSecretFree() {
+        val url = "rtsp://camera.example.test:8554/live"
+        val registry = NetworkRequestRegistry().apply {
+            registerUri(url, null, NetworkCredential(username = "camera user", password = "p@ss:word"))
+        }
+        val authenticated = registry.authenticatedRtspUri(url)
+        assertEquals("camera user:p@ss:word", authenticated.userInfo)
+        assertEquals("camera.example.test", authenticated.host)
+        assertEquals(url, NetworkUriPolicy.persistenceSafeUri(url))
+        assertFalse(url.contains("camera user"))
+        assertFalse(NetworkUriPolicy.sanitize(authenticated.toString()).contains("p@ss:word"))
+    }
+
+    @Test
     fun authorizationIsScopedToTheExactOriginAndDirectoryBoundary() {
         val registry = NetworkRequestRegistry()
         val root = "https://media.example.test/library/a/master.m3u8"
@@ -166,10 +283,10 @@ class Step7NetworkSecurityInstrumentedTest {
             host = "ftp.example.test",
             port = "21",
             password = "secret",
-            ftpSecurityAcknowledged = false,
+            cleartextSecurityAcknowledged = false,
         )
         assertThrows(IllegalStateException::class.java) { unsafe.location() }
-        assertEquals("ftp.example.test", unsafe.copy(ftpSecurityAcknowledged = true).location().host)
+        assertEquals("ftp.example.test", unsafe.copy(cleartextSecurityAcknowledged = true).location().host)
     }
 
     @OptIn(UnstableApi::class)

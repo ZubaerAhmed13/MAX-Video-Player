@@ -16,8 +16,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.ResponseBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -51,9 +53,10 @@ class WebDavProtocolClient(
         }
 
     override fun playbackUri(location: NetworkLocation, remotePath: String): String {
-        val authority = if (location.port == 443) location.host else "${location.host}:${location.port}"
+        val scheme = if (location.protocol == NetworkProtocol.WEBDAV_HTTP) "http" else "https"
+        val authority = if (location.port == location.protocol.defaultPort) location.host else "${location.host}:${location.port}"
         val combined = listOf(location.basePath, remotePath).filter { it.isNotBlank() }.joinToString("/")
-        return "https://$authority/${combined.trimStart('/')}"
+        return "$scheme://$authority/${combined.trimStart('/')}"
     }
 
     private fun propFind(location: NetworkLocation, credential: NetworkCredential?, remotePath: String, depth: Int): List<WebDavResource> {
@@ -72,10 +75,7 @@ class WebDavProtocolClient(
             if (response.code !in setOf(200, 207)) {
                 throw NetworkProtocolException(NetworkFailure.ServerRejected, "WebDAV server rejected the request (${response.code})")
             }
-            val responseBody = response.body
-            val bytes = responseBody.bytes()
-            if (bytes.size > MAX_XML_BYTES) throw NetworkProtocolException(NetworkFailure.MalformedResponse, "WebDAV directory response is too large")
-            return SecureWebDavParser.parse(bytes)
+            return SecureWebDavParser.parse(readBoundedWebDavBody(response.body))
         }
     }
 
@@ -110,8 +110,30 @@ class WebDavProtocolClient(
     private fun effectivePort(uri: URI): Int = if (uri.port > 0) uri.port else if (uri.scheme.equals("https", true)) 443 else 80
 
     private companion object {
-        const val MAX_XML_BYTES = 4 * 1024 * 1024
         const val PROPFIND_BODY = """<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/><d:getcontenttype/><d:getlastmodified/></d:prop></d:propfind>"""
+    }
+}
+
+internal const val WEB_DAV_MAX_XML_BYTES = 4 * 1024 * 1024
+
+internal fun readBoundedWebDavBody(body: ResponseBody, maximumBytes: Int = WEB_DAV_MAX_XML_BYTES): ByteArray {
+    val declaredLength = body.contentLength()
+    if (declaredLength > maximumBytes.toLong()) {
+        throw NetworkProtocolException(NetworkFailure.MalformedResponse, "WebDAV directory response is too large")
+    }
+    val initialCapacity = declaredLength.takeIf { it in 1..maximumBytes.toLong() }?.toInt() ?: 8 * 1024
+    return body.byteStream().use { input ->
+        val output = ByteArrayOutputStream(initialCapacity)
+        val buffer = ByteArray(8 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            if (output.size() + read > maximumBytes) {
+                throw NetworkProtocolException(NetworkFailure.MalformedResponse, "WebDAV directory response is too large")
+            }
+            output.write(buffer, 0, read)
+        }
+        output.toByteArray()
     }
 }
 

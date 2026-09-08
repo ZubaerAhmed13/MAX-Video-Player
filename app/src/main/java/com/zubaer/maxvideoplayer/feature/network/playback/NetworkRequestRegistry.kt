@@ -71,6 +71,22 @@ class NetworkRequestRegistry {
     fun safeHeaders(uri: String): Map<String, String> =
         resolve(uri)?.requestHeaders()?.mapValues { (name, value) -> if (SensitiveHeaderPolicy.isSensitive(name)) "***" else value }.orEmpty()
 
+    /**
+     * Media3 RTSP supports BASIC/DIGEST credentials only through URI user-info. Keep that URI
+     * process-local at the final media-source boundary; callers persist and expose only [uri].
+     */
+    fun authenticatedRtspUri(uri: String): Uri {
+        val parsed = Uri.parse(uri)
+        if (!parsed.scheme.equals("rtsp", ignoreCase = true) || parsed.userInfo != null) return parsed
+        val credential = resolve(uri)?.credential ?: return parsed
+        val username = credential.username.takeIf { it.isNotBlank() } ?: return parsed
+        val host = parsed.host ?: return parsed
+        val encodedHost = if (':' in host && !host.startsWith('[')) "[$host]" else host
+        val hostPort = encodedHost + if (parsed.port > 0) ":${parsed.port}" else ""
+        val userInfo = "${Uri.encode(username)}:${Uri.encode(credential.password)}"
+        return parsed.buildUpon().encodedAuthority("$userInfo@$hostPort").build()
+    }
+
     private fun httpDirectoryRoot(uri: String): String {
         val parsed = Uri.parse(uri)
         val directory = parsed.path.orEmpty().substringBeforeLast('/', "").trimEnd('/')

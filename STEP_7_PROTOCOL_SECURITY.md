@@ -2,7 +2,7 @@
 
 ## Security invariants
 
-- Passwords, bearer tokens, cookies and sensitive custom headers never enter Room, media IDs, MediaItem metadata, diagnostics or logs.
+- Passwords, bearer tokens, cookies and sensitive custom headers never enter Room, media IDs, public MediaItem metadata, diagnostics or logs.
 - URLs containing `userinfo` are rejected. Credentials must be entered separately and stay in the process-local request registry or encrypted vault.
 - Room stores only an opaque credential reference and a non-secret username hint.
 - Saved secrets are AES/GCM encrypted with a non-exportable Android Keystore key before SharedPreferences persistence.
@@ -18,13 +18,13 @@
 | HTTP | Cleartext only after an explicit destination warning and acknowledgement | Optional request headers or credentials are process-local | Not encrypted; UI states this plainly |
 | HTTPS | TLS through OkHttp | Basic, bearer or custom headers | Android system trust store and hostname verification; no trust-all path |
 | HLS / DASH | HTTP transport rules apply to manifests and every child request | Header scope follows exact origin/directory; cross-origin children require their own authorization policy | HTTPS recommended; HTTP requires the same explicit cleartext acknowledgement |
-| RTSP | Media3 RTSP integration with explicit RTP-over-RTSP/TCP | Userinfo is rejected; authenticated RTSP is not claimed by Step 7 because Media3 would require embedding it in the media URI | TCP-capable server required; no UDP-only or fake TLS claim |
+| RTSP | Media3 RTSP integration with explicit RTP-over-RTSP/TCP | BASIC/DIGEST credentials are injected only into a private source URI, then masked from the public timeline | TCP-capable server required; debug message logging is disabled |
 | SMB | SMB 2.0.2 through SMB 3.1.1 only | Guest, anonymous or username/password/domain | Signing enabled. SMB3 server/share-required encryption is honored; encryption is not claimed for SMB2 |
-| WebDAV | HTTPS only | Basic, bearer and scoped custom headers | Normal TLS verification plus bounded, DTD-disabled pull parsing |
+| WebDAV | HTTPS by default; HTTP only after saved-source acknowledgement | Basic, bearer and scoped custom headers | Normal TLS verification for HTTPS plus bounded, DTD-disabled pull parsing |
 | FTP | Plain FTP | Anonymous or username/password | Explicit warning and acknowledgement required before saving a password |
 | FTPS | Explicit TLS FTP plus protected data channel (`PBSZ 0`, `PROT P`) | Username/password | Endpoint checking enabled; no trust-all or clear data channel |
 
-Android cannot express a runtime, user-selected cleartext hostname allowlist in static Network Security Configuration. The application therefore permits the platform socket capability needed for arbitrary direct HTTP URLs, while the only product flow that can submit HTTP requires a per-destination warning acknowledgement. Saved server creation intentionally excludes HTTP. This is a deliberate platform constraint, not a claim that HTTP is secure.
+Android cannot express a runtime, user-selected cleartext hostname allowlist in static Network Security Configuration. The application therefore permits the platform socket capability needed for user-selected HTTP URLs, while direct and saved HTTP/WebDAV-HTTP product flows require explicit warning acknowledgement. The persisted acknowledgement does not claim that HTTP is secure.
 
 ## HTTP header and redirect rules
 
@@ -41,7 +41,7 @@ The production client uses:
 
 ## XML and path security
 
-WebDAV XML is capped at 4 MiB. `XmlPullParser` has document declarations disabled, and a `DOCDECL` token is rejected if encountered. No external entity resolver is installed. Returned `href` values are normalized and rejected if they cross origin or escape the saved root. SMB and FTP child paths pass through `safeRemotePath`, which resolves `.` and bounded `..` segments and rejects traversal above the root.
+WebDAV XML is capped at 4 MiB before parsing. Declared oversized bodies fail before the response stream is opened; unknown-length bodies are copied in bounded chunks and fail before any oversized chunk is committed to the output allocation. `XmlPullParser` has document declarations disabled, and a `DOCDECL` token is rejected if encountered. No external entity resolver is installed. Returned `href` values are normalized and rejected if they cross origin or escape the saved root. SMB and FTP child paths pass through `safeRemotePath`, which resolves `.` and bounded `..` segments and rejects traversal above the root.
 
 ## Bounded content
 
@@ -61,12 +61,12 @@ Saving a source can create or update an opaque vault record. Editing with blank 
 
 ## Test evidence
 
-Instrumentation certifies encryption/update/delete/invalidation, signed-query canonical identity, header redaction, cross-origin redirect isolation, credential URL rejection, FTP acknowledgement, XXE rejection, Unicode WebDAV parsing, WebDAV root confinement and remote-path traversal defense. The dedicated protocol lane additionally uses isolated authenticated servers and never depends on a personal NAS or a public media endpoint.
+Instrumentation certifies encryption/update/delete/invalidation, saved-HTTP Room/vault round-trip, signed-query canonical identity, header redaction, cross-origin redirect isolation, credential URL rejection, direct/saved cleartext acknowledgement, RTSP private credential injection, WebDAV HTTP, pre-allocation bounds, XXE rejection, Unicode parsing, root confinement and path traversal defense. The dedicated protocol lane additionally uses isolated authenticated servers and never depends on a personal NAS or a public media endpoint.
 
 ## Explicit limitations
 
 - Self-signed/private CA certificates are not accepted unless installed into the Android system trust configuration outside the app.
 - Certificate pinning is not configured because arbitrary user-owned servers cannot share a static pin set.
-- FTPS code is implemented, but Step 7 does not call it fully certified until a real automated TLS FTP test passes.
+- The repository-owned FTPS certificate/private key and debug CA are non-production CI fixtures. Release builds retain system trust only.
 - SFTP is not implemented; it is not aliased to FTP or FTPS.
 - SMB encryption is not described as universal because SMB2 has no SMB3 transport encryption.

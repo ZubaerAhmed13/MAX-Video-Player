@@ -32,14 +32,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Runs only in the dedicated CI lane, which provisions isolated Samba, FTP and RTSP servers on
+ * Runs only in the dedicated CI lane, which provisions isolated Samba, FTP, FTPS and RTSP servers on
  * the runner host. The ordinary connected suite remains self-contained for local development.
  */
 @RunWith(AndroidJUnit4::class)
 class Step7ProtocolServerIntegrationTest {
     @OptIn(UnstableApi::class)
     @Test
-    fun realSmbFtpAndRtspServersBrowseSeekAndPlayThroughProductionMedia3() {
+    fun realSmbFtpFtpsAndAuthenticatedRtspServersBrowseSeekAndPlayThroughProductionMedia3() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val arguments = InstrumentationRegistry.getArguments()
         if (arguments.getString("step7ProtocolServers") != "true") return
@@ -66,11 +66,19 @@ class Step7ProtocolServerIntegrationTest {
             protocol = NetworkProtocol.FTP,
             host = host,
             port = 2121,
-            ftpSecurityAcknowledged = true,
+            cleartextSecurityAcknowledged = true,
+        )
+        val ftpsLocation = NetworkLocation(
+            id = "step7-ci-ftps",
+            displayName = "Step 7 explicit FTPS",
+            protocol = NetworkProtocol.FTPS,
+            host = host,
+            port = 2122,
         )
 
         certifySmb(app, smbLocation, credential, fixture)
         certifyFtp(app, ftpLocation, credential, fixture)
+        certifyFtp(app, ftpsLocation, credential, fixture)
 
         val smbMedia = mediaFor(
             id = "step7-ci-smb-media",
@@ -82,9 +90,19 @@ class Step7ProtocolServerIntegrationTest {
             uri = FtpProtocolClient().playbackUri(ftpLocation, FIXTURE_NAME),
             sourceId = ftpLocation.id,
         )
+        val ftpsMedia = mediaFor(
+            id = "step7-ci-ftps-media",
+            uri = FtpProtocolClient().playbackUri(ftpsLocation, FIXTURE_NAME),
+            sourceId = ftpsLocation.id,
+        )
         app.container.networkRequestRegistry.registerUri(smbMedia.uri, smbLocation, credential)
         app.container.networkRequestRegistry.registerUri(ftpMedia.uri, ftpLocation, credential)
-        val rtspMedia = app.container.networkRepository.prepareDirect("rtsp://$host:8554/step7", "Step 7 RTSP")
+        app.container.networkRequestRegistry.registerUri(ftpsMedia.uri, ftpsLocation, credential)
+        val rtspMedia = app.container.networkRepository.prepareDirect(
+            "rtsp://$host:8554/step7",
+            "Step 7 authenticated RTSP",
+            credential,
+        )
 
         context.stopService(Intent(context, PlaybackService::class.java))
         instrumentation.waitForIdleSync()
@@ -95,6 +113,7 @@ class Step7ProtocolServerIntegrationTest {
             assertTrue("MediaController did not connect", await(10_000L) { connection.state.value.connected })
             certifyPlayback(instrumentation, connection, smbMedia, NetworkProtocol.SMB)
             certifyPlayback(instrumentation, connection, ftpMedia, NetworkProtocol.FTP)
+            certifyPlayback(instrumentation, connection, ftpsMedia, NetworkProtocol.FTPS)
             certifyPlayback(instrumentation, connection, rtspMedia, NetworkProtocol.RTSP, timeoutMs = 35_000L)
         } finally {
             instrumentation.runOnMainSync {
@@ -198,7 +217,12 @@ class Step7ProtocolServerIntegrationTest {
                 connection.state.value.error != null
         })
         assertNull("$protocol playback failed: ${connection.state.value.error}", connection.state.value.error)
-        assertEquals(media.stableId, playerSnapshotOnMain(instrumentation, connection).mediaId)
+        val readySnapshot = playerSnapshotOnMain(instrumentation, connection)
+        assertEquals(media.stableId, readySnapshot.mediaId)
+        if (protocol == NetworkProtocol.RTSP) {
+            assertEquals("RTSP credentials escaped into the controller-visible MediaItem", media.uri, readySnapshot.uri)
+            assertFalse(readySnapshot.uri.orEmpty().contains("max-network-ci"))
+        }
         if (shouldPlay) {
             assertTrue("RTSP reached READY but did not play through the service-owned player", await(5_000L) {
                 connection.state.value.isPlaying
@@ -212,18 +236,19 @@ class Step7ProtocolServerIntegrationTest {
         instrumentation: android.app.Instrumentation,
         connection: PlaybackConnection,
     ): PlayerSnapshot {
-        var snapshot = PlayerSnapshot(Player.STATE_IDLE, null)
+        var snapshot = PlayerSnapshot(Player.STATE_IDLE, null, null)
         instrumentation.runOnMainSync {
             val player = connection.playerOrNull()
             snapshot = PlayerSnapshot(
                 playbackState = player?.playbackState ?: Player.STATE_IDLE,
                 mediaId = player?.currentMediaItem?.mediaId,
+                uri = player?.currentMediaItem?.localConfiguration?.uri?.toString(),
             )
         }
         return snapshot
     }
 
-    private data class PlayerSnapshot(val playbackState: Int, val mediaId: String?)
+    private data class PlayerSnapshot(val playbackState: Int, val mediaId: String?, val uri: String?)
 
     private fun mediaFor(id: String, uri: String, sourceId: String) = AppMedia(
         stableId = id,

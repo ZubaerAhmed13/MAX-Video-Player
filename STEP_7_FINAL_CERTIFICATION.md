@@ -13,20 +13,21 @@ Step 7 is complete for the declared software/emulator scope. This certification 
 | implementation head | `4cb661b978de502b99bef864cc99a53c1540939a` | run #242 (`34239231820`) | PASS |
 | documentation-complete PR head | `1a89ecc48906e151378373eb4af7f5210b8353c9` | run #243 (`34241083327`) | PASS |
 | PR #12 merge / resulting `main` | `9d271c4786236577e009f63d65ad7435b31c015b` | run #244 (`34242218019`) | PASS |
+| review-gap implementation head | `3addcee62754afb61479415d67e8e654cf171e16` | run #248 (`34251887641`) | all build/test/protocol steps PASS; retry artifact collision only |
 
 PR [#12](https://github.com/ZubaerAhmed13/MAX-Video-Player/pull/12), `Step 7 — Professional Network Playback & Network Sources`, was merged with expected head `1a89ecc48906e151378373eb4af7f5210b8353c9`. GitHub would have rejected the merge if the certified head had moved.
 
 ## Required job results
 
-Run #243 and post-merge run #244 each passed every configured job:
+Runs #243 and #244 passed every configured job. Review-gap run #248 passed every build/test/protocol step; its failed conclusion came only from a repeated API-26 immutable artifact-name collision, which is corrected with per-attempt report names:
 
 - `:app:assembleDebug` and `:app:testDebugUnitTest` — PASS
 - `:app:assembleRelease` — PASS
 - `:app:lintDebug` — PASS
-- complete API-35 instrumentation — PASS, 59/59 on the recorded implementation suite
+- complete API-35 instrumentation — PASS; the gap suite adds saved HTTP/WebDAV HTTP, RTSP secret isolation and WebDAV allocation-bound coverage
 - API-26 thumbnail regression — PASS, 2/2
 - API-28 thumbnail regression — PASS, 2/2
-- isolated API-35 Samba/FTP/RTSP certification — PASS, 1/1
+- isolated API-35 Samba/FTP/explicit-FTPS/authenticated-RTSP certification — PASS, 1/1
 
 Post-merge run #244 job IDs are `102115006884` (build/test/lint), `102115006376` (API 35), `102115006546` (API 26), `102115006701` (API 28) and `102115006707` (protocol certification).
 
@@ -57,22 +58,34 @@ Post-merge run #244 artifacts:
 - HTTP/HTTPS progressive, authenticated ranges, redirects and credential isolation — PASS
 - HLS VOD, two real variants, quality override/Auto, rolling live and Go Live — PASS
 - DASH VOD with two AVC representations and AAC — PASS
-- RTSP via the production Media3 RTP-over-RTSP/TCP path — PASS
+- authenticated RTSP via the production Media3 RTP-over-RTSP/TCP path with a credential-free public timeline — PASS
 - SMB2/SMB3 authenticated browse, Unicode, exact random reads, >3 GB sparse offset and production playback — PASS
-- WebDAV HTTPS authenticated PROPFIND, secure XML/root confinement and shared HTTP playback — PASS
+- WebDAV HTTPS and acknowledged HTTP authenticated PROPFIND, secure XML/root confinement, pre-allocation bound and shared HTTP playback — PASS
 - FTP authenticated browse, Unicode, REST random reads, >3 GB sparse offset and production playback — PASS
-- explicit FTPS implementation — PARTIAL because no real automated TLS FTP server was certified
+- explicit FTPS authenticated browse, REST seek, >3 GB offset and playback against required control/data TLS — PASS
 - SFTP — NOT IMPLEMENTED
 
 ## Security and architecture result
 
-The application keeps one service-owned Media3 player. Network protocols feed `ProfessionalMediaSourceFactory` through scoped protocol clients/DataSources; they do not introduce protocol-specific players or normal full-file downloads. Credential secrets remain in an AES/GCM Android-Keystore-backed vault, Room stores opaque references, diagnostics/persistence redact sensitive URI material, cross-origin authorization is isolated, URL userinfo is rejected, WebDAV DTD/XXE and root escape are rejected, and TLS verification is not disabled.
+The application keeps one service-owned Media3 player. Network protocols feed `ProfessionalMediaSourceFactory` through scoped protocol clients/DataSources; they do not introduce protocol-specific players or normal full-file downloads. Credential secrets remain in an AES/GCM Android-Keystore-backed vault, Room stores opaque references, diagnostics/persistence redact sensitive URI material, cross-origin authorization is isolated, RTSP private credentials are masked from the public timeline, WebDAV DTD/XXE/root escape/oversized allocation are rejected, and TLS verification is not disabled.
+
+## Review-gap closure
+
+| Review item | Final status | Automated evidence |
+|---|---|---|
+| FTPS | PASS | real explicit-FTPS server requires TLS on control/data; browse, auth failure, REST offsets and service playback pass |
+| RTSP authentication | PASS | authenticated MediaMTX BASIC/DIGEST playback passes; controller-visible MediaItem remains credential-free |
+| WebDAV HTTP | PASS | acknowledged saved HTTP WebDAV location performs real local PROPFIND and returns confined playback URI |
+| Saved HTTP server location | PASS | editor consent gate plus Room configuration and Keystore-vault credential round-trip |
+| WebDAV pre-allocation bound | PASS | declared oversize fails before stream open; unknown-length oversize fails during bounded copy |
+
+PR [#14](https://github.com/ZubaerAhmed13/MAX-Video-Player/pull/14) carries this closure. As with the original certification, its exact documentation-complete head, expected-head merge and resulting `main` run are authoritative in GitHub history and the final handoff because a commit cannot embed its own SHA without changing it.
 
 ## Final documentation closure rule
 
-This file and the canonical status changes are a documentation-only closure created after exact merged implementation commit `9d271c4786236577e009f63d65ad7435b31c015b` passed run #244. The closure head must pass the repository's unchanged full workflow before merge, and the resulting `main` head must pass it again.
+This review-gap closure follows exact merged implementation commit `9d271c4786236577e009f63d65ad7435b31c015b`, which passed run #244. The closure head must pass the repository's full workflow before merge, and the resulting `main` head must pass it again.
 
-A Git commit cannot reliably embed its own final SHA without changing that SHA. The exact documentation-closure commit, merge SHA and their successful workflow runs therefore remain authoritative in GitHub history and in the final handoff rather than being recursively written into this file. No production source, test, dependency, database migration or CI gate is weakened by the closure.
+A Git commit cannot reliably embed its own final SHA without changing that SHA. The exact closure commit, merge SHA and their successful workflow runs therefore remain authoritative in GitHub history and in the final handoff rather than being recursively written into this file. No production source, test, dependency, database migration or CI gate is weakened by the closure.
 
 ## Physical boundary
 
@@ -83,4 +96,3 @@ Still **NOT VERIFIED — DEFERRED TO STEP 10**: physical NAS/router/OEM interope
 **STEP 7: PASS**
 
 **STEP 8: NOT STARTED**
-

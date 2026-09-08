@@ -15,6 +15,7 @@ enum class NetworkProtocol(val defaultPort: Int, val browsable: Boolean, val enc
     RTSP(554, false, false),
     SMB(445, true, false),
     WEBDAV(443, true, true),
+    WEBDAV_HTTP(80, true, false),
     FTP(21, true, false),
     FTPS(21, true, true),
 }
@@ -30,7 +31,7 @@ data class NetworkLocation(
     val usernameHint: String? = null,
     val useGuest: Boolean = false,
     val ftpPassiveMode: Boolean = true,
-    val ftpSecurityAcknowledged: Boolean = false,
+    val cleartextSecurityAcknowledged: Boolean = false,
     val createdAtMs: Long = System.currentTimeMillis(),
     val updatedAtMs: Long = System.currentTimeMillis(),
     val lastConnectedAtMs: Long? = null,

@@ -15,34 +15,35 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | HTTP | Redirects and loop bound | PASS | Deterministic redirect success and bounded loop failure |
 | HTTP | Cross-host auth isolation | PASS | Destination test server receives no Authorization |
 | HTTPS | TLS verification | PASS | Android system trust/hostname verification; no trust-all code |
-| Cleartext | HTTP warning/acknowledgement | PASS | Compose test requires explicit acknowledgement; saved-source editor excludes HTTP |
+| Cleartext | Direct and saved HTTP warning/acknowledgement | PASS | Compose/domain tests require explicit persisted acknowledgement |
 | HLS | VOD/master/variants | PASS | Real Media3 playback of two synthetic variants |
 | HLS | Manual quality and Auto | PASS | Real Media3 track override and removal |
 | HLS | Live / Go Live | PASS | Rolling local playlist, advancing media sequence, DVR-window seek and measured live-offset reduction |
 | DASH | MPD VOD / adaptive representations / audio | PASS | Static local MPD with two AVC representations and AAC adaptation set |
-| RTSP | Production playback | PASS | Media3 RTP-over-RTSP/TCP against isolated MediaMTX H.264/AAC server; run #242 |
-| RTSP | Credential safety | PASS | URL userinfo rejected; authenticated RTSP not falsely claimed |
+| RTSP | Authenticated production playback | PASS | Media3 BASIC/DIGEST against authenticated MediaMTX over RTP/RTSP/TCP; run #248 |
+| RTSP | Credential safety | PASS | URL userinfo rejected at input; private source injection is masked from controller-visible timeline/history/logs |
 | SMB | SMB2/SMB3 browse/auth/play | PASS | SMBJ against isolated authenticated Samba; SMB1 excluded; run #242 |
 | SMB | Random seek / >3 GB offsets | PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
 | SMB | Signing/encryption truth | PASS | signing enabled; SMB3 server/share encryption honored, not claimed for SMB2 |
-| WebDAV | HTTPS PROPFIND/browse/auth | PASS | deterministic authenticated PROPFIND, Depth, Unicode and folders-first mapping |
+| WebDAV | HTTPS and acknowledged-HTTP PROPFIND/browse/auth | PASS | deterministic authenticated PROPFIND, Depth, Unicode and folders-first mapping |
 | WebDAV | Secure XML/root confinement | PASS | DTD/XXE and off-origin/off-root response rejection |
+| WebDAV | Pre-allocation response bound | PASS | content-length preflight plus bounded streaming for unknown-length bodies |
 | WebDAV | Playback/range | PASS | resolved HTTPS entries use the shared Media3 OkHttp range path |
 | FTP | Browse/login/binary playback | PASS | Commons Net against isolated authenticated pyftpdlib server; run #242 |
 | FTP | REST seek / >3 GB offsets | PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
 | FTP | Cleartext warning | PASS | domain validation and UI test require explicit acknowledgement |
-| FTPS | Explicit TLS implementation | PARTIAL | endpoint checking + `PBSZ 0` + `PROT P`; no real TLS FTP server test yet |
+| FTPS | Explicit TLS browse/seek/playback | PASS | required control/data TLS, endpoint checking, `PBSZ 0`, `PROT P`; real server lane #248 |
 | SFTP | SSH file transfer | NOT IMPLEMENTED | not aliased to FTP/FTPS |
 | Credentials | Keystore-backed encrypted vault | PASS | AES/GCM ciphertext lifecycle and invalidation recovery test |
 | Credentials | No plaintext Room/media/log secret | PASS | opaque Room ref, userinfo rejection, sanitized diagnostics/header tests |
-| Saved sources | Add/edit/test/rename/remove/forget | PASS | Network center and reference-counted repository flows |
+| Saved sources | Add/edit/test/rename/remove/forget | PASS | includes Room/vault round-trip for saved HTTP and WebDAV HTTP |
 | Browser | Breadcrumbs/Up/refresh/search/sort/Unicode | PASS | Compose surface + isolated Unicode listings |
 | History | Stable network identity/resume | PASS | signed tokens removed from canonical ID; sanitized URI persistence |
 | Playlist | Bounded HTTP/WebDAV M3U mixed queue | PASS | 2 MiB/1,000 item non-recursive parser |
 | Sidecars | HTTP/HTTPS subtitle and external audio | PASS | existing Step-4/5 repositories and shared MediaSource timeline; secret URLs rejected |
 | Diagnostics | Loading/buffering/reconnecting/error | PASS | shared player monitor, connectivity state, buffer/bandwidth/retry/redacted URI |
 | Database | Room v5→v6 | PASS | explicit migration preserves Steps 1–6 and adds secret-free network locations |
-| CI | Isolated network protocol job | PASS | Samba/pyftpdlib/MediaMTX, run #242, no public media server or personal NAS |
+| CI | Isolated network protocol job | PASS | Samba/plain FTP/TLS-required FTPS/authenticated MediaMTX, run #248 |
 | Physical network/device matrix | NAS/router/WAN/OEM/large remote media | NOT VERIFIED | Deferred to Step 10 |
 
 ## Step-6 professional decoder engine
@@ -182,9 +183,9 @@ The Step-7 branch requires the exact documentation-complete head to pass:
 - complete API-35 instrumentation including Steps 1–7 integration and decoder capability report
 - API-26 thumbnail regression
 - API-28 thumbnail regression
-- isolated API-35 SMB/FTP/RTSP protocol certification
+- isolated API-35 SMB/FTP/explicit-FTPS/authenticated-RTSP protocol certification
 
-After the branch is green, PR #12 must be merged with an expected-head lock and the exact `main` merge head must pass the same configured workflow before the overall result can be declared complete.
+After the review-gap branch is green, PR #14 must be merged with an expected-head lock and the exact `main` merge head must pass the same configured workflow before the closure can be declared complete.
 
 See:
 
@@ -214,4 +215,4 @@ The following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
 
 Steps 1–6 software/emulator functionality remains `PASS` as previously certified.
 
-**Step 7 is PASS in its declared software/emulator scope after exact implementation run #242, documentation-head run #243 and post-merge `main` run #244. FTPS remains PARTIAL and physical network/device certification remains deferred to Step 10.**
+**Step 7 is PASS in its declared software/emulator scope after the original exact-head chain in runs #242–#244 and review-gap implementation run #248. Physical network/device certification remains deferred to Step 10.**

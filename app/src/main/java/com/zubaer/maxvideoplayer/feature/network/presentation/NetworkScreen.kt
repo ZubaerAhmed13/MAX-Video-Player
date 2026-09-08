@@ -232,7 +232,16 @@ internal fun LocationEditor(
 ) {
     var advanced by remember { mutableStateOf(false) }
     var reveal by remember { mutableStateOf(false) }
-    val protocols = listOf(NetworkProtocol.SMB, NetworkProtocol.WEBDAV, NetworkProtocol.FTP, NetworkProtocol.FTPS, NetworkProtocol.HTTPS)
+    val protocols = listOf(
+        NetworkProtocol.SMB,
+        NetworkProtocol.WEBDAV,
+        NetworkProtocol.WEBDAV_HTTP,
+        NetworkProtocol.FTP,
+        NetworkProtocol.FTPS,
+        NetworkProtocol.HTTP,
+        NetworkProtocol.HTTPS,
+    )
+    val cleartext = draft.protocol in setOf(NetworkProtocol.HTTP, NetworkProtocol.WEBDAV_HTTP, NetworkProtocol.FTP)
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { SectionTitle(if (draft.id == null) "Add Network Location" else "Edit Network Location") }
         item {
@@ -241,7 +250,7 @@ internal fun LocationEditor(
                     FilterChip(
                         selected = draft.protocol == protocol,
                         onClick = { onDraft(draft.copy(protocol = protocol, port = protocol.defaultPort.toString())) },
-                        label = { Text(protocol.name) },
+                        label = { Text(protocol.name.replace('_', ' ')) },
                     )
                 }
             }
@@ -273,21 +282,31 @@ internal fun LocationEditor(
         }
         if (draft.protocol == NetworkProtocol.SMB) item { OutlinedTextField(draft.domain, { onDraft(draft.copy(domain = it)) }, Modifier.fillMaxWidth(), label = { Text("Domain / workgroup (optional)") }, singleLine = true) }
         if (draft.protocol in setOf(NetworkProtocol.FTP, NetworkProtocol.FTPS)) item { SettingSwitch("Passive mode", draft.ftpPassiveMode) { onDraft(draft.copy(ftpPassiveMode = it)) } }
-        if (draft.protocol == NetworkProtocol.FTP) {
-            item { Text("FTP does not encrypt your password or media traffic. Prefer FTPS, WebDAV over HTTPS, SMB3, or HTTPS.", color = MaterialTheme.colorScheme.error) }
-            item { SettingSwitch("I understand the FTP security risk", draft.ftpSecurityAcknowledged) { onDraft(draft.copy(ftpSecurityAcknowledged = it)) } }
+        if (cleartext) {
+            val transport = if (draft.protocol == NetworkProtocol.FTP) "FTP" else "HTTP"
+            item { Text("$transport does not encrypt your password or media traffic. Prefer FTPS, WebDAV over HTTPS, SMB3, or HTTPS.", color = MaterialTheme.colorScheme.error) }
+            item {
+                SettingSwitch(
+                    "I understand the cleartext security risk",
+                    draft.cleartextSecurityAcknowledged,
+                    Modifier.testTag("saved_cleartext_risk_ack"),
+                ) { onDraft(draft.copy(cleartextSecurityAcknowledged = it)) }
+            }
         }
         item { SettingSwitch("Remember credentials securely", draft.rememberCredential) { onDraft(draft.copy(rememberCredential = it)) } }
         item { TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced HTTP options" else "Advanced HTTP options") } }
-        if (advanced && draft.protocol in setOf(NetworkProtocol.WEBDAV, NetworkProtocol.HTTPS)) {
+        if (advanced && draft.protocol in setOf(NetworkProtocol.WEBDAV, NetworkProtocol.WEBDAV_HTTP, NetworkProtocol.HTTP, NetworkProtocol.HTTPS)) {
             item { OutlinedTextField(draft.bearerToken, { onDraft(draft.copy(bearerToken = it)) }, Modifier.fillMaxWidth(), label = { Text("Bearer token") }, visualTransformation = PasswordVisualTransformation()) }
             item { OutlinedTextField(draft.userAgent, { onDraft(draft.copy(userAgent = it)) }, Modifier.fillMaxWidth(), label = { Text("Custom User-Agent") }) }
             item { OutlinedTextField(draft.referer, { onDraft(draft.copy(referer = it)) }, Modifier.fillMaxWidth(), label = { Text("Referer") }) }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onTest(draft) }, enabled = draft.host.isNotBlank()) { Text("Test Connection") }
-                Button(onClick = { onSave(draft) }, enabled = draft.host.isNotBlank() && draft.displayName.isNotBlank()) { Text("Save") }
+                OutlinedButton(onClick = { onTest(draft) }, enabled = draft.host.isNotBlank() && (!cleartext || draft.cleartextSecurityAcknowledged)) { Text("Test Connection") }
+                Button(
+                    onClick = { onSave(draft) },
+                    enabled = draft.host.isNotBlank() && draft.displayName.isNotBlank() && (!cleartext || draft.cleartextSecurityAcknowledged),
+                ) { Text("Save") }
                 TextButton(onClick = onCancel) { Text("Cancel") }
             }
         }

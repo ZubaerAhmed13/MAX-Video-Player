@@ -35,12 +35,12 @@ data class NetworkLocationDraft(
     val rememberCredential: Boolean = true,
     val useGuest: Boolean = false,
     val ftpPassiveMode: Boolean = true,
-    val ftpSecurityAcknowledged: Boolean = false,
+    val cleartextSecurityAcknowledged: Boolean = false,
 ) {
     fun location(existing: NetworkLocation? = null): NetworkLocation {
         val parsedPort = port.toIntOrNull() ?: error("Enter a valid port")
-        if (protocol == NetworkProtocol.FTP && password.isNotBlank() && !ftpSecurityAcknowledged) {
-            error("Acknowledge the FTP security warning before saving a password")
+        if (protocol in CLEARTEXT_SAVED_PROTOCOLS && !cleartextSecurityAcknowledged) {
+            error("Acknowledge the cleartext transport warning before continuing")
         }
         return NetworkLocation(
             id = id ?: existing?.id ?: java.util.UUID.randomUUID().toString(),
@@ -53,7 +53,7 @@ data class NetworkLocationDraft(
             usernameHint = username.trim().takeIf { it.isNotBlank() } ?: existing?.usernameHint,
             useGuest = useGuest,
             ftpPassiveMode = ftpPassiveMode,
-            ftpSecurityAcknowledged = ftpSecurityAcknowledged,
+            cleartextSecurityAcknowledged = cleartextSecurityAcknowledged,
             createdAtMs = existing?.createdAtMs ?: System.currentTimeMillis(),
             lastConnectedAtMs = existing?.lastConnectedAtMs,
         )
@@ -82,7 +82,13 @@ data class NetworkLocationDraft(
             rememberCredential = location.credentialRef != null,
             useGuest = location.useGuest,
             ftpPassiveMode = location.ftpPassiveMode,
-            ftpSecurityAcknowledged = location.ftpSecurityAcknowledged,
+            cleartextSecurityAcknowledged = location.cleartextSecurityAcknowledged,
+        )
+
+        private val CLEARTEXT_SAVED_PROTOCOLS = setOf(
+            NetworkProtocol.HTTP,
+            NetworkProtocol.WEBDAV_HTTP,
+            NetworkProtocol.FTP,
         )
     }
 }
