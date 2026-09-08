@@ -21,6 +21,7 @@ import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderFormatSnapshot
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.ProfessionalRenderersFactory
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
+import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class Media3PlaybackEngine(
@@ -28,6 +29,7 @@ class Media3PlaybackEngine(
     subtitleRepository: SubtitleRepository,
     private val audioRepository: AudioRepository,
     private val decoderRepository: DecoderRepository,
+    networkRequestRegistry: NetworkRequestRegistry,
 ) : PlaybackEngine {
     val audioProcessor = MaxAudioProcessor(audioRepository)
     private val appContext = context.applicationContext
@@ -101,7 +103,7 @@ class Media3PlaybackEngine(
     private val exoPlayer: ExoPlayer = ExoPlayer.Builder(
         appContext,
         renderersFactory,
-        ProfessionalMediaSourceFactory(appContext, subtitleRepository, audioRepository),
+        ProfessionalMediaSourceFactory(appContext, subtitleRepository, audioRepository, networkRequestRegistry),
     )
         .build()
         .apply {

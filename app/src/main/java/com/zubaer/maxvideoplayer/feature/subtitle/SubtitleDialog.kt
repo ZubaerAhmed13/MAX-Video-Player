@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -70,6 +71,8 @@ fun SubtitleDialog(
     var bottomPadding by remember(style.bottomPaddingFraction) { mutableFloatStateOf(style.bottomPaddingFraction) }
     var relinkAssociationId by remember { mutableStateOf<String?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
+    var networkSubtitleUrl by remember { mutableStateOf("") }
+    var showNetworkSubtitle by remember { mutableStateOf(false) }
 
     val externalPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && repository != null && connection != null) {
@@ -169,6 +172,30 @@ fun SubtitleDialog(
                     },
                     modifier = Modifier.testTag("load_external_subtitle"),
                 ) { Text("Open subtitle file") }
+                TextButton(onClick = { showNetworkSubtitle = !showNetworkSubtitle }) { Text("Open subtitle from URL") }
+                if (showNetworkSubtitle) {
+                    OutlinedTextField(
+                        value = networkSubtitleUrl,
+                        onValueChange = { networkSubtitleUrl = it },
+                        modifier = Modifier.fillMaxWidth().testTag("network_subtitle_url"),
+                        label = { Text("HTTPS subtitle URL") },
+                        singleLine = true,
+                    )
+                    Button(
+                        onClick = {
+                            val descriptor = repository?.describeNetworkUrl(networkSubtitleUrl)
+                            if (descriptor == null || connection == null) {
+                                localError = "Enter a direct HTTP/HTTPS SRT, WebVTT, SSA/ASS, or TTML URL."
+                            } else {
+                                application?.container?.networkRequestRegistry?.registerUri(descriptor.uri, null, null)
+                                connection.attachExternalSubtitle(descriptor)
+                                localError = null
+                                showNetworkSubtitle = false
+                            }
+                        },
+                        enabled = networkSubtitleUrl.isNotBlank(),
+                    ) { Text("Attach URL") }
+                }
                 Text("SRT, WebVTT, SSA/ASS and TTML/DFXP are side-loaded by URI reference. The video is never copied or re-encoded.")
 
                 playback.subtitles.externalAssociations.forEach { external ->

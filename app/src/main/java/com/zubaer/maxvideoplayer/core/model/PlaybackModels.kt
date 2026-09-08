@@ -1,6 +1,7 @@
 package com.zubaer.maxvideoplayer.core.model
 
 import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderSessionState
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkDiagnostics
 
 enum class DecoderMode {
     AUTO,
@@ -51,10 +52,28 @@ sealed interface PlaybackError {
     data object UnsupportedDecoder : PlaybackError
     data object MalformedMedia : PlaybackError
     data object Network : PlaybackError
+    data object NetworkTimeout : PlaybackError
+    data object SecureConnection : PlaybackError
+    data object AuthenticationRequired : PlaybackError
+    data object NetworkAccessDenied : PlaybackError
+    data object NetworkMediaNotFound : PlaybackError
+    data object RangeRejected : PlaybackError
+    data object ServerThrottling : PlaybackError
+    data class NetworkServer(val statusCode: Int) : PlaybackError
     data object DecoderInitialization : PlaybackError
     data class Failure(val diagnosticCode: Int? = null) : PlaybackError
     data object Unknown : PlaybackError
 }
+
+data class VideoTrackInfo(
+    val key: String,
+    val width: Int?,
+    val height: Int?,
+    val bitrate: Int?,
+    val codec: String?,
+    val selected: Boolean,
+    val supported: Boolean,
+)
 
 data class PlaybackUiState(
     val connected: Boolean = false,
@@ -75,5 +94,10 @@ data class PlaybackUiState(
     val shuffleEnabled: Boolean = false,
     val subtitles: SubtitlePlaybackState = SubtitlePlaybackState(),
     val decoder: DecoderSessionState = DecoderSessionState(),
+    val network: NetworkDiagnostics = NetworkDiagnostics(),
+    val videoTracks: List<VideoTrackInfo> = emptyList(),
+    val videoQualityAuto: Boolean = true,
+    val isLive: Boolean = false,
+    val liveOffsetMs: Long? = null,
     val error: PlaybackError? = null,
 )

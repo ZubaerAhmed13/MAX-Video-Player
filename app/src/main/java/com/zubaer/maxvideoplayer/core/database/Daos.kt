@@ -88,3 +88,15 @@ interface LibraryPreferenceDao {
     @Upsert suspend fun upsert(entity: LibraryPreferenceEntity)
     @Query("SELECT * FROM library_preferences WHERE `key` = :key LIMIT 1") suspend fun get(key: String): LibraryPreferenceEntity?
 }
+
+@Dao
+interface NetworkLocationDao {
+    @Query("SELECT * FROM network_locations ORDER BY displayName COLLATE NOCASE") fun observeAll(): Flow<List<NetworkLocationEntity>>
+    @Query("SELECT * FROM network_locations ORDER BY displayName COLLATE NOCASE") suspend fun all(): List<NetworkLocationEntity>
+    @Query("SELECT * FROM network_locations WHERE id = :id LIMIT 1") suspend fun get(id: String): NetworkLocationEntity?
+    @Query("SELECT COUNT(*) FROM network_locations WHERE credentialRef = :credentialRef") suspend fun countUsingCredential(credentialRef: String): Int
+    @Upsert suspend fun upsert(entity: NetworkLocationEntity)
+    @Query("UPDATE network_locations SET lastConnectedAtMs = :timestamp, updatedAtMs = :timestamp WHERE id = :id") suspend fun markConnected(id: String, timestamp: Long)
+    @Query("UPDATE network_locations SET credentialRef = NULL, usernameHint = NULL, updatedAtMs = :timestamp WHERE id = :id") suspend fun forgetCredential(id: String, timestamp: Long)
+    @Query("DELETE FROM network_locations WHERE id = :id") suspend fun delete(id: String)
+}

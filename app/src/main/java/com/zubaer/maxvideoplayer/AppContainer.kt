@@ -16,11 +16,30 @@ import com.zubaer.maxvideoplayer.feature.library.MediaFileActionRepository
 import com.zubaer.maxvideoplayer.feature.library.ThumbnailRepository
 import com.zubaer.maxvideoplayer.feature.player.PlayerPreferences
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
+import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
+import com.zubaer.maxvideoplayer.feature.network.repository.NetworkLocationRepository
+import com.zubaer.maxvideoplayer.feature.network.security.CredentialVault
+import com.zubaer.maxvideoplayer.feature.network.repository.NetworkRepository
+import com.zubaer.maxvideoplayer.feature.network.protocol.http.NetworkHttpClientFactory
+import com.zubaer.maxvideoplayer.feature.network.diagnostics.NetworkDiagnosticsMonitor
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
     val database: MaxDatabase by lazy { MaxDatabase.create(appContext) }
+    val credentialVault: CredentialVault by lazy { CredentialVault(appContext) }
+    val networkRequestRegistry: NetworkRequestRegistry by lazy { NetworkRequestRegistry() }
+    val networkDiagnosticsMonitor: NetworkDiagnosticsMonitor by lazy { NetworkDiagnosticsMonitor(appContext) }
+    val networkLocationRepository: NetworkLocationRepository by lazy {
+        NetworkLocationRepository(database.networkLocationDao(), credentialVault)
+    }
+    val networkRepository: NetworkRepository by lazy {
+        NetworkRepository(
+            networkLocationRepository,
+            networkRequestRegistry,
+            NetworkHttpClientFactory.create(networkRequestRegistry),
+        )
+    }
     val historyRepository: PlaybackHistoryRepository by lazy { PlaybackHistoryRepository(database.mediaHistoryDao()) }
     val mediaStoreRepository: MediaStoreRepository by lazy { MediaStoreRepository(appContext) }
     val metadataExtractor: MediaMetadataExtractor by lazy { MediaMetadataExtractor(appContext) }
@@ -33,7 +52,7 @@ class AppContainer(context: Context) {
         DecoderRepository(database.decoderMediaStateDao(), playerPreferences)
     }
     val playbackConnection: PlaybackConnection by lazy {
-        PlaybackConnection(appContext, subtitleRepository)
+        PlaybackConnection(appContext, subtitleRepository, networkDiagnosticsMonitor)
     }
     val audioPlaybackController: AudioPlaybackController by lazy { AudioPlaybackController(audioRepository, playbackConnection) }
     val safTreeScanner: SafTreeScanner by lazy { SafTreeScanner(appContext.contentResolver) }

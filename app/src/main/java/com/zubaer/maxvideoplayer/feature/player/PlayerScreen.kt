@@ -367,6 +367,7 @@ fun PlayerScreen(
             },
             onPrevious = { playbackConnection.seekToPrevious(); viewModel.showControls() },
             onNext = { playbackConnection.seekToNext(); viewModel.showControls() },
+            onGoLive = playbackConnection::goLive,
             onSeekPreview = viewModel::updateSeekGesture,
             onSeekCommit = viewModel::commitSeek,
             onInteractionStart = { viewModel.beginInteraction(PlayerGestureKind.SEEK) },
@@ -395,6 +396,8 @@ fun PlayerScreen(
             onSpeed = viewModel::setPlaybackSpeed,
             onRepeatMode = playbackConnection::setRepeatMode,
             onShuffle = playbackConnection::setShuffleEnabled,
+            onVideoQualityAuto = playbackConnection::selectVideoQualityAuto,
+            onVideoTrack = playbackConnection::selectVideoTrack,
             onDecoderMode = viewModel::setDecoderMode,
             onUseGlobalDecoder = viewModel::useGlobalDecoderForCurrentMedia,
             onDefaultDecoderMode = viewModel::setDefaultDecoderMode,
@@ -578,6 +581,14 @@ private fun errorMessage(error: PlaybackError): String = when (error) {
     PlaybackError.UnsupportedDecoder -> "This device does not expose a compatible decoder for this stream."
     PlaybackError.MalformedMedia -> "The media appears malformed or corrupted."
     PlaybackError.Network -> "Network playback failed. Check the connection and URL."
+    PlaybackError.NetworkTimeout -> "The network server did not respond in time."
+    PlaybackError.SecureConnection -> "Secure connection could not be verified. Check the certificate and server name."
+    PlaybackError.AuthenticationRequired -> "Authentication is required for this source."
+    PlaybackError.NetworkAccessDenied -> "The server denied access to this media."
+    PlaybackError.NetworkMediaNotFound -> "The network media was not found."
+    PlaybackError.RangeRejected -> "The server rejected the requested seek position. Try playing from the start."
+    PlaybackError.ServerThrottling -> "The server is limiting requests. Wait briefly and retry."
+    is PlaybackError.NetworkServer -> "The media server returned an error (${error.statusCode})."
     PlaybackError.DecoderInitialization -> "The decoder could not be initialized on this device."
     is PlaybackError.Failure -> "Playback failed (diagnostic code ${error.diagnosticCode ?: -1})."
     PlaybackError.Unknown -> "Playback failed for an unknown reason."

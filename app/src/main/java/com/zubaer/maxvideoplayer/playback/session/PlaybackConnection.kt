@@ -18,12 +18,14 @@ import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
 import com.zubaer.maxvideoplayer.core.model.SubtitlePlaybackState
 import com.zubaer.maxvideoplayer.core.model.SubtitleTrackInfo
+import com.zubaer.maxvideoplayer.core.model.VideoTrackInfo
 import com.zubaer.maxvideoplayer.feature.subtitle.ExternalSubtitleAttachment
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleAvailability
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleEncoding
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleFileDescriptor
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleMatcher
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
+import com.zubaer.maxvideoplayer.feature.network.diagnostics.NetworkDiagnosticsMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,6 +42,7 @@ import java.util.concurrent.Executor
 class PlaybackConnection(
     context: Context,
     private val subtitleRepository: SubtitleRepository = SubtitleRepository(context.applicationContext),
+    private val networkDiagnosticsMonitor: NetworkDiagnosticsMonitor = NetworkDiagnosticsMonitor(context.applicationContext),
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -59,6 +62,14 @@ class PlaybackConnection(
     private var pendingSeekMediaId: String? = null
     private var pendingSeekPositionMs: Long? = null
     private val knownMediaById = ConcurrentHashMap<String, AppMedia>()
+
+    init {
+        scope.launch {
+            networkDiagnosticsMonitor.state.collect { diagnostics ->
+                _state.value = _state.value.copy(network = diagnostics)
+            }
+        }
+    }
 
     fun connect() {
         if (connectRequested || controller != null) return
@@ -169,6 +180,14 @@ class PlaybackConnection(
         }
     }
 
+    fun goLive() = withController { player ->
+        if (player.isCurrentMediaItemLive) {
+            clearPendingSeek()
+            player.seekToDefaultPosition()
+            player.play()
+        }
+    }
+
     fun seekToNext() = withController {
         clearPendingSeek()
         if (it.hasNextMediaItem()) it.seekToNextMediaItem()
@@ -190,6 +209,27 @@ class PlaybackConnection(
     }
 
     fun setShuffleEnabled(enabled: Boolean) = withController { it.shuffleModeEnabled = enabled }
+
+    fun selectVideoQualityAuto() = withController { player ->
+        if (!player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return@withController
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            .build()
+        publish(player)
+    }
+
+    fun selectVideoTrack(trackKey: String) = withController { player ->
+        if (!player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return@withController
+        val parsed = parseTrackKey(trackKey) ?: return@withController
+        val group = player.currentTracks.groups.getOrNull(parsed.first) ?: return@withController
+        if (group.type != C.TRACK_TYPE_VIDEO || parsed.second !in 0 until group.length) return@withController
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, parsed.second))
+            .build()
+        publish(player)
+    }
 
     fun setSubtitlesEnabled(enabled: Boolean) = withController { player ->
         if (!player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return@withController
@@ -402,6 +442,11 @@ class PlaybackConnection(
             },
             shuffleEnabled = player.shuffleModeEnabled,
             subtitles = subtitleState,
+            network = networkDiagnosticsMonitor.state.value,
+            videoTracks = buildVideoTracks(player),
+            videoQualityAuto = player.trackSelectionParameters.overrides.keys.none { it.type == C.TRACK_TYPE_VIDEO },
+            isLive = player.isCurrentMediaItemLive,
+            liveOffsetMs = player.currentLiveOffset.takeIf { player.isCurrentMediaItemLive && it != C.TIME_UNSET },
             error = player.playerError?.let(PlaybackErrorMapper::map),
         )
 
@@ -530,6 +575,30 @@ class PlaybackConnection(
             .build()
         recoverableSubtitleError = null
         publish(player)
+    }
+
+    private fun buildVideoTracks(player: Player): List<VideoTrackInfo> {
+        if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS)) return emptyList()
+        return buildList {
+            player.currentTracks.groups.forEachIndexed { groupIndex, group ->
+                if (group.type != C.TRACK_TYPE_VIDEO) return@forEachIndexed
+                for (trackIndex in 0 until group.length) {
+                    val format = group.getTrackFormat(trackIndex)
+                    add(
+                        VideoTrackInfo(
+                            key = trackKey(groupIndex, trackIndex),
+                            width = format.width.takeIf { it > 0 },
+                            height = format.height.takeIf { it > 0 },
+                            bitrate = format.bitrate.takeIf { it > 0 },
+                            codec = format.codecs ?: format.sampleMimeType,
+                            selected = group.isTrackSelected(trackIndex),
+                            supported = group.isTrackSupported(trackIndex),
+                        ),
+                    )
+                }
+            }
+        }.distinctBy { listOf(it.width, it.height, it.bitrate, it.codec) }
+            .sortedWith(compareByDescending<VideoTrackInfo> { it.height ?: 0 }.thenByDescending { it.bitrate ?: 0 })
     }
 
     private fun applyAutoPolicy(player: Player) {

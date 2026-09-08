@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
+import com.zubaer.maxvideoplayer.feature.network.model.NetworkPlaybackPhase
 import kotlin.math.roundToLong
 
 @Composable
@@ -52,6 +53,7 @@ fun PlayerControlsOverlay(
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onGoLive: () -> Unit = {},
     onSeekPreview: (Long, Long) -> Unit,
     onSeekCommit: (Long) -> Unit,
     onInteractionStart: () -> Unit,
@@ -111,6 +113,7 @@ fun PlayerControlsOverlay(
                     onPlayPause = onPlayPause,
                     onPrevious = onPrevious,
                     onNext = onNext,
+                    onGoLive = onGoLive,
                     onSeekPreview = onSeekPreview,
                     onSeekCommit = onSeekCommit,
                     onInteractionStart = onInteractionStart,
@@ -137,10 +140,21 @@ fun PlayerControlsOverlay(
             ) { Text("Unlock") }
         }
 
-        if (playback.isBuffering || coordinator.preparing) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center).testTag("buffering_indicator"),
-            )
+        if (playback.isBuffering || coordinator.preparing || playback.network.phase == NetworkPlaybackPhase.RECONNECTING) {
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.testTag("buffering_indicator"))
+                val status = when (playback.network.phase) {
+                    NetworkPlaybackPhase.RECONNECTING -> "Reconnecting…"
+                    NetworkPlaybackPhase.INITIAL_LOADING -> "Loading network media…"
+                    NetworkPlaybackPhase.BUFFERING -> "Buffering…"
+                    else -> null
+                }
+                status?.let { Text(it, color = Color.White) }
+            }
         }
 
         PlayerHud(coordinator.hud, Modifier.align(Alignment.Center))
@@ -154,6 +168,7 @@ private fun PlayerBottomBar(
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onGoLive: () -> Unit,
     onSeekPreview: (Long, Long) -> Unit,
     onSeekCommit: (Long) -> Unit,
     onInteractionStart: () -> Unit,
@@ -183,6 +198,16 @@ private fun PlayerBottomBar(
             .background(Color.Black.copy(alpha = 0.72f))
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
+        if (playback.isLive) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("LIVE", color = Color.Red, fontWeight = FontWeight.Bold)
+                val offset = playback.liveOffsetMs
+                if (offset != null && offset > 3_000L) {
+                    Text("${offset / 1_000L}s behind live", color = Color.White)
+                    TextButton(onClick = onGoLive, modifier = Modifier.testTag("go_live_button")) { Text("Go Live") }
+                }
+            }
+        }
         Slider(
             value = if (scrubbing) scrubFraction else fraction,
             onValueChange = { value ->
@@ -238,6 +263,12 @@ private fun PlayerBottomBar(
                 Text("${formatSpeed(playback.playbackSpeed)}×")
             }
             TextButton(onClick = { onOpenMenu(PlayerMenu.PLAYBACK) }, modifier = Modifier.testTag("playback_mode_button")) { Text("Mode") }
+            if (playback.videoTracks.size > 1) {
+                TextButton(onClick = { onOpenMenu(PlayerMenu.QUALITY) }, modifier = Modifier.testTag("video_quality_button")) {
+                    val selectedHeight = playback.videoTracks.firstOrNull { it.selected }?.height
+                    Text(if (playback.videoQualityAuto) "Auto${selectedHeight?.let { " ${it}p" }.orEmpty()}" else selectedHeight?.let { "${it}p" } ?: "Quality")
+                }
+            }
             TextButton(
                 onClick = { onOpenMenu(PlayerMenu.DECODER) },
                 modifier = Modifier

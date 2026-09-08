@@ -47,6 +47,8 @@ fun PlayerDialogs(
     onSpeed: (Float) -> Unit,
     onRepeatMode: (RepeatMode) -> Unit,
     onShuffle: (Boolean) -> Unit,
+    onVideoQualityAuto: () -> Unit,
+    onVideoTrack: (String) -> Unit,
     onDecoderMode: (DecoderMode) -> Unit,
     onUseGlobalDecoder: () -> Unit,
     onDefaultDecoderMode: (DecoderMode) -> Unit,
@@ -73,6 +75,7 @@ fun PlayerDialogs(
     when (coordinator.activeMenu) {
         PlayerMenu.SPEED -> SpeedDialog(playback.playbackSpeed, onDismissMenu, onSpeed)
         PlayerMenu.PLAYBACK -> PlaybackModeDialog(playback, onDismissMenu, onRepeatMode, onShuffle)
+        PlayerMenu.QUALITY -> VideoQualityDialog(playback, onDismissMenu, onVideoQualityAuto, onVideoTrack)
         PlayerMenu.DECODER -> DecoderDialog(
             state = coordinator,
             onDismiss = onDismissMenu,
@@ -103,6 +106,39 @@ fun PlayerDialogs(
         PlayerMenu.NONE -> Unit
     }
     if (coordinator.tutorialVisible && coordinator.resumePositionMs == null && !coordinator.preparing) GestureTutorialDialog(onDismissTutorial)
+}
+
+@Composable
+private fun VideoQualityDialog(
+    playback: PlaybackUiState,
+    onDismiss: () -> Unit,
+    onAuto: () -> Unit,
+    onTrack: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Video quality") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(onClick = onAuto, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (playback.videoQualityAuto) "✓ Auto (adaptive)" else "Auto (adaptive)")
+                }
+                playback.videoTracks.forEach { track ->
+                    val details = listOfNotNull(
+                        if (track.width != null && track.height != null) "${track.width} × ${track.height}" else null,
+                        track.bitrate?.let { "${it / 1_000} kb/s" },
+                        track.codec,
+                    ).joinToString(" · ")
+                    TextButton(
+                        onClick = { onTrack(track.key) },
+                        enabled = track.supported,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text((if (!playback.videoQualityAuto && track.selected) "✓ " else "") + details.ifBlank { "Video track" }) }
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onDismiss) { Text("Done") } },
+    )
 }
 
 @Composable
@@ -538,6 +574,15 @@ private fun MediaInfoDialog(media: AppMedia, playback: PlaybackUiState, coordina
                 InfoLine("Audio codec", media.audioCodec ?: "Unknown")
                 InfoLine("Frame rate", media.frameRate?.let { "${"%.2f".format(it)} fps" } ?: diagnostics.inputFormat.frameRate?.let { "${"%.2f".format(it)} fps" } ?: "Unknown")
                 InfoLine("Source", media.sourceType.name)
+                if (media.sourceType == com.zubaer.maxvideoplayer.core.model.MediaSourceType.NETWORK) {
+                    InfoLine("Protocol", playback.network.protocol?.name ?: "Unknown")
+                    InfoLine("Server", playback.network.host ?: "Unknown")
+                    InfoLine("Connection", playback.network.connectionState.name.replace('_', ' '))
+                    InfoLine("Transport", playback.network.transport.name)
+                    InfoLine("Seekable", playback.network.seekable?.toString() ?: "Stream-dependent")
+                    InfoLine("Retry count", playback.network.retryCount.toString())
+                    InfoLine("URL", playback.network.sanitizedUri ?: "Unavailable")
+                }
                 InfoLine("Requested decoder", decoderModeLabel(coordinator.decoder.requestedMode))
                 InfoLine("Active decoder", diagnostics.activeDecoderName ?: "Inactive / not initialized")
                 InfoLine("Hardware acceleration", diagnostics.hardwareAccelerated?.toString() ?: "Unknown")

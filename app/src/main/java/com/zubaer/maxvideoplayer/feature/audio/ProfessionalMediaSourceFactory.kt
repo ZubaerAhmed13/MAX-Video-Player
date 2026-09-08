@@ -8,6 +8,9 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ForwardingMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import com.zubaer.maxvideoplayer.feature.network.playback.NetworkDataSourceRouter
+import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
 import com.zubaer.maxvideoplayer.feature.subtitle.OffsetSubtitleParserFactory
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
@@ -20,11 +23,14 @@ class ProfessionalMediaSourceFactory(
     context: Context,
     private val subtitleRepository: SubtitleRepository,
     private val audioRepository: AudioRepository,
-) : ForwardingMediaSourceFactory(DefaultMediaSourceFactory(context.applicationContext)) {
+    private val networkRequestRegistry: NetworkRequestRegistry,
+) : ForwardingMediaSourceFactory(baseFactory(context, networkRequestRegistry)) {
     private val appContext = context.applicationContext
+    private val dataSourceFactory = NetworkDataSourceRouter.Factory(appContext, networkRequestRegistry)
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
-        val primary = DefaultMediaSourceFactory(appContext)
+        val primary = DefaultMediaSourceFactory(dataSourceFactory)
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(NETWORK_RETRY_COUNT))
             .setSubtitleParserFactory(
                 OffsetSubtitleParserFactory(
                     mediaId = mediaItem.mediaId,
@@ -41,7 +47,17 @@ class ProfessionalMediaSourceFactory(
             .setMimeType(external.mimeType)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(external.displayName).build())
             .build()
-        val externalSource = DefaultMediaSourceFactory(appContext).createMediaSource(externalItem)
+        val externalSource = DefaultMediaSourceFactory(dataSourceFactory)
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(NETWORK_RETRY_COUNT))
+            .createMediaSource(externalItem)
         return MergingMediaSource(true, false, primary, externalSource)
+    }
+
+    private companion object {
+        const val NETWORK_RETRY_COUNT = 5
+
+        fun baseFactory(context: Context, registry: NetworkRequestRegistry): DefaultMediaSourceFactory =
+            DefaultMediaSourceFactory(NetworkDataSourceRouter.Factory(context.applicationContext, registry))
+                .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(NETWORK_RETRY_COUNT))
     }
 }

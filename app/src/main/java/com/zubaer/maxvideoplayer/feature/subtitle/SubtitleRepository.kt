@@ -102,6 +102,23 @@ class SubtitleRepository(
         )
     }
 
+    fun describeNetworkUrl(rawUrl: String): SubtitleFileDescriptor? {
+        val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return null
+        if (uri.scheme?.lowercase(Locale.ROOT) !in setOf("http", "https")) return null
+        if (uri.host.isNullOrBlank()) return null
+        val displayName = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "Network subtitle"
+        val mimeType = SubtitleFormatPolicy.resolveMimeType(displayName, null) ?: return null
+        val format = SubtitleFormatPolicy.resolveFormat(displayName, null) ?: return null
+        return SubtitleFileDescriptor(
+            uri = uri.toString(),
+            displayName = displayName,
+            mimeType = mimeType,
+            format = format,
+            encoding = SubtitleEncoding.AUTO,
+            sourceType = SubtitleSourceType.NETWORK_URL,
+        )
+    }
+
     fun persistReadPermission(uri: Uri): Boolean = runCatching {
         resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         true
@@ -572,6 +589,7 @@ class SubtitleRepository(
     }.getOrNull()
 
     private fun probeAvailability(uri: Uri): SubtitleAvailability = try {
+        if (uri.scheme?.lowercase(Locale.ROOT) in setOf("http", "https")) return SubtitleAvailability.AVAILABLE
         resolver.openAssetFileDescriptor(uri, "r")?.use { SubtitleAvailability.AVAILABLE }
             ?: SubtitleAvailability.MISSING
     } catch (_: SecurityException) {

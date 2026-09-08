@@ -14,7 +14,10 @@ object StableMediaIdentity {
     fun fallbackKey(uri: String, sizeBytes: Long?, durationMs: Long?, title: String): String =
         sha256("v1|$uri|${sizeBytes ?: -1L}|${durationMs ?: -1L}|$title")
 
-    fun forNetwork(uri: String): String = sha256("network|$uri")
+    fun forNetwork(uri: String): String = sha256("network|${com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy.canonicalIdentity(uri)}")
+
+    fun forNetworkSource(sourceId: String, remotePath: String): String =
+        sha256("network-source|$sourceId|${remotePath.replace('\\', '/').trimStart('/')}")
 
     fun sampledFingerprint(contentResolver: ContentResolver, uri: Uri, declaredSize: Long? = null): String? {
         return runCatching {

@@ -122,6 +122,15 @@ class AudioRepository(
         return ExternalAudioDescriptor(uri.toString(), displayName, mime)
     }
 
+    fun describeNetworkUrl(rawUrl: String): ExternalAudioDescriptor? {
+        val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return null
+        if (uri.scheme?.lowercase(Locale.ROOT) !in setOf("http", "https")) return null
+        if (uri.host.isNullOrBlank()) return null
+        val displayName = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "Network audio"
+        if (!isSupportedDescriptor(displayName, null)) return null
+        return ExternalAudioDescriptor(uri.toString(), displayName, mimeFromName(displayName))
+    }
+
     fun persistReadPermission(uri: Uri): Boolean = runCatching {
         resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         true
@@ -401,6 +410,7 @@ class AudioRepository(
     }.getOrNull()
 
     private fun probe(uri: Uri): AudioAvailability = try {
+        if (uri.scheme?.lowercase(Locale.ROOT) in setOf("http", "https")) return AudioAvailability.AVAILABLE
         resolver.openAssetFileDescriptor(uri, "r")?.use { }
         AudioAvailability.AVAILABLE
     } catch (_: SecurityException) {
@@ -414,6 +424,16 @@ class AudioRepository(
     private fun isSupportedDescriptor(name: String, mime: String?): Boolean {
         if (mime?.startsWith("audio/") == true) return true
         return name.substringAfterLast('.', "").lowercase(Locale.ROOT) in setOf("aac", "m4a", "mp3", "flac", "wav", "ogg", "opus")
+    }
+
+    private fun mimeFromName(name: String): String? = when (name.substringAfterLast('.', "").lowercase(Locale.ROOT)) {
+        "aac" -> "audio/aac"
+        "m4a" -> "audio/mp4"
+        "mp3" -> "audio/mpeg"
+        "flac" -> "audio/flac"
+        "wav" -> "audio/wav"
+        "ogg", "opus" -> "audio/ogg"
+        else -> null
     }
 
     private fun inferLanguage(name: String): String? {

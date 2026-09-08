@@ -4,7 +4,10 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zubaer.maxvideoplayer.core.model.AppMedia
@@ -13,6 +16,8 @@ import com.zubaer.maxvideoplayer.feature.audio.BackgroundPlaybackMode
 import com.zubaer.maxvideoplayer.feature.audio.ProfessionalAudioPlayerHost
 import com.zubaer.maxvideoplayer.feature.library.LibraryScreen
 import com.zubaer.maxvideoplayer.feature.library.LibraryViewModel
+import com.zubaer.maxvideoplayer.feature.network.presentation.NetworkScreen
+import com.zubaer.maxvideoplayer.feature.network.presentation.NetworkViewModel
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerViewModel
 import com.zubaer.maxvideoplayer.ui.MaxTheme
@@ -31,12 +36,17 @@ fun MaxApp(
     onAudioBackgroundPolicyChanged: (BackgroundPlaybackMode, Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    var showNetwork by remember { mutableStateOf(false) }
     val navigationViewModel: AppNavigationViewModel = viewModel()
     val launch by navigationViewModel.playbackLaunch.collectAsStateWithLifecycle()
     val libraryViewModel: LibraryViewModel = viewModel(
         factory = simpleFactory { LibraryViewModel(container.libraryRepository, container.mediaFileActionRepository) }
     )
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
+    val networkViewModel: NetworkViewModel = viewModel(
+        factory = simpleFactory { NetworkViewModel(container.networkRepository, container.historyRepository) }
+    )
+    val networkState by networkViewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(externalMedia?.stableId) {
         externalMedia?.let {
@@ -48,7 +58,14 @@ fun MaxApp(
     MaxTheme {
         val playbackLaunch = launch
         if (playbackLaunch == null) {
-            LibraryScreen(
+            if (showNetwork) {
+                NetworkScreen(
+                    state = networkState,
+                    viewModel = networkViewModel,
+                    onBack = { showNetwork = false },
+                    onPlay = { media -> showNetwork = false; navigationViewModel.select(media) },
+                )
+            } else LibraryScreen(
                 state = libraryState,
                 events = libraryViewModel.events,
                 thumbnailRepository = container.thumbnailRepository,
@@ -61,7 +78,8 @@ fun MaxApp(
                 },
                 onAddFolder = { uri -> libraryViewModel.addFolder(uri, persistUriPermission(uri)) },
                 onPlay = { request -> navigationViewModel.selectQueue(request.queue, request.startIndex) },
-                onOpenNetworkUrl = { url -> navigationViewModel.select(container.metadataExtractor.fromNetworkUrl(url)) },
+                onOpenNetworkUrl = { url -> navigationViewModel.select(container.networkRepository.prepareDirect(url)) },
+                onOpenNetworkCenter = { showNetwork = true },
                 onSection = libraryViewModel::setSection,
                 onQuery = libraryViewModel::setQuery,
                 onSort = libraryViewModel::setSort,

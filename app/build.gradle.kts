@@ -65,6 +65,11 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer.rtsp)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.datasource.okhttp)
+
+    implementation(libs.okhttp)
+    implementation(libs.smbj)
+    implementation(libs.commons.net)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

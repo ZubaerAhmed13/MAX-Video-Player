@@ -17,6 +17,7 @@ enum class PlayerMenu {
     NONE,
     SPEED,
     PLAYBACK,
+    QUALITY,
     DECODER,
     DISPLAY,
     ORIENTATION,
