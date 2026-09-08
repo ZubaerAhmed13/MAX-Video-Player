@@ -6,11 +6,11 @@ MX Player Pro is used only as a functionality/workflow reference. This repositor
 
 ## Current development status
 
-**Step 7 of 10 — Professional Network Playback and Sources: certification pending**
+**Step 7 of 10 — Professional Network Playback and Sources: PASS**
 
 Step 7 adds real HTTP/HTTPS progressive playback, HLS, DASH, RTSP, SMB2/3, WebDAV, FTP and explicit FTPS integration to the existing single service-owned Media3 player. It includes direct streams, authenticated saved locations, server browsing, stable remote history, network playlists, remote subtitle/audio attachment, adaptive quality, live controls, bounded reconnect, secure credential storage and redacted diagnostics.
 
-The exact implementation head `4cb661b978de502b99bef864cc99a53c1540939a` on `step-7-professional-network-playback` passed Android CI run #242, including the isolated Samba/FTP/RTSP certification lane. PR #12 remains pending the documentation-complete exact-head gate and post-merge `main` gate, so repository status is not yet PASS. See `STEP_7_BRANCH_CERTIFICATION.md` for immutable job, test and artifact evidence.
+The implementation head `4cb661b978de502b99bef864cc99a53c1540939a` passed run #242, documentation-complete PR head `1a89ecc48906e151378373eb4af7f5210b8353c9` passed run #243, and PR #12 merged as `9d271c4786236577e009f63d65ad7435b31c015b`, which passed post-merge run #244. Every gate included debug/unit, release, lint, API-35 full instrumentation, API-26/API-28 regression and the isolated Samba/FTP/RTSP certification lane. See `STEP_7_FINAL_CERTIFICATION.md` for immutable evidence.
 
 FTPS remains explicitly PARTIAL until a real automated TLS FTP server connection passes. SFTP is not implemented. Physical NAS, weak-network, large remote media, 4K/HDR, long-play, battery, thermal and OEM certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
@@ -42,7 +42,7 @@ Credentials are AES/GCM encrypted with an Android Keystore key. Room stores only
 
 Adaptive controls are real Media3 track overrides. The UI reports live state and Go Live from Media3, and buffering diagnostics distinguish initial loading, buffering, reconnecting and failure. Network subtitles and external audio remain on the Step-4/5 source-composition path, while network video uses the Step-6 decoder policy without a second player.
 
-See `STEP_7_COMPLETION_REPORT.md`, `STEP_7_TEST_MATRIX.md` and `STEP_7_PROTOCOL_SECURITY.md` for the exact protocol matrix, certification evidence and limitations.
+See `STEP_7_COMPLETION_REPORT.md`, `STEP_7_FINAL_CERTIFICATION.md`, `STEP_7_TEST_MATRIX.md` and `STEP_7_PROTOCOL_SECURITY.md` for the exact protocol matrix, certification evidence and limitations.
 
 ## Step-6 professional decoder engine
 
