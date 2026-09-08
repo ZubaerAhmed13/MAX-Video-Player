@@ -1,6 +1,6 @@
 # MAX Video Player — Parity Matrix through Step 7
 
-Status vocabulary: `PASS`, `BRANCH PASS` (exact implementation head certified; documentation/main gates pending), `PENDING`, `PARTIAL`, `FAIL`, `NOT VERIFIED`, `NOT IMPLEMENTED`, `NOT APPLICABLE`.
+Status vocabulary: `PASS`, `PENDING`, `PARTIAL`, `FAIL`, `NOT VERIFIED`, `NOT IMPLEMENTED`, `NOT APPLICABLE`.
 
 A `PASS` requires implementation, a real product flow, error handling and automated evidence where feasible. Physical-device requirements are never inferred from emulator/software evidence.
 
@@ -8,41 +8,41 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 
 | Area | Capability | Status | Evidence / boundary |
 |---|---|---|---|
-| Architecture | One service-owned player for local and network media | BRANCH PASS | `NetworkDataSourceRouter -> ProfessionalMediaSourceFactory -> PlaybackService`; no protocol player/full download |
-| HTTP | Direct progressive playback | BRANCH PASS | Real API-35 Media3/OkHttp production-path fixture |
-| HTTP | Byte ranges and seek | BRANCH PASS | Recorded Media3 `Range` request and 206 response; capability remains server-dependent |
-| HTTP | Basic/bearer/custom headers | BRANCH PASS | Process-local request registry; exact origin/directory scope |
-| HTTP | Redirects and loop bound | BRANCH PASS | Deterministic redirect success and bounded loop failure |
-| HTTP | Cross-host auth isolation | BRANCH PASS | Destination test server receives no Authorization |
-| HTTPS | TLS verification | BRANCH PASS | Android system trust/hostname verification; no trust-all code |
-| Cleartext | HTTP warning/acknowledgement | BRANCH PASS | Compose test requires explicit acknowledgement; saved-source editor excludes HTTP |
-| HLS | VOD/master/variants | BRANCH PASS | Real Media3 playback of two synthetic variants |
-| HLS | Manual quality and Auto | BRANCH PASS | Real Media3 track override and removal |
-| HLS | Live / Go Live | BRANCH PASS | Rolling local playlist, advancing media sequence, DVR-window seek and measured live-offset reduction |
-| DASH | MPD VOD / adaptive representations / audio | BRANCH PASS | Static local MPD with two AVC representations and AAC adaptation set |
-| RTSP | Production playback | BRANCH PASS | Media3 RTP-over-RTSP/TCP against isolated MediaMTX H.264/AAC server; run #242 |
-| RTSP | Credential safety | BRANCH PASS | URL userinfo rejected; authenticated RTSP not falsely claimed |
-| SMB | SMB2/SMB3 browse/auth/play | BRANCH PASS | SMBJ against isolated authenticated Samba; SMB1 excluded; run #242 |
-| SMB | Random seek / >3 GB offsets | BRANCH PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
-| SMB | Signing/encryption truth | BRANCH PASS | signing enabled; SMB3 server/share encryption honored, not claimed for SMB2 |
-| WebDAV | HTTPS PROPFIND/browse/auth | BRANCH PASS | deterministic authenticated PROPFIND, Depth, Unicode and folders-first mapping |
-| WebDAV | Secure XML/root confinement | BRANCH PASS | DTD/XXE and off-origin/off-root response rejection |
-| WebDAV | Playback/range | BRANCH PASS | resolved HTTPS entries use the shared Media3 OkHttp range path |
-| FTP | Browse/login/binary playback | BRANCH PASS | Commons Net against isolated authenticated pyftpdlib server; run #242 |
-| FTP | REST seek / >3 GB offsets | BRANCH PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
-| FTP | Cleartext warning | BRANCH PASS | domain validation and UI test require explicit acknowledgement |
+| Architecture | One service-owned player for local and network media | PASS | `NetworkDataSourceRouter -> ProfessionalMediaSourceFactory -> PlaybackService`; no protocol player/full download |
+| HTTP | Direct progressive playback | PASS | Real API-35 Media3/OkHttp production-path fixture |
+| HTTP | Byte ranges and seek | PASS | Recorded Media3 `Range` request and 206 response; capability remains server-dependent |
+| HTTP | Basic/bearer/custom headers | PASS | Process-local request registry; exact origin/directory scope |
+| HTTP | Redirects and loop bound | PASS | Deterministic redirect success and bounded loop failure |
+| HTTP | Cross-host auth isolation | PASS | Destination test server receives no Authorization |
+| HTTPS | TLS verification | PASS | Android system trust/hostname verification; no trust-all code |
+| Cleartext | HTTP warning/acknowledgement | PASS | Compose test requires explicit acknowledgement; saved-source editor excludes HTTP |
+| HLS | VOD/master/variants | PASS | Real Media3 playback of two synthetic variants |
+| HLS | Manual quality and Auto | PASS | Real Media3 track override and removal |
+| HLS | Live / Go Live | PASS | Rolling local playlist, advancing media sequence, DVR-window seek and measured live-offset reduction |
+| DASH | MPD VOD / adaptive representations / audio | PASS | Static local MPD with two AVC representations and AAC adaptation set |
+| RTSP | Production playback | PASS | Media3 RTP-over-RTSP/TCP against isolated MediaMTX H.264/AAC server; run #242 |
+| RTSP | Credential safety | PASS | URL userinfo rejected; authenticated RTSP not falsely claimed |
+| SMB | SMB2/SMB3 browse/auth/play | PASS | SMBJ against isolated authenticated Samba; SMB1 excluded; run #242 |
+| SMB | Random seek / >3 GB offsets | PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
+| SMB | Signing/encryption truth | PASS | signing enabled; SMB3 server/share encryption honored, not claimed for SMB2 |
+| WebDAV | HTTPS PROPFIND/browse/auth | PASS | deterministic authenticated PROPFIND, Depth, Unicode and folders-first mapping |
+| WebDAV | Secure XML/root confinement | PASS | DTD/XXE and off-origin/off-root response rejection |
+| WebDAV | Playback/range | PASS | resolved HTTPS entries use the shared Media3 OkHttp range path |
+| FTP | Browse/login/binary playback | PASS | Commons Net against isolated authenticated pyftpdlib server; run #242 |
+| FTP | REST seek / >3 GB offsets | PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
+| FTP | Cleartext warning | PASS | domain validation and UI test require explicit acknowledgement |
 | FTPS | Explicit TLS implementation | PARTIAL | endpoint checking + `PBSZ 0` + `PROT P`; no real TLS FTP server test yet |
 | SFTP | SSH file transfer | NOT IMPLEMENTED | not aliased to FTP/FTPS |
-| Credentials | Keystore-backed encrypted vault | BRANCH PASS | AES/GCM ciphertext lifecycle and invalidation recovery test |
-| Credentials | No plaintext Room/media/log secret | BRANCH PASS | opaque Room ref, userinfo rejection, sanitized diagnostics/header tests |
-| Saved sources | Add/edit/test/rename/remove/forget | BRANCH PASS | Network center and reference-counted repository flows |
-| Browser | Breadcrumbs/Up/refresh/search/sort/Unicode | BRANCH PASS | Compose surface + isolated Unicode listings |
-| History | Stable network identity/resume | BRANCH PASS | signed tokens removed from canonical ID; sanitized URI persistence |
-| Playlist | Bounded HTTP/WebDAV M3U mixed queue | BRANCH PASS | 2 MiB/1,000 item non-recursive parser |
-| Sidecars | HTTP/HTTPS subtitle and external audio | BRANCH PASS | existing Step-4/5 repositories and shared MediaSource timeline; secret URLs rejected |
-| Diagnostics | Loading/buffering/reconnecting/error | BRANCH PASS | shared player monitor, connectivity state, buffer/bandwidth/retry/redacted URI |
-| Database | Room v5→v6 | BRANCH PASS | explicit migration preserves Steps 1–6 and adds secret-free network locations |
-| CI | Isolated network protocol job | BRANCH PASS | Samba/pyftpdlib/MediaMTX, run #242, no public media server or personal NAS |
+| Credentials | Keystore-backed encrypted vault | PASS | AES/GCM ciphertext lifecycle and invalidation recovery test |
+| Credentials | No plaintext Room/media/log secret | PASS | opaque Room ref, userinfo rejection, sanitized diagnostics/header tests |
+| Saved sources | Add/edit/test/rename/remove/forget | PASS | Network center and reference-counted repository flows |
+| Browser | Breadcrumbs/Up/refresh/search/sort/Unicode | PASS | Compose surface + isolated Unicode listings |
+| History | Stable network identity/resume | PASS | signed tokens removed from canonical ID; sanitized URI persistence |
+| Playlist | Bounded HTTP/WebDAV M3U mixed queue | PASS | 2 MiB/1,000 item non-recursive parser |
+| Sidecars | HTTP/HTTPS subtitle and external audio | PASS | existing Step-4/5 repositories and shared MediaSource timeline; secret URLs rejected |
+| Diagnostics | Loading/buffering/reconnecting/error | PASS | shared player monitor, connectivity state, buffer/bandwidth/retry/redacted URI |
+| Database | Room v5→v6 | PASS | explicit migration preserves Steps 1–6 and adds secret-free network locations |
+| CI | Isolated network protocol job | PASS | Samba/pyftpdlib/MediaMTX, run #242, no public media server or personal NAS |
 | Physical network/device matrix | NAS/router/WAN/OEM/large remote media | NOT VERIFIED | Deferred to Step 10 |
 
 ## Step-6 professional decoder engine
@@ -214,4 +214,4 @@ The following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
 
 Steps 1–6 software/emulator functionality remains `PASS` as previously certified.
 
-**Step 7 implementation is complete in its declared software/emulator scope, but the overall Step-7 result remains certification pending until the exact documentation-complete branch head and exact resulting `main` head pass every required CI job. FTPS remains PARTIAL and physical network/device certification remains deferred to Step 10.**
+**Step 7 is PASS in its declared software/emulator scope after exact implementation run #242, documentation-head run #243 and post-merge `main` run #244. FTPS remains PARTIAL and physical network/device certification remains deferred to Step 10.**

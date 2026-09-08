@@ -2,7 +2,7 @@
 
 Status terms: `PASS`, `PARTIAL`, `PENDING`, `NOT IMPLEMENTED`, `NOT VERIFIED — DEFERRED TO STEP 10`.
 
-This matrix separates implementation evidence from physical-network certification. The implementation head passed run #242; the exact documentation-complete branch head and exact resulting `main` head must still pass before repository status becomes PASS.
+This matrix separates software/emulator evidence from physical-network certification. The implementation head passed run #242, the documentation-complete branch head passed run #243, and the exact resulting `main` head passed run #244. Step 7 is PASS within the declared boundary.
 
 ## Deterministic HTTP and security instrumentation
 
@@ -100,7 +100,7 @@ Every final branch and main gate retains:
 
 Implementation certification: exact SHA `4cb661b978de502b99bef864cc99a53c1540939a`, Android CI run #242 (`34239231820`) — PASS. The archived results report API-35 59/59, API-26 2/2, API-28 2/2 and real-protocol 1/1. See `STEP_7_BRANCH_CERTIFICATION.md` for job IDs, artifact IDs and digests.
 
-Required for the documentation-complete branch head:
+Completed gates for documentation-complete SHA `1a89ecc48906e151378373eb4af7f5210b8353c9` in run #243:
 
 - `:app:assembleDebug`
 - `:app:testDebugUnitTest`
@@ -111,7 +111,7 @@ Required for the documentation-complete branch head:
 - API-28 thumbnail regression
 - API-35 isolated network protocol certification
 
-The exact resulting `main` head must pass the same workflow after merge.
+Exact resulting `main` SHA `9d271c4786236577e009f63d65ad7435b31c015b` passed the same workflow in run #244 (`34242218019`).
 
 ## Physical boundary
 

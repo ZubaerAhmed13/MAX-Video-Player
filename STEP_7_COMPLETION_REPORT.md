@@ -2,9 +2,9 @@
 
 ## Final result
 
-**STEP 7: CERTIFICATION PENDING**
+**STEP 7: PASS**
 
-Implementation is complete for the declared software/emulator scope. This report must not state PASS until the exact documentation-complete branch head is green, PR #12 is merged with an expected-head lock, and the exact resulting `main` head passes the full workflow including the isolated network-protocol lane.
+Implementation and certification are complete for the declared software/emulator scope. The exact implementation head, documentation-complete PR head and resulting `main` merge head passed the full workflow including the isolated network-protocol lane.
 
 ## Repository
 
@@ -12,9 +12,10 @@ Implementation is complete for the declared software/emulator scope. This report
 - Certified implementation remote SHA: `4cb661b978de502b99bef864cc99a53c1540939a`
 - Implementation certification: Android CI run #242 / workflow `34239231820` — PASS
 - Pull request: #12
-- Documentation-complete branch SHA: pending
-- Merge SHA: pending
-- Final `main` SHA: pending
+- Documentation-complete branch SHA: `1a89ecc48906e151378373eb4af7f5210b8353c9`
+- Documentation-complete certification: Android CI run #243 / workflow `34241083327` — PASS
+- Merge SHA / certified implementation `main`: `9d271c4786236577e009f63d65ad7435b31c015b`
+- Post-merge certification: Android CI run #244 / workflow `34242218019` — PASS
 
 ## Steps 1–6 regression
 
@@ -132,7 +133,7 @@ See `STEP_7_TEST_MATRIX.md`. The final gate consists of:
 - API-28 thumbnail regression
 - isolated API-35 Samba/FTP/RTSP protocol certification
 
-The implementation head passed Android CI run #242 (`34239231820`): build/JVM tests, release, lint, API-35 59/59, API-26 2/2, API-28 2/2 and the one-test real Samba/FTP/RTSP lane all passed. Artifact IDs are `10061608100`, `10061493133`, `10061476272`, `10061441677` and `10061426999`; exact digests and job IDs are recorded in `STEP_7_BRANCH_CERTIFICATION.md`. The documentation-complete branch and post-merge run IDs remain pending.
+The implementation head passed run #242 (`34239231820`), the documentation-complete head passed run #243 (`34241083327`), and exact merged `main` passed run #244 (`34242218019`). Each run passed build/JVM tests, release, lint, API-35, API-26, API-28 and the real Samba/FTP/RTSP lane. Run #242 archived API-35 59/59, API-26 2/2, API-28 2/2 and protocol 1/1. Exact job IDs, artifact IDs and digests are recorded in `STEP_7_BRANCH_CERTIFICATION.md` and `STEP_7_FINAL_CERTIFICATION.md`.
 
 ## Dependencies
 
@@ -153,16 +154,16 @@ Runtime additions are OkHttp 5.1.0, Media3 DataSource OkHttp 1.11.0, SMBJ 0.14.0
 
 ## Protocol matrix
 
-| Protocol | Browse | Play | Seek | Auth | Security | Candidate status |
+| Protocol | Browse | Play | Seek | Auth | Security | Status |
 |---|---:|---:|---:|---:|---|---|
-| HTTP | N/A | Yes | server-dependent ranges | scoped headers | cleartext warning | BRANCH PASS — run #242 |
-| HTTPS | N/A | Yes | server-dependent ranges | Basic/bearer/custom | system TLS | BRANCH PASS — run #242 |
-| HLS | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | BRANCH PASS — run #242 |
-| DASH | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | BRANCH PASS — run #242 |
-| RTSP | N/A | Yes | server-dependent | unauthenticated in Step 7 | RTP-over-RTSP/TCP | BRANCH PASS — real server lane #242 |
-| SMB2/3 | Yes | Yes | Yes | guest/anonymous/domain user | signing; SMB3 encryption server-dependent | BRANCH PASS — real server lane #242 |
-| WebDAV HTTPS | Yes | Yes | server-dependent ranges | Basic/bearer/custom | system TLS + secure XML | BRANCH PASS — run #242 |
-| FTP | Yes | Yes | REST/server-dependent | anonymous/user | insecure warning | BRANCH PASS — real server lane #242 |
+| HTTP | N/A | Yes | server-dependent ranges | scoped headers | cleartext warning | PASS |
+| HTTPS | N/A | Yes | server-dependent ranges | Basic/bearer/custom | system TLS | PASS |
+| HLS | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | PASS |
+| DASH | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | PASS |
+| RTSP | N/A | Yes | server-dependent | unauthenticated in Step 7 | RTP-over-RTSP/TCP | PASS |
+| SMB2/3 | Yes | Yes | Yes | guest/anonymous/domain user | signing; SMB3 encryption server-dependent | PASS |
+| WebDAV HTTPS | Yes | Yes | server-dependent ranges | Basic/bearer/custom | system TLS + secure XML | PASS |
+| FTP | Yes | Yes | REST/server-dependent | anonymous/user | insecure warning | PASS |
 | FTPS explicit | Yes | Yes | REST/server-dependent | user | verified TLS + private data channel | PARTIAL — not server-certified |
 | SFTP | No | No | No | No | N/A | NOT IMPLEMENTED |
 
@@ -176,3 +177,5 @@ Runtime additions are OkHttp 5.1.0, Media3 DataSource OkHttp 1.11.0, SMBJ 0.14.0
 - weak-network recovery on representative hardware
 
 Step 8, Step 9 and Step 10 features are not started by this work.
+
+# STEP 7: PASS
