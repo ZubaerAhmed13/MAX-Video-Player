@@ -14,20 +14,20 @@ class CastRelayServerTest {
     @Test
     fun getAndHeadExposeOnlyActiveResource() {
         withRelay { _, endpoint ->
-            open(endpoint.uri).use { connection ->
+            withConnection(endpoint.uri) { connection ->
                 assertEquals(200, connection.responseCode)
                 assertEquals("video/mp4", connection.contentType)
                 assertEquals(VIRTUAL_LENGTH, connection.contentLengthLong)
                 assertEquals("bytes", connection.getHeaderField("Accept-Ranges"))
                 assertArrayEquals(expected(0L, 32), connection.inputStream.readNBytes(32))
             }
-            open(endpoint.uri, method = "HEAD").use { connection ->
+            withConnection(endpoint.uri, method = "HEAD") { connection ->
                 assertEquals(200, connection.responseCode)
                 assertEquals(VIRTUAL_LENGTH, connection.contentLengthLong)
                 assertEquals(-1, connection.inputStream.read())
             }
             val root = URI("http://${endpoint.uri.host}:${endpoint.uri.port}/")
-            open(root).use { connection -> assertEquals(403, connection.responseCode) }
+            withConnection(root) { connection -> assertEquals(403, connection.responseCode) }
         }
     }
 
@@ -36,7 +36,7 @@ class CastRelayServerTest {
         withRelay { _, endpoint ->
             val start = 2_147_483_648L + 1234L
             val end = start + 4095L
-            open(endpoint.uri, range = "bytes=$start-$end").use { connection ->
+            withConnection(endpoint.uri, range = "bytes=$start-$end") { connection ->
                 assertEquals(206, connection.responseCode)
                 assertEquals("bytes $start-$end/$VIRTUAL_LENGTH", connection.getHeaderField("Content-Range"))
                 assertEquals(4096L, connection.contentLengthLong)
@@ -51,12 +51,12 @@ class CastRelayServerTest {
             val segments = endpoint.uri.path.split('/').toMutableList()
             segments[2] = "0".repeat(64)
             val wrong = URI(endpoint.uri.scheme, endpoint.uri.userInfo, endpoint.uri.host, endpoint.uri.port, segments.joinToString("/"), null, null)
-            open(wrong).use { assertEquals(403, it.responseCode) }
+            withConnection(wrong) { assertEquals(403, it.responseCode) }
 
             val traversal = URI("http://${endpoint.uri.host}:${endpoint.uri.port}/cast/${endpoint.uri.path.split('/')[2]}/%2e%2e")
-            open(traversal).use { assertEquals(403, it.responseCode) }
+            withConnection(traversal) { assertEquals(403, it.responseCode) }
 
-            open(endpoint.uri, method = "POST").use { assertEquals(405, it.responseCode) }
+            withConnection(endpoint.uri, method = "POST") { assertEquals(405, it.responseCode) }
         }
     }
 
@@ -64,10 +64,18 @@ class CastRelayServerTest {
     fun stoppingSessionInvalidatesOldUrl() {
         val server = CastRelayServer(InetAddress.getLoopbackAddress())
         val endpoint = server.start(VirtualResource())
-        open(endpoint.uri, range = "bytes=0-7").use { assertEquals(206, it.responseCode) }
-        server.stop()
-        assertFalse(runCatching { open(endpoint.uri).use { it.responseCode }; true }.getOrDefault(false))
-        server.close()
+        try {
+            withConnection(endpoint.uri, range = "bytes=0-7") { assertEquals(206, it.responseCode) }
+            server.stop()
+            assertFalse(
+                runCatching {
+                    withConnection(endpoint.uri) { it.responseCode }
+                    true
+                }.getOrDefault(false),
+            )
+        } finally {
+            server.close()
+        }
     }
 
     private fun withRelay(block: (CastRelayServer, CastRelayEndpoint) -> Unit) {
@@ -75,6 +83,20 @@ class CastRelayServerTest {
             val endpoint = server.start(VirtualResource())
             assertTrue(endpoint.uri.path.matches(Regex("/cast/[a-f0-9]{64}/media")))
             block(server, endpoint)
+        }
+    }
+
+    private inline fun <T> withConnection(
+        uri: URI,
+        method: String = "GET",
+        range: String? = null,
+        block: (HttpURLConnection) -> T,
+    ): T {
+        val connection = open(uri, method, range)
+        return try {
+            block(connection)
+        } finally {
+            connection.disconnect()
         }
     }
 
