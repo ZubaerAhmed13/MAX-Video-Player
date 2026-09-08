@@ -5,15 +5,13 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
-import android.os.Build
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
-import android.os.ProxyFileDescriptorCallback
-import android.os.storage.StorageManager
-import androidx.annotation.RequiresApi
+import java.io.File
 import java.io.FileNotFoundException
+import java.io.RandomAccessFile
 
-/** Test-only provider that exposes a seekable >3 GB file without allocating the file. */
+/** Test-only provider that exposes a seekable >3 GB sparse file without allocating 3 GB. */
 class Step8LargeVirtualContentProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
 
@@ -35,14 +33,16 @@ class Step8LargeVirtualContentProvider : ContentProvider() {
     ): Cursor = metadataCursor(projection)
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
-        if (!available) throw FileNotFoundException("Virtual removable source disconnected")
-        if (Build.VERSION.SDK_INT < 26) throw FileNotFoundException("Proxy file descriptor requires API 26")
-        val manager = requireNotNull(context).getSystemService(StorageManager::class.java)
-        return manager.openProxyFileDescriptor(
-            ParcelFileDescriptor.MODE_READ_ONLY,
-            VirtualFileCallback,
-            null,
-        )
+        if (uri == REMOVED_URI) {
+            throw FileNotFoundException("Virtual removable source disconnected")
+        }
+        if (uri != URI) {
+            throw FileNotFoundException("Unknown Step 8 virtual source")
+        }
+        if (mode != "r") {
+            throw FileNotFoundException("Step 8 virtual source is read-only")
+        }
+        return ParcelFileDescriptor.open(ensureSparseFixture(), ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
@@ -64,25 +64,32 @@ class Step8LargeVirtualContentProvider : ContentProvider() {
         }
     }
 
-    @RequiresApi(26)
-    private object VirtualFileCallback : ProxyFileDescriptorCallback() {
-        override fun onGetSize(): Long = VIRTUAL_LENGTH
+    @Synchronized
+    private fun ensureSparseFixture(): File {
+        val fixture = File(requireNotNull(context).cacheDir, "step8-usb-3gb-sparse.mp4")
+        if (fixture.length() == VIRTUAL_LENGTH) return fixture
 
-        override fun onRead(offset: Long, size: Int, data: ByteArray): Int {
-            if (!available) throw android.system.ErrnoException("usb-disconnected", android.system.OsConstants.ENODEV)
-            if (offset >= VIRTUAL_LENGTH) return 0
-            val count = minOf(size.toLong(), VIRTUAL_LENGTH - offset).toInt()
-            for (index in 0 until count) data[index] = ((offset + index.toLong()) and 0xff).toByte()
-            return count
+        RandomAccessFile(fixture, "rw").use { file ->
+            file.setLength(VIRTUAL_LENGTH)
+            file.seek(VERIFICATION_OFFSET)
+            file.write(
+                ByteArray(VERIFICATION_LENGTH) { index ->
+                    ((VERIFICATION_OFFSET + index.toLong()) and 0xff).toByte()
+                },
+            )
         }
-
-        override fun onRelease() = Unit
+        check(fixture.length() == VIRTUAL_LENGTH) {
+            "Sparse Step 8 fixture has wrong logical length: ${fixture.length()}"
+        }
+        return fixture
     }
 
     companion object {
         const val AUTHORITY = "com.zubaer.maxvideoplayer.step8virtual"
         const val VIRTUAL_LENGTH = 3_221_225_473L
-        @Volatile var available: Boolean = true
+        const val VERIFICATION_OFFSET = 2_147_483_648L + 33_333L
+        const val VERIFICATION_LENGTH = 8192
         val URI: Uri get() = Uri.parse("content://$AUTHORITY/removable/step8-usb-3gb.mp4")
+        val REMOVED_URI: Uri get() = Uri.parse("content://$AUTHORITY/removed/step8-usb-3gb.mp4")
     }
 }
