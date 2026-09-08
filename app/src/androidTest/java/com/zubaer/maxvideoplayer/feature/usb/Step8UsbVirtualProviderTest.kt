@@ -24,7 +24,10 @@ class Step8UsbVirtualProviderTest {
 
     @Test
     fun contentPlaybackReadsCorrectBytesBeyondTwoGiBWithoutWholeFileCopy() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        // The virtual provider lives in the instrumentation APK and is intentionally non-exported.
+        // Use that APK's context so this test exercises the production content:// data-source path
+        // without weakening provider visibility or adding any production permission exception.
+        val context = InstrumentationRegistry.getInstrumentation().context
         val source = NetworkDataSourceRouter.Factory(
             context,
             NetworkRequestRegistry(),
@@ -58,7 +61,7 @@ class Step8UsbVirtualProviderTest {
 
     @Test
     fun disconnectedRemovableProviderFailsCleanly() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val context = InstrumentationRegistry.getInstrumentation().context
         Step8LargeVirtualContentProvider.available = false
         val source = NetworkDataSourceRouter.Factory(
             context,
