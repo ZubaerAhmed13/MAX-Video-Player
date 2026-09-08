@@ -25,14 +25,13 @@ import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-/** Public-client OAuth 2.0 + PKCE configuration. Client secrets are intentionally unsupported. */
 data class CloudOAuthProviderConfig(
     val provider: CloudProvider,
     val clientId: String,
@@ -74,9 +73,7 @@ class CloudOAuthCoordinator(
     private val _uiState = MutableStateFlow(initialUiState(configs))
     val uiState: StateFlow<CloudOAuthUiState> = _uiState.asStateFlow()
 
-    val accounts: Flow<List<CloudAccount>> = accountDao.observeAll().map { entities ->
-        entities.mapNotNull(::toAccount)
-    }
+    val accounts: Flow<List<CloudAccount>> = accountDao.observeAll().map { entities -> entities.mapNotNull(::toAccount) }
 
     suspend fun restoreRegisteredAccounts() {
         accountDao.all().forEach { entity ->
@@ -114,7 +111,6 @@ class CloudOAuthCoordinator(
         return CloudAuthorizationRequest(provider, builder.build())
     }
 
-    /** Returns the connected account, or null when this redirect belongs to another surface. */
     suspend fun handleRedirect(uri: Uri): CloudAccount? {
         val provider = configs.values.firstOrNull { config -> redirectMatches(uri, config.redirectUri) }?.provider ?: return null
         val config = requireNotNull(configs[provider])
@@ -175,10 +171,11 @@ class CloudOAuthCoordinator(
         }
     }
 
-    suspend fun clientFor(accountId: String) = accountDao.get(accountId)?.let { entity ->
+    suspend fun providerClient(accountId: String): com.zubaer.maxvideoplayer.feature.cloud.provider.CloudProviderClient? {
+        val entity = accountDao.get(accountId) ?: return null
         val provider = CloudProvider.valueOf(entity.provider)
         registerClient(entity)
-        playbackRegistry.client(com.zubaer.maxvideoplayer.feature.cloud.model.CloudFileIdentity(provider, entity.id, "_probe"))
+        return playbackRegistry.client(com.zubaer.maxvideoplayer.feature.cloud.model.CloudFileIdentity(provider, entity.id, "_probe"))
     }
 
     fun clearError() {
@@ -208,11 +205,7 @@ class CloudOAuthCoordinator(
         playbackRegistry.register(provider, entity.id, client)
     }
 
-    private suspend fun exchangeAuthorizationCode(
-        config: CloudOAuthProviderConfig,
-        code: String,
-        verifier: String,
-    ): CloudTokenSet = withContext(Dispatchers.IO) {
+    private suspend fun exchangeAuthorizationCode(config: CloudOAuthProviderConfig, code: String, verifier: String): CloudTokenSet = withContext(Dispatchers.IO) {
         val form = FormBody.Builder()
             .add("grant_type", "authorization_code")
             .add("code", code)
@@ -374,7 +367,6 @@ class CloudOAuthCoordinator(
     }
 }
 
-/** Refresh-capable token provider backed by the Keystore vault. */
 private class VaultBackedAccessTokenProvider(
     private val provider: CloudProvider,
     private val authReference: String,
@@ -445,7 +437,7 @@ object CloudPkce {
     fun challenge(verifier: String): String {
         require(verifier.length in 43..128) { "PKCE verifier length is invalid." }
         val digest = MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII))
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+        return digest.toByteString().base64Url()
     }
 
     fun constantTimeEquals(expected: String, actual: String): Boolean =
@@ -453,6 +445,6 @@ object CloudPkce {
 
     private fun randomUrlSafe(byteCount: Int): String {
         val bytes = ByteArray(byteCount).also(random::nextBytes)
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        return bytes.toByteString().base64Url()
     }
 }
