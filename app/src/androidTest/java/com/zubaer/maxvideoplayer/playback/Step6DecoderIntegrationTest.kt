@@ -15,6 +15,7 @@ import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderBackendType
 import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderFailureCode
+import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 import com.zubaer.maxvideoplayer.playback.session.PlaybackService
 import org.junit.Assert.assertEquals
@@ -68,19 +69,17 @@ class Step6DecoderIntegrationTest {
             assertTrue("MediaController did not connect", await(10_000L) { connection.state.value.connected })
 
             // requestModeForCurrentMedia is deliberately a current-media API. First make the
-            // Step-6 fixture authoritative in both MediaController and DecoderRepository. Issuing
-            // a mode request for a future media ID would reconfigure the preceding item's queue and
-            // can race its snapshot/restore over this load in a shared instrumentation process.
+            // Step-6 fixture authoritative in both MediaController and DecoderRepository.
             instrumentation.runOnMainSync { connection.load(media, startPositionMs = 0L, playWhenReady = true) }
             assertTrue("Step-6 fixture did not become the authoritative current media", await(10_000L) {
                 connection.state.value.mediaId == media.stableId && repository.state.value.mediaId == media.stableId
             })
             repository.requestModeForCurrentMedia(media.stableId, DecoderMode.AUTO)
-            assertTrue("Auto did not initialize the actual decoder for the Step-6 fixture", await(15_000L) {
+            assertTrue("Auto did not initialize a settled classified decoder for the Step-6 fixture", await(15_000L) {
                 val playback = connection.state.value
                 playback.mediaId == media.stableId &&
                     playback.error == null &&
-                    repository.state.value.diagnostics.activeDecoderName != null
+                    decoderMatchesPlatform(repository, DecoderMode.AUTO, softwareNames, hardwareNames)
             })
             assertEquals(media.stableId, connection.state.value.mediaId)
             assertNull("Auto playback failed: ${connection.state.value.error}", connection.state.value.error)
@@ -89,12 +88,7 @@ class Step6DecoderIntegrationTest {
             assertTrue("Auto did not record the actual initialized decoder", auto.activeDecoderName != null)
             assertTrue(
                 "Auto effective backend did not match the initialized decoder classification",
-                when (auto.effectiveBackend) {
-                    DecoderBackendType.HARDWARE -> auto.activeDecoderName in hardwareNames
-                    DecoderBackendType.SOFTWARE -> auto.activeDecoderName in softwareNames
-                    DecoderBackendType.UNKNOWN -> auto.activeDecoderName !in softwareNames && auto.activeDecoderName !in hardwareNames
-                    null -> false
-                },
+                decoderMatchesPlatform(repository, DecoderMode.AUTO, softwareNames, hardwareNames),
             )
 
             instrumentation.runOnMainSync { connection.pause(); connection.seekTo(1_000L) }
@@ -105,8 +99,7 @@ class Step6DecoderIntegrationTest {
             repository.requestModeForCurrentMedia(media.stableId, DecoderMode.SOFTWARE)
             if (softwareNames.isNotEmpty()) {
                 assertTrue("Software mode did not activate a real software decoder", await(15_000L) {
-                    repository.state.value.diagnostics.activeDecoderName in softwareNames &&
-                        repository.state.value.diagnostics.effectiveBackend == DecoderBackendType.SOFTWARE
+                    decoderMatchesPlatform(repository, DecoderMode.SOFTWARE, softwareNames, hardwareNames)
                 })
                 val software = repository.state.value.diagnostics
                 assertEquals(DecoderMode.SOFTWARE, software.requestedMode)
@@ -123,8 +116,7 @@ class Step6DecoderIntegrationTest {
             repository.requestModeForCurrentMedia(media.stableId, DecoderMode.HARDWARE)
             if (hardwareNames.isNotEmpty()) {
                 assertTrue("Hardware mode did not activate a real hardware decoder", await(15_000L) {
-                    repository.state.value.diagnostics.activeDecoderName in hardwareNames &&
-                        repository.state.value.diagnostics.effectiveBackend == DecoderBackendType.HARDWARE
+                    decoderMatchesPlatform(repository, DecoderMode.HARDWARE, softwareNames, hardwareNames)
                 })
                 val hardware = repository.state.value.diagnostics
                 assertEquals(DecoderMode.HARDWARE, hardware.requestedMode)
@@ -141,9 +133,7 @@ class Step6DecoderIntegrationTest {
             repository.requestModeForCurrentMedia(media.stableId, DecoderMode.ENHANCED_HARDWARE)
             if (hardwareNames.isNotEmpty()) {
                 assertTrue("Enhanced Hardware leaked to software or failed to activate hardware", await(15_000L) {
-                    repository.state.value.requestedMode == DecoderMode.ENHANCED_HARDWARE &&
-                        repository.state.value.diagnostics.activeDecoderName in hardwareNames &&
-                        repository.state.value.diagnostics.effectiveBackend == DecoderBackendType.HARDWARE
+                    decoderMatchesPlatform(repository, DecoderMode.ENHANCED_HARDWARE, softwareNames, hardwareNames)
                 })
                 val enhanced = repository.state.value.diagnostics
                 assertEquals(DecoderMode.ENHANCED_HARDWARE, enhanced.requestedMode)
@@ -164,7 +154,32 @@ class Step6DecoderIntegrationTest {
             }
             activityScenario.close()
             context.stopService(Intent(context, PlaybackService::class.java))
+            instrumentation.waitForIdleSync()
             fixture.delete()
+        }
+    }
+
+    private fun decoderMatchesPlatform(
+        repository: DecoderRepository,
+        mode: DecoderMode,
+        softwareNames: Set<String>,
+        hardwareNames: Set<String>,
+    ): Boolean {
+        val state = repository.state.value
+        val diagnostics = state.diagnostics
+        val name = diagnostics.activeDecoderName ?: return false
+        if (state.requestedMode != mode || !diagnostics.videoDecoderActive || diagnostics.switching) return false
+        return when (mode) {
+            DecoderMode.SOFTWARE -> diagnostics.effectiveBackend == DecoderBackendType.SOFTWARE && name in softwareNames
+            DecoderMode.HARDWARE,
+            DecoderMode.ENHANCED_HARDWARE,
+            -> diagnostics.effectiveBackend == DecoderBackendType.HARDWARE && name in hardwareNames
+            DecoderMode.AUTO -> when (diagnostics.effectiveBackend) {
+                DecoderBackendType.HARDWARE -> name in hardwareNames
+                DecoderBackendType.SOFTWARE -> name in softwareNames
+                DecoderBackendType.UNKNOWN -> name !in softwareNames && name !in hardwareNames
+                null -> false
+            }
         }
     }
 
