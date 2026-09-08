@@ -22,7 +22,9 @@ data class ByteRange(
         require(endInclusive >= startInclusive)
     }
 
-    val length: Long get() = endInclusive - startInclusive + 1L
+    /** Null means an open-ended request against a source whose total length is not known yet. */
+    val boundedLength: Long?
+        get() = if (endInclusive == Long.MAX_VALUE) null else endInclusive - startInclusive + 1L
 }
 
 sealed interface RangeParseResult {
