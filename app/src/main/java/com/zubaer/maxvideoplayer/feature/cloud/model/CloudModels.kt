@@ -71,7 +71,8 @@ data class CloudPlaybackResource(
     val mimeType: String?,
     val sizeBytes: Long?,
     val revision: String?,
-    val authorizationHeader: String? = null,
+    /** Sensitive provider headers are held in-memory only and must be redacted from logs. */
+    val requestHeaders: Map<String, String> = emptyMap(),
     val expiresAtMs: Long? = null,
     val supportsRange: Boolean = true,
 )
