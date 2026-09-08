@@ -21,9 +21,9 @@ class OneDriveClient(
         val base = if (driveId.isNullOrBlank()) "$GRAPH/me/drive" else "$GRAPH/drives/$driveId"
         val endpoint = if (parentId.isNullOrBlank() || parentId == "root") "$base/root/children" else "$base/items/$parentId/children"
         val url = endpoint.toHttpUrl().newBuilder()
-            .addQueryParameter("$select", SELECT)
-            .addQueryParameter("$top", pageSize.coerceIn(1, 200).toString())
-            .addQueryParameter("$orderby", "folder desc,name")
+            .addQueryParameter("\$select", SELECT)
+            .addQueryParameter("\$top", pageSize.coerceIn(1, 200).toString())
+            .addQueryParameter("\$orderby", "folder desc,name")
             .build()
         return fetchPage(url.toString())
     }
@@ -33,8 +33,8 @@ class OneDriveClient(
         val escaped = query.replace("'", "''")
         val base = if (driveId.isNullOrBlank()) "$GRAPH/me/drive/root/search(q='$escaped')" else "$GRAPH/drives/$driveId/root/search(q='$escaped')"
         val url = base.toHttpUrl().newBuilder()
-            .addQueryParameter("$select", SELECT)
-            .addQueryParameter("$top", pageSize.coerceIn(1, 200).toString())
+            .addQueryParameter("\$select", SELECT)
+            .addQueryParameter("\$top", pageSize.coerceIn(1, 200).toString())
             .build()
         return fetchPage(url.toString())
     }
@@ -43,7 +43,7 @@ class OneDriveClient(
         requireIdentity(identity)
         val resolvedDrive = identity.driveId ?: driveId
         val endpoint = if (resolvedDrive.isNullOrBlank()) "$GRAPH/me/drive/items/${identity.providerFileId}" else "$GRAPH/drives/$resolvedDrive/items/${identity.providerFileId}"
-        val url = endpoint.toHttpUrl().newBuilder().addQueryParameter("$select", SELECT).build()
+        val url = endpoint.toHttpUrl().newBuilder().addQueryParameter("\$select", SELECT).build()
         val response = authorizedRequest(url.toString())
         response.use {
             CloudHttp.requireSuccess(it, "OneDrive")
@@ -53,14 +53,13 @@ class OneDriveClient(
 
     override suspend fun resolvePlayback(identity: CloudFileIdentity, forceRefresh: Boolean): CloudPlaybackResource {
         requireIdentity(identity)
-        // Force-refresh the Graph token if caller detected a stale preauthenticated URL.
         tokenProvider.accessToken(forceRefresh)
         val entry = get(identity)
         if (entry.isFolder) throw CloudFailure.PermissionDenied("Folders cannot be streamed.")
         val resolvedDrive = identity.driveId ?: driveId
         val endpoint = if (resolvedDrive.isNullOrBlank()) "$GRAPH/me/drive/items/${identity.providerFileId}" else "$GRAPH/drives/$resolvedDrive/items/${identity.providerFileId}"
         val url = endpoint.toHttpUrl().newBuilder()
-            .addQueryParameter("$select", "id,size,file,eTag,cTag,@microsoft.graph.downloadUrl")
+            .addQueryParameter("\$select", "id,size,file,eTag,cTag,@microsoft.graph.downloadUrl")
             .build()
         val response = authorizedRequest(url.toString())
         response.use {
@@ -75,8 +74,6 @@ class OneDriveClient(
                 sizeBytes = entry.sizeBytes,
                 revision = entry.revision,
                 authorizationHeader = null,
-                // Graph documents the preauthenticated URL as short lived. Resolve again rather
-                // than persisting it. A conservative expiry prevents stale URLs from becoming identity.
                 expiresAtMs = System.currentTimeMillis() + 45L * 60L * 1000L,
                 supportsRange = true,
             )
