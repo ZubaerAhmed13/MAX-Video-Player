@@ -40,7 +40,7 @@ class WebDavProtocolClient(
         withContext(Dispatchers.IO) {
             val requestedUrl = playbackUri(location, NetworkUriPolicy.safeRemotePath(remotePath)).ensureTrailingSlash()
             propFind(location, credential, remotePath, 1)
-                .filterNot { canonicalUrl(it.href) == canonicalUrl(requestedUrl) }
+                .filterNot { canonicalUrl(URI(requestedUrl).resolve(it.href).toString()) == canonicalUrl(requestedUrl) }
                 .map { item -> item.toEntry(location, requestedUrl) }
                 .sortedWith(compareBy<NetworkEntry> { !it.isDirectory }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
         }
