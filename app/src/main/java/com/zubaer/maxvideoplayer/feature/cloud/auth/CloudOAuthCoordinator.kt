@@ -1,32 +1,24 @@
 package com.zubaer.maxvideoplayer.feature.cloud.auth
 
-import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import androidx.core.content.ContextCompat
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.zubaer.maxvideoplayer.BuildConfig
-import com.zubaer.maxvideoplayer.core.database.CloudAccountDao
-import com.zubaer.maxvideoplayer.core.database.CloudAccountEntity
-import com.zubaer.maxvideoplayer.feature.cloud.CloudAccount
-import com.zubaer.maxvideoplayer.feature.cloud.CloudAuthState
-import com.zubaer.maxvideoplayer.feature.cloud.CloudFailure
-import com.zubaer.maxvideoplayer.feature.cloud.CloudOAuthUiState
-import com.zubaer.maxvideoplayer.feature.cloud.CloudProvider
+import com.zubaer.maxvideoplayer.feature.cloud.model.CloudAccount
+import com.zubaer.maxvideoplayer.feature.cloud.model.CloudAuthState
+import com.zubaer.maxvideoplayer.feature.cloud.model.CloudFailure
+import com.zubaer.maxvideoplayer.feature.cloud.model.CloudProvider
+import com.zubaer.maxvideoplayer.feature.cloud.persistence.CloudAccountDao
+import com.zubaer.maxvideoplayer.feature.cloud.persistence.CloudAccountEntity
+import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudPlaybackRegistry
 import com.zubaer.maxvideoplayer.feature.cloud.provider.CloudAccessTokenProvider
-import com.zubaer.maxvideoplayer.feature.cloud.provider.CloudProviderClient
-import com.zubaer.maxvideoplayer.feature.cloud.provider.DropboxCloudProviderClient
-import com.zubaer.maxvideoplayer.feature.cloud.provider.GoogleDriveCloudProviderClient
-import com.zubaer.maxvideoplayer.feature.cloud.provider.OneDriveCloudProviderClient
-import kotlinx.coroutines.CoroutineScope
+import com.zubaer.maxvideoplayer.feature.cloud.provider.DropboxClient
+import com.zubaer.maxvideoplayer.feature.cloud.provider.GoogleDriveClient
+import com.zubaer.maxvideoplayer.feature.cloud.provider.OneDriveClient
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -37,11 +29,9 @@ import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-/** OAuth configuration whose client id / redirect URI are supplied by BuildConfig, never hard-coded credentials. */
 data class CloudOAuthProviderConfig(
     val provider: CloudProvider,
     val clientId: String,
@@ -51,247 +41,222 @@ data class CloudOAuthProviderConfig(
     val scopes: List<String>,
     val extraAuthorizationParameters: Map<String, String> = emptyMap(),
 ) {
-    val configured: Boolean
-        get() = clientId.isNotBlank() && redirectUri.isNotBlank()
+    val configured: Boolean get() = clientId.isNotBlank() && redirectUri.isNotBlank()
 }
 
-data class CloudTokenSet(
-    val accessToken: String,
-    val refreshToken: String?,
-    val expiresAtMs: Long?,
-    val scopes: Set<String>,
+data class CloudAuthorizationRequest(
+    val provider: CloudProvider,
+    val authorizationUri: Uri,
 )
 
-class CloudTokenVault(context: Context) {
-    private val preferences = EncryptedSharedPreferences.create(
-        context,
-        "max_cloud_oauth_tokens",
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
-
-    fun contains(reference: String): Boolean = preferences.contains(reference)
-
-    fun save(tokens: CloudTokenSet, reference: String = "cloud:${UUID.randomUUID()}"): String {
-        val json = JSONObject()
-            .put("access_token", tokens.accessToken)
-            .put("refresh_token", tokens.refreshToken)
-            .put("expires_at_ms", tokens.expiresAtMs)
-            .put("scopes", tokens.scopes.joinToString(" "))
-        preferences.edit().putString(reference, json.toString()).apply()
-        return reference
-    }
-
-    fun get(reference: String): CloudTokenSet? {
-        val raw = preferences.getString(reference, null) ?: return null
-        return runCatching {
-            val json = JSONObject(raw)
-            CloudTokenSet(
-                accessToken = json.getString("access_token"),
-                refreshToken = json.optString("refresh_token").takeIf(String::isNotBlank),
-                expiresAtMs = json.optLong("expires_at_ms", -1L).takeIf { it >= 0L },
-                scopes = json.optString("scopes").split(' ').filter(String::isNotBlank).toSet(),
-            )
-        }.getOrNull()
-    }
-
-    fun remove(reference: String) {
-        preferences.edit().remove(reference).apply()
-    }
-}
+data class CloudOAuthUiState(
+    val providerStates: Map<CloudProvider, CloudAuthState> = CloudProvider.entries.associateWith { CloudAuthState.SIGNED_OUT },
+    val error: String? = null,
+)
 
 /**
- * Production OAuth / PKCE coordinator. Tokens remain encrypted at rest and are never persisted in
- * Room, logs, playback URIs or saved-location rows. Provider clients receive only a token supplier.
+ * Production OAuth coordinator for Google Drive, OneDrive and Dropbox. Authorization uses the
+ * system browser; token exchange/refresh uses PKCE and never requires a client secret. Access and
+ * refresh tokens are written only to CloudTokenVault (Android Keystore AES-GCM). Room receives
+ * opaque auth references plus non-secret account metadata.
  */
 class CloudOAuthCoordinator(
-    context: Context,
     private val accountDao: CloudAccountDao,
-    private val tokenVault: CloudTokenVault = CloudTokenVault(context),
-    private val httpClient: OkHttpClient = defaultHttpClient(),
+    private val tokenVault: CloudTokenVault,
+    private val playbackRegistry: CloudPlaybackRegistry,
     private val configs: Map<CloudProvider, CloudOAuthProviderConfig> = productionConfigs(),
+    private val httpClient: OkHttpClient = defaultHttpClient(),
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
-    private val appContext = context.applicationContext
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pending = ConcurrentHashMap<CloudProvider, PendingAuthorization>()
+    private val tokenProviders = ConcurrentHashMap<String, VaultBackedAccessTokenProvider>()
     private val _uiState = MutableStateFlow(initialUiState(configs))
     val uiState: StateFlow<CloudOAuthUiState> = _uiState.asStateFlow()
 
-    init {
-        scope.launch { refreshAccounts() }
+    val accounts: Flow<List<CloudAccount>> = accountDao.observeAll().map { entities -> entities.mapNotNull(::toAccount) }
+
+    suspend fun restoreRegisteredAccounts() {
+        accountDao.all().forEach { entity ->
+            val provider = runCatching { CloudProvider.valueOf(entity.provider) }.getOrNull() ?: return@forEach
+            if (!tokenVault.contains(entity.authReference)) {
+                updateProviderState(provider, CloudAuthState.REAUTH_REQUIRED)
+                return@forEach
+            }
+            registerClient(entity)
+            updateProviderState(provider, CloudAuthState.CONNECTED)
+        }
     }
 
-    fun beginAuthorization(provider: CloudProvider): Intent {
-        val config = configs[provider]
-            ?: throw CloudFailure.Unsupported("OAuth configuration is unavailable for ${provider.name}.")
-        if (!config.configured) throw CloudFailure.NotConfigured(provider)
+    fun beginAuthorization(provider: CloudProvider): CloudAuthorizationRequest {
+        val config = requireNotNull(configs[provider]) { "OAuth provider configuration is missing." }
+        if (!config.configured) {
+            updateProviderState(provider, CloudAuthState.NOT_CONFIGURED)
+            throw CloudFailure.ProviderNotConfigured(provider)
+        }
         val verifier = CloudPkce.newVerifier()
+        val challenge = CloudPkce.challenge(verifier)
         val state = CloudPkce.newState()
         pending[provider] = PendingAuthorization(verifier, state, nowMs())
         updateProviderState(provider, CloudAuthState.AUTHORIZING)
-        val uri = Uri.parse(config.authorizationEndpoint).buildUpon()
-            .appendQueryParameter("response_type", "code")
+
+        val builder = Uri.parse(config.authorizationEndpoint).buildUpon()
             .appendQueryParameter("client_id", config.clientId)
             .appendQueryParameter("redirect_uri", config.redirectUri)
-            .appendQueryParameter("scope", config.scopes.joinToString(" "))
-            .appendQueryParameter("state", state)
-            .appendQueryParameter("code_challenge", CloudPkce.challenge(verifier))
+            .appendQueryParameter("response_type", "code")
+            .appendQueryParameter("code_challenge", challenge)
             .appendQueryParameter("code_challenge_method", "S256")
-            .apply { config.extraAuthorizationParameters.forEach { (key, value) -> appendQueryParameter(key, value) } }
-            .build()
-        return Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .appendQueryParameter("state", state)
+            .appendQueryParameter("scope", config.scopes.joinToString(" "))
+        config.extraAuthorizationParameters.forEach(builder::appendQueryParameter)
+        return CloudAuthorizationRequest(provider, builder.build())
     }
 
-    fun handleRedirect(uri: Uri): Boolean {
-        val provider = configs.values.firstOrNull { redirectMatches(uri, it.redirectUri) }?.provider ?: return false
-        val config = configs.getValue(provider)
-        val pendingAuthorization = pending.remove(provider)
-        if (pendingAuthorization == null || nowMs() - pendingAuthorization.createdAtMs > AUTH_SESSION_MAX_AGE_MS) {
-            updateProviderState(provider, CloudAuthState.REAUTH_REQUIRED, "Authorization session expired. Try again.")
-            return true
+    suspend fun handleRedirect(uri: Uri): CloudAccount? {
+        val provider = configs.values.firstOrNull { config -> redirectMatches(uri, config.redirectUri) }?.provider ?: return null
+        val config = requireNotNull(configs[provider])
+        val transaction = pending.remove(provider)
+            ?: throw CloudFailure.AuthenticationRequired("The authorization session expired. Start sign-in again.")
+        if (nowMs() - transaction.createdAtMs > AUTH_SESSION_MAX_AGE_MS) {
+            updateProviderState(provider, CloudAuthState.REAUTH_REQUIRED)
+            throw CloudFailure.AuthenticationRequired("The authorization session expired. Start sign-in again.")
         }
-        val returnedState = uri.getQueryParameter("state").orEmpty()
-        if (!CloudPkce.constantTimeEquals(pendingAuthorization.state, returnedState)) {
-            updateProviderState(provider, CloudAuthState.REAUTH_REQUIRED, "Authorization state did not match. Try again.")
-            return true
+        val state = uri.getQueryParameter("state")
+        if (state.isNullOrBlank() || !CloudPkce.constantTimeEquals(transaction.state, state)) {
+            updateProviderState(provider, CloudAuthState.FAILED)
+            throw CloudFailure.AuthenticationRequired("OAuth state validation failed.")
         }
-        val oauthError = uri.getQueryParameter("error")
-        if (!oauthError.isNullOrBlank()) {
-            updateProviderState(provider, CloudAuthState.SIGNED_OUT, uri.getQueryParameter("error_description") ?: oauthError)
-            return true
+        uri.getQueryParameter("error")?.let { error ->
+            val description = uri.getQueryParameter("error_description")?.take(200)
+            updateProviderState(provider, CloudAuthState.FAILED)
+            throw CloudFailure.AuthenticationRequired(description ?: "Authorization failed: $error")
         }
-        val code = uri.getQueryParameter("code")
-        if (code.isNullOrBlank()) {
-            updateProviderState(provider, CloudAuthState.REAUTH_REQUIRED, "Authorization code was missing.")
-            return true
-        }
-        scope.launch { exchangeCode(provider, config, pendingAuthorization.verifier, code) }
-        return true
-    }
+        val code = uri.getQueryParameter("code")?.takeIf(String::isNotBlank)
+            ?: throw CloudFailure.AuthenticationRequired("Authorization response did not include a code.")
 
-    suspend fun refreshAccounts() {
-        val accounts = accountDao.observeAccounts().first().mapNotNull(::toAccount)
-        _uiState.value = _uiState.value.copy(accounts = accounts)
-    }
-
-    suspend fun signOut(accountId: String) {
-        val entity = accountDao.findById(accountId) ?: return
-        tokenVault.remove(entity.authReference)
-        accountDao.delete(accountId)
-        refreshAccounts()
-        updateProviderState(runCatching { CloudProvider.valueOf(entity.provider) }.getOrDefault(CloudProvider.GOOGLE_DRIVE), CloudAuthState.SIGNED_OUT)
-    }
-
-    suspend fun clientForAccount(accountId: String): CloudProviderClient {
-        val entity = accountDao.findById(accountId) ?: throw CloudFailure.NotFound("Cloud account is no longer available.")
-        val provider = runCatching { CloudProvider.valueOf(entity.provider) }.getOrNull()
-            ?: throw CloudFailure.Unsupported("Unknown cloud provider.")
-        val config = configs[provider] ?: throw CloudFailure.NotConfigured(provider)
-        val tokenProvider = VaultBackedAccessTokenProvider(
-            provider = provider,
-            authReference = entity.authReference,
-            tokenVault = tokenVault,
-            config = config,
-            httpClient = httpClient,
-            nowMs = nowMs,
-            onState = { state -> updateProviderState(provider, state) },
-        )
-        return when (provider) {
-            CloudProvider.GOOGLE_DRIVE -> GoogleDriveCloudProviderClient(httpClient, tokenProvider)
-            CloudProvider.ONEDRIVE -> OneDriveCloudProviderClient(httpClient, tokenProvider)
-            CloudProvider.DROPBOX -> DropboxCloudProviderClient(httpClient, tokenProvider)
-        }
-    }
-
-    private suspend fun exchangeCode(
-        provider: CloudProvider,
-        config: CloudOAuthProviderConfig,
-        verifier: String,
-        code: String,
-    ) = withContext(Dispatchers.IO) {
-        try {
-            updateProviderState(provider, CloudAuthState.EXCHANGING_CODE)
-            val form = FormBody.Builder()
-                .add("grant_type", "authorization_code")
-                .add("code", code)
-                .add("client_id", config.clientId)
-                .add("redirect_uri", config.redirectUri)
-                .add("code_verifier", verifier)
-                .build()
-            val request = Request.Builder().url(config.tokenEndpoint).post(form).header("Accept", "application/json").build()
-            httpClient.newCall(request).execute().use { response ->
-                val body = response.body.string().take(MAX_OAUTH_RESPONSE_CHARS)
-                if (!response.isSuccessful) throw oauthFailure(provider, response.code, body)
-                val tokens = parseTokenResponse(body, nowMs())
-                val profile = fetchProfile(provider, tokens.accessToken)
-                val reference = tokenVault.save(tokens)
-                val accountId = "${provider.name.lowercase()}:${profile.providerAccountId}"
-                runCatching {
-                    accountDao.upsert(
-                        CloudAccountEntity(
-                            id = accountId,
-                            provider = provider.name,
-                            providerAccountId = profile.providerAccountId,
-                            displayName = profile.displayName,
-                            emailHint = profile.emailHint,
-                            authReference = reference,
-                            createdAtMs = nowMs(),
-                            updatedAtMs = nowMs(),
-                        ),
-                    )
-                }.onFailure {
-                    tokenVault.remove(reference)
-                    throw it
-                }
-            }
-            refreshAccounts()
+        return try {
+            val tokens = exchangeAuthorizationCode(config, code, transaction.verifier)
+            val profile = fetchProfile(config, tokens.accessToken)
+            val existing = accountDao.find(provider.name, profile.providerAccountId)
+            val authRef = tokenVault.save(tokens, existing?.authReference)
+            val timestamp = nowMs()
+            val entity = CloudAccountEntity(
+                id = existing?.id ?: "${provider.name.lowercase()}:${profile.providerAccountId}",
+                provider = provider.name,
+                providerAccountId = profile.providerAccountId,
+                displayName = profile.displayName,
+                emailHint = profile.emailHint,
+                authReference = authRef,
+                createdAtMs = existing?.createdAtMs ?: timestamp,
+                lastUsedAtMs = timestamp,
+            )
+            accountDao.upsert(entity)
+            registerClient(entity)
             updateProviderState(provider, CloudAuthState.CONNECTED)
+            toAccount(entity)
         } catch (error: Throwable) {
-            updateProviderState(provider, CloudAuthState.REAUTH_REQUIRED, error.message ?: "Cloud sign-in failed.")
+            updateProviderState(provider, CloudAuthState.FAILED, error.message)
+            throw error
         }
     }
 
-    private suspend fun fetchProfile(provider: CloudProvider, accessToken: String): CloudProfile = withContext(Dispatchers.IO) {
-        val request = when (provider) {
+    suspend fun disconnect(accountId: String) {
+        val entity = accountDao.get(accountId) ?: return
+        val provider = runCatching { CloudProvider.valueOf(entity.provider) }.getOrNull()
+        provider?.let { playbackRegistry.unregister(it, entity.id) }
+        tokenProviders.remove(entity.id)
+        tokenVault.delete(entity.authReference)
+        accountDao.delete(accountId)
+        if (provider != null && accountDao.all().none { it.provider == provider.name }) {
+            updateProviderState(provider, if (configs[provider]?.configured == true) CloudAuthState.SIGNED_OUT else CloudAuthState.NOT_CONFIGURED)
+        }
+    }
+
+    suspend fun providerClient(accountId: String): com.zubaer.maxvideoplayer.feature.cloud.provider.CloudProviderClient? {
+        val entity = accountDao.get(accountId) ?: return null
+        val provider = CloudProvider.valueOf(entity.provider)
+        registerClient(entity)
+        return playbackRegistry.client(com.zubaer.maxvideoplayer.feature.cloud.model.CloudFileIdentity(provider, entity.id, "_probe"))
+    }
+
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    private fun registerClient(entity: CloudAccountEntity) {
+        val provider = CloudProvider.valueOf(entity.provider)
+        val config = configs[provider] ?: return
+        if (!config.configured) return
+        val tokenProvider = tokenProviders.getOrPut(entity.id) {
+            VaultBackedAccessTokenProvider(
+                provider = provider,
+                authReference = entity.authReference,
+                tokenVault = tokenVault,
+                config = config,
+                httpClient = httpClient,
+                nowMs = nowMs,
+                onState = { state -> updateProviderState(provider, state) },
+            )
+        }
+        val client = when (provider) {
+            CloudProvider.GOOGLE_DRIVE -> GoogleDriveClient(entity.id, tokenProvider)
+            CloudProvider.ONEDRIVE -> OneDriveClient(entity.id, tokenProvider)
+            CloudProvider.DROPBOX -> DropboxClient(entity.id, tokenProvider)
+        }
+        playbackRegistry.register(provider, entity.id, client)
+    }
+
+    private suspend fun exchangeAuthorizationCode(config: CloudOAuthProviderConfig, code: String, verifier: String): CloudTokenSet = withContext(Dispatchers.IO) {
+        val form = FormBody.Builder()
+            .add("grant_type", "authorization_code")
+            .add("code", code)
+            .add("client_id", config.clientId)
+            .add("redirect_uri", config.redirectUri)
+            .add("code_verifier", verifier)
+            .build()
+        val request = Request.Builder().url(config.tokenEndpoint).post(form).header("Accept", "application/json").build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body.string().take(MAX_OAUTH_RESPONSE_CHARS)
+            if (!response.isSuccessful) throw oauthFailure(config.provider, response.code, body)
+            parseTokenResponse(body, nowMs())
+        }
+    }
+
+    private suspend fun fetchProfile(config: CloudOAuthProviderConfig, token: String): CloudProfile = withContext(Dispatchers.IO) {
+        val request = when (config.provider) {
             CloudProvider.GOOGLE_DRIVE -> Request.Builder()
-                .url("https://www.googleapis.com/oauth2/v3/userinfo")
-                .get()
-                .header("Authorization", "Bearer $accessToken")
-                .header("Accept", "application/json")
-                .build()
+                .url("https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,permissionId)")
+                .header("Authorization", "Bearer $token").get().build()
             CloudProvider.ONEDRIVE -> Request.Builder()
-                .url("https://graph.microsoft.com/v1.0/me?${'$'}select=id,displayName,mail,userPrincipalName")
-                .get()
-                .header("Authorization", "Bearer $accessToken")
-                .header("Accept", "application/json")
-                .build()
+                .url("https://graph.microsoft.com/v1.0/me?%24select=id,displayName,mail,userPrincipalName")
+                .header("Authorization", "Bearer $token").get().build()
             CloudProvider.DROPBOX -> Request.Builder()
                 .url("https://api.dropboxapi.com/2/users/get_current_account")
-                .post(FormBody.Builder().build())
-                .header("Authorization", "Bearer $accessToken")
-                .header("Accept", "application/json")
-                .build()
+                .header("Authorization", "Bearer $token")
+                .post(FormBody.Builder().build()).build()
         }
         httpClient.newCall(request).execute().use { response ->
             val body = response.body.string().take(MAX_OAUTH_RESPONSE_CHARS)
-            if (!response.isSuccessful) throw oauthFailure(provider, response.code, body)
+            if (!response.isSuccessful) throw oauthFailure(config.provider, response.code, body)
             val json = JSONObject(body)
-            when (provider) {
-                CloudProvider.GOOGLE_DRIVE -> CloudProfile(
-                    providerAccountId = json.optString("sub").takeIf(String::isNotBlank) ?: throw CloudFailure.Unavailable("Google account id was missing."),
-                    displayName = json.optString("name").takeIf(String::isNotBlank) ?: "Google Drive",
-                    emailHint = json.optString("email").takeIf(String::isNotBlank),
-                )
+            when (config.provider) {
+                CloudProvider.GOOGLE_DRIVE -> {
+                    val user = json.getJSONObject("user")
+                    CloudProfile(
+                        providerAccountId = user.optString("permissionId").takeIf(String::isNotBlank)
+                            ?: user.optString("emailAddress").takeIf(String::isNotBlank)
+                            ?: throw CloudFailure.Unavailable("Google Drive account identity is unavailable."),
+                        displayName = user.optString("displayName").takeIf(String::isNotBlank) ?: "Google Drive",
+                        emailHint = user.optString("emailAddress").takeIf(String::isNotBlank),
+                    )
+                }
                 CloudProvider.ONEDRIVE -> CloudProfile(
-                    providerAccountId = json.optString("id").takeIf(String::isNotBlank) ?: throw CloudFailure.Unavailable("OneDrive account id was missing."),
+                    providerAccountId = json.getString("id"),
                     displayName = json.optString("displayName").takeIf(String::isNotBlank) ?: "OneDrive",
                     emailHint = json.optString("mail").takeIf(String::isNotBlank)
                         ?: json.optString("userPrincipalName").takeIf(String::isNotBlank),
                 )
                 CloudProvider.DROPBOX -> CloudProfile(
-                    providerAccountId = json.optString("account_id").takeIf(String::isNotBlank) ?: throw CloudFailure.Unavailable("Dropbox account id was missing."),
+                    providerAccountId = json.getString("account_id"),
                     displayName = json.optJSONObject("name")?.optString("display_name")?.takeIf(String::isNotBlank) ?: "Dropbox",
                     emailHint = json.optString("email").takeIf(String::isNotBlank),
                 )
