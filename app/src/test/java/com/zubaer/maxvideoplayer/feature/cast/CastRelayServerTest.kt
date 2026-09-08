@@ -67,11 +67,12 @@ class CastRelayServerTest {
         try {
             withConnection(endpoint.uri, range = "bytes=0-7") { assertEquals(206, it.responseCode) }
             server.stop()
+            val responseCode = runCatching {
+                withConnection(endpoint.uri) { it.responseCode }
+            }.getOrNull()
             assertFalse(
-                runCatching {
-                    withConnection(endpoint.uri) { it.responseCode }
-                    true
-                }.getOrDefault(false),
+                "Stopped relay URL unexpectedly returned a successful resource response: $responseCode",
+                responseCode != null && responseCode in 200..299,
             )
         } finally {
             server.close()
@@ -128,18 +129,18 @@ class CastRelayServerTest {
                 return value
             }
 
-            override fun read(buffer: ByteArray, offset: Int, len: Int): Int {
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
                 if (remaining <= 0L || cursor >= VIRTUAL_LENGTH) return -1
-                val actual = minOf(len.toLong(), remaining, VIRTUAL_LENGTH - cursor).toInt()
-                for (i in 0 until actual) buffer[offset + i] = ((cursor + i) and 0xff).toByte()
-                cursor += actual.toLong()
-                remaining -= actual.toLong()
-                return actual
+                val allowed = minOf(length.toLong(), remaining, VIRTUAL_LENGTH - cursor).toInt()
+                for (index in 0 until allowed) buffer[offset + index] = ((cursor + index) and 0xff).toByte()
+                cursor += allowed
+                remaining -= allowed
+                return allowed
             }
         }
     }
 
-    private companion object {
-        const val VIRTUAL_LENGTH = 3_221_225_473L
+    companion object {
+        private const val VIRTUAL_LENGTH = 3_221_225_472L
     }
 }
