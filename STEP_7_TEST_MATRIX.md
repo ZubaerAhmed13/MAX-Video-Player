@@ -2,7 +2,7 @@
 
 Status terms: `PASS`, `PARTIAL`, `PENDING`, `NOT IMPLEMENTED`, `NOT VERIFIED — DEFERRED TO STEP 10`.
 
-This matrix separates implementation evidence from physical-network certification. The exact documentation-complete branch head and exact resulting `main` head must pass before repository status becomes PASS.
+This matrix separates implementation evidence from physical-network certification. The implementation head passed run #242; the exact documentation-complete branch head and exact resulting `main` head must still pass before repository status becomes PASS.
 
 ## Deterministic HTTP and security instrumentation
 
@@ -48,9 +48,9 @@ The emulator reaches only the isolated runner host. Assertions cover:
 
 | Protocol | Browse/auth | Random access / large offset | Production playback | Candidate status |
 |---|---|---|---|---|
-| SMB | authenticated listing, Unicode directory, rejected wrong password | exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `SmbDataSource` | PENDING exact-head run |
-| FTP | authenticated listing, Unicode directory, rejected wrong password | REST-backed exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `FtpDataSource` | PENDING exact-head run |
-| RTSP | open isolated server | explicitly configured Media3 RTP-over-RTSP/TCP transport | service-owned Media3 reaches READY and `isPlaying` | PENDING exact-head run |
+| SMB | authenticated listing, Unicode directory, rejected wrong password | exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `SmbDataSource` | PASS — run #242 |
+| FTP | authenticated listing, Unicode directory, rejected wrong password | REST-backed exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `FtpDataSource` | PASS — run #242 |
+| RTSP | open isolated server | explicitly configured Media3 RTP-over-RTSP/TCP transport | service-owned Media3 reaches READY and `isPlaying` | PASS — run #242 |
 
 FTPS remains `PARTIAL`: explicit TLS, endpoint checking and private data-channel code are present, but a real automated TLS FTP server test is not yet part of the lane.
 
@@ -97,6 +97,8 @@ Every final branch and main gate retains:
 - complete API-35 instrumentation
 
 ## Exact-head gates
+
+Implementation certification: exact SHA `4cb661b978de502b99bef864cc99a53c1540939a`, Android CI run #242 (`34239231820`) — PASS. The archived results report API-35 59/59, API-26 2/2, API-28 2/2 and real-protocol 1/1. See `STEP_7_BRANCH_CERTIFICATION.md` for job IDs, artifact IDs and digests.
 
 Required for the documentation-complete branch head:
 

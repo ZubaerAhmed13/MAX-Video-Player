@@ -9,7 +9,8 @@ Implementation is complete for the declared software/emulator scope. This report
 ## Repository
 
 - Branch: `step-7-professional-network-playback`
-- Implementation candidate remote SHA: `b2a4b5f65c41cab4f94e034437a9a1b1aa8b60b0`
+- Certified implementation remote SHA: `4cb661b978de502b99bef864cc99a53c1540939a`
+- Implementation certification: Android CI run #242 / workflow `34239231820` — PASS
 - Pull request: #12
 - Documentation-complete branch SHA: pending
 - Merge SHA: pending
@@ -131,7 +132,7 @@ See `STEP_7_TEST_MATRIX.md`. The final gate consists of:
 - API-28 thumbnail regression
 - isolated API-35 Samba/FTP/RTSP protocol certification
 
-Exact branch and post-merge run IDs will be recorded only after they succeed.
+The implementation head passed Android CI run #242 (`34239231820`): build/JVM tests, release, lint, API-35 59/59, API-26 2/2, API-28 2/2 and the one-test real Samba/FTP/RTSP lane all passed. Artifact IDs are `10061608100`, `10061493133`, `10061476272`, `10061441677` and `10061426999`; exact digests and job IDs are recorded in `STEP_7_BRANCH_CERTIFICATION.md`. The documentation-complete branch and post-merge run IDs remain pending.
 
 ## Dependencies
 
@@ -154,14 +155,14 @@ Runtime additions are OkHttp 5.1.0, Media3 DataSource OkHttp 1.11.0, SMBJ 0.14.0
 
 | Protocol | Browse | Play | Seek | Auth | Security | Candidate status |
 |---|---:|---:|---:|---:|---|---|
-| HTTP | N/A | Yes | server-dependent ranges | scoped headers | cleartext warning | PASS candidate |
-| HTTPS | N/A | Yes | server-dependent ranges | Basic/bearer/custom | system TLS | PASS candidate |
-| HLS | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | PASS candidate |
-| DASH | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | PASS candidate |
-| RTSP | N/A | Yes | server-dependent | unauthenticated in Step 7 | protocol-dependent | PASS candidate |
-| SMB2/3 | Yes | Yes | Yes | guest/anonymous/domain user | signing; SMB3 encryption server-dependent | PENDING protocol lane |
-| WebDAV HTTPS | Yes | Yes | server-dependent ranges | Basic/bearer/custom | system TLS + secure XML | PASS candidate |
-| FTP | Yes | Yes | REST/server-dependent | anonymous/user | insecure warning | PENDING protocol lane |
+| HTTP | N/A | Yes | server-dependent ranges | scoped headers | cleartext warning | BRANCH PASS — run #242 |
+| HTTPS | N/A | Yes | server-dependent ranges | Basic/bearer/custom | system TLS | BRANCH PASS — run #242 |
+| HLS | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | BRANCH PASS — run #242 |
+| DASH | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | BRANCH PASS — run #242 |
+| RTSP | N/A | Yes | server-dependent | unauthenticated in Step 7 | RTP-over-RTSP/TCP | BRANCH PASS — real server lane #242 |
+| SMB2/3 | Yes | Yes | Yes | guest/anonymous/domain user | signing; SMB3 encryption server-dependent | BRANCH PASS — real server lane #242 |
+| WebDAV HTTPS | Yes | Yes | server-dependent ranges | Basic/bearer/custom | system TLS + secure XML | BRANCH PASS — run #242 |
+| FTP | Yes | Yes | REST/server-dependent | anonymous/user | insecure warning | BRANCH PASS — real server lane #242 |
 | FTPS explicit | Yes | Yes | REST/server-dependent | user | verified TLS + private data channel | PARTIAL — not server-certified |
 | SFTP | No | No | No | No | N/A | NOT IMPLEMENTED |
 

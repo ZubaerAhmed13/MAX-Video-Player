@@ -10,7 +10,7 @@ MX Player Pro is used only as a functionality/workflow reference. This repositor
 
 Step 7 adds real HTTP/HTTPS progressive playback, HLS, DASH, RTSP, SMB2/3, WebDAV, FTP and explicit FTPS integration to the existing single service-owned Media3 player. It includes direct streams, authenticated saved locations, server browsing, stable remote history, network playlists, remote subtitle/audio attachment, adaptive quality, live controls, bounded reconnect, secure credential storage and redacted diagnostics.
 
-The implementation is on `step-7-professional-network-playback` in draft PR #12. Repository status will become PASS only after the exact documentation-complete branch head and the exact resulting `main` head pass debug/unit, release, lint, API-35 full instrumentation, API-26/API-28 regression and the isolated Samba/FTP/RTSP certification lane.
+The exact implementation head `4cb661b978de502b99bef864cc99a53c1540939a` on `step-7-professional-network-playback` passed Android CI run #242, including the isolated Samba/FTP/RTSP certification lane. PR #12 remains pending the documentation-complete exact-head gate and post-merge `main` gate, so repository status is not yet PASS. See `STEP_7_BRANCH_CERTIFICATION.md` for immutable job, test and artifact evidence.
 
 FTPS remains explicitly PARTIAL until a real automated TLS FTP server connection passes. SFTP is not implemented. Physical NAS, weak-network, large remote media, 4K/HDR, long-play, battery, thermal and OEM certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
