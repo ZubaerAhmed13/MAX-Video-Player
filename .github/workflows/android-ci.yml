@@ -149,11 +149,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: |
-            gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace \
-              -Pandroid.testInstrumentationRunnerArguments.class=com.zubaer.maxvideoplayer.playback.Step7ProtocolServerIntegrationTest \
-              -Pandroid.testInstrumentationRunnerArguments.step7ProtocolServers=true \
-              -Pandroid.testInstrumentationRunnerArguments.step7ServerHost=10.0.2.2
+          script: gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace -Pandroid.testInstrumentationRunnerArguments.class=com.zubaer.maxvideoplayer.playback.Step7ProtocolServerIntegrationTest -Pandroid.testInstrumentationRunnerArguments.step7ProtocolServers=true -Pandroid.testInstrumentationRunnerArguments.step7ServerHost=10.0.2.2
       - name: Upload network protocol reports
         if: always()
         uses: actions/upload-artifact@v4

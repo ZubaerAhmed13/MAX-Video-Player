@@ -63,7 +63,9 @@ class Step7AdaptiveStreamingIntegrationTest {
             })
             assertNull("DASH failed: ${connection.state.value.error}", connection.state.value.error)
             assertEquals(NetworkProtocol.DASH, connection.state.value.network.protocol)
-            assertTrue("DASH representations were not exposed as actual Media3 tracks", connection.state.value.videoTracks.mapNotNull { it.height }.toSet().containsAll(setOf(90, 180)))
+            assertTrue("DASH representations were not exposed as actual Media3 tracks", await(5_000L) {
+                connection.state.value.videoTracks.mapNotNull { it.height }.toSet().containsAll(setOf(90, 180))
+            })
 
             instrumentation.runOnMainSync { connection.load(hlsLive, playWhenReady = false) }
             assertTrue("Live HLS did not expose Media3 live state", await(15_000L) {

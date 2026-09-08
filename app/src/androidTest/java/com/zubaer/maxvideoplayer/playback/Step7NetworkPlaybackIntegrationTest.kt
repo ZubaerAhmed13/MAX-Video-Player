@@ -67,7 +67,10 @@ class Step7NetworkPlaybackIntegrationTest {
             assertEquals(media.stableId, connection.state.value.mediaId)
             assertEquals(NetworkProtocol.HTTP, connection.state.value.network.protocol)
             assertTrue(connection.state.value.network.sanitizedUri?.contains("network-password") != true)
-            assertTrue(connection.state.value.network.seekable == true)
+            assertTrue("HTTP seekability was not published from Media3", await(5_000L) {
+                connection.state.value.network.seekable == true || connection.state.value.error != null
+            })
+            assertNull("HTTP media failed while publishing seekability: ${connection.state.value.error}", connection.state.value.error)
 
             val request = server.takeRequest()
             assertEquals("/private/movie.mp4", request.url.encodedPath)

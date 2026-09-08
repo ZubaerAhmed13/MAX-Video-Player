@@ -1,4 +1,4 @@
-# MAX Video Player — Architecture through Step 6
+# MAX Video Player — Architecture through Step 7
 
 ## Clean-room boundary
 
@@ -11,7 +11,9 @@ Playback remains service-owned:
 ```text
 Compose UI
     ↓
-PlayerViewModel / AudioPlaybackController / PlaybackConnection
+Network UI / PlayerViewModel / AudioPlaybackController / PlaybackConnection
+    ↓
+NetworkRepository / protocol client / NetworkDataSourceRouter (for remote media)
     ↓
 MediaController
     ↓
@@ -30,12 +32,12 @@ ProfessionalRenderersFactory
 Android video/audio output
 ```
 
-Steps 1–6 preserve this ownership. Step 6 does not create an Activity-owned player, a second ExoPlayer, or parallel hardware/software players. Embedded/external audio, video and Step-4 subtitles remain on the one authoritative Media3 timeline.
+Steps 1–7 preserve this ownership. Step 7 does not create a protocol-specific player, Activity-owned player, second ExoPlayer or download-before-playback engine. Local/network video, embedded/external audio and Step-4 subtitles remain on the one authoritative Media3 timeline.
 
-## Logical layers through Step 6
+## Logical layers through Step 7
 
 - `core.model` — stable media/domain/playback state and decoder mode catalog
-- `core.database` — Room entities/DAOs/migrations through version 5
+- `core.database` — Room entities/DAOs/migrations through version 6
 - `core.media` — MediaStore, SAF, metadata and URI availability
 - `core.device` — runtime device and decoder capability inventory
 - `playback.engine` — service-owned Media3 engine, source composition, video-decoder renderer policy and custom audio sink
@@ -45,7 +47,73 @@ Steps 1–6 preserve this ownership. Step 6 does not create an Activity-owned pl
 - `feature.subtitle` — Step-4 subtitle engine
 - `feature.audio` — Step-5 audio tracks, external audio, DSP, sync, routing and professional controls
 - `feature.decoder` — Step-6 classification, policy, persistence, runtime diagnostics and Media3 codec selection
+- `feature.network` — Step-7 protocol domain, saved sources, secure credentials, browser, request registry, random-access DataSources and diagnostics
 - `ui` — application theme
+
+# Step-7 professional network architecture
+
+## Source resolution and playback
+
+```text
+Open stream / saved location / network browser / remote history
+  ↓
+NetworkRepository
+  ├─ HttpProtocolClient
+  ├─ WebDavProtocolClient
+  ├─ SmbProtocolClient
+  └─ FtpProtocolClient
+  ↓
+NetworkRequestRegistry (process-only access context)
+  ↓
+NetworkDataSourceRouter
+  ├─ HTTP/HTTPS/WebDAV/HLS/DASH → Media3 OkHttpDataSource
+  ├─ SMB → SmbDataSource → SMBJ random read
+  ├─ FTP/FTPS → FtpDataSource → Commons Net REST stream
+  ├─ RTSP → Media3 RTSP MediaSource
+  └─ local/content/file → existing DefaultDataSource
+  ↓
+ProfessionalMediaSourceFactory
+  ↓
+PlaybackService → MediaSession → Media3PlaybackEngine → ExoPlayer
+```
+
+`ProfessionalMediaSourceFactory` remains the only production source-composition boundary. External audio is merged there, external subtitles remain on the primary MediaItem, and the Step-5 audio sink plus Step-6 renderers/decoder selector remain installed.
+
+## Network domain
+
+`NetworkProtocol`, `NetworkLocation`, `NetworkEntry`, `NetworkPlaybackRequest`, `NetworkFailure` and `NetworkDiagnostics` keep protocol configuration separate from playback state. `NetworkProtocolClient` provides connection test, list, stat and playback-URI behavior for browsable protocols. `NetworkRepository` coordinates saved locations, credentials, request registration, direct streams, history restoration and bounded M3U queues.
+
+## HTTP and adaptive transport
+
+One OkHttp client supplies progressive HTTP/HTTPS, WebDAV GETs, HLS and DASH requests. `RegistryHeaderInterceptor` re-resolves access context for every request so credentials apply only to the registered scheme/origin/directory. Media3 handles HTTP ranges, HLS/DASH manifests, adaptive tracks and RTSP media sources. The application quality UI reads actual Media3 track groups and applies/removes `TrackSelectionOverride`.
+
+## Random-access SMB and FTP
+
+`SmbDataSource` opens a remote file and reads at a `Long` byte position in calls capped at 1 MiB. Reconnect reopens the same file and continues at that position. SMBJ is restricted to SMB2/3 dialects with signing enabled.
+
+`FtpDataSource` opens a binary transfer with `restartOffset` at the current `Long` position. Reconnect checks that the server-reported size did not change and restarts from the current position. Both sources cap reconnect at three attempts with bounded backoff and never materialize the full file.
+
+## Saved locations and secure credentials
+
+Room v6 adds `network_locations`; it stores protocol, host, port, root, non-secret preferences, username hint and an opaque credential reference. `CredentialVault` stores the actual secret as AES/GCM ciphertext under an Android Keystore key. Delete/forget operations remove a vault record only after its final reference is gone.
+
+Direct/saved remote media retains a stable source/path or canonical URL identity independent of signed query-token refresh. Playback history persists only a sanitized canonical URI, never the credential-bearing request context.
+
+## Browser and bounded parsing
+
+SMB, WebDAV and FTP/FTPS lists run on `Dispatchers.IO`. Entries carry source ID plus root-relative path and are sorted folders-first. WebDAV PROPFIND XML is limited to 4 MiB, parsed without DTD/entity expansion, and every resolved href must remain on the saved origin below the root. M3U reads are limited to 2 MiB and 1,000 non-recursive entries. Network subtitle reads are capped at 16 MiB.
+
+## Diagnostics and recovery
+
+`NetworkDiagnosticsMonitor` observes connectivity and the authoritative Media3 player. It reports protocol, host, sanitized URI, connection/phase, transport, metering, seekability, buffer, estimated bandwidth, response status and bounded retry events. Player UI phases distinguish initial loading, buffering, reconnecting, paused and failed. Error mapping covers network loss, DNS/timeout/TLS/auth, common HTTP statuses, unsupported ranges and server rejection.
+
+## Network security boundary
+
+Credentials are forbidden in URL userinfo. TLS uses the Android system trust store and normal hostname verification; no trust-all code exists. WebDAV is HTTPS-only. HTTP/FTP cleartext paths show explicit warnings. Authorization never follows to an unrelated origin. See `STEP_7_PROTOCOL_SECURITY.md` for protocol-specific policy and limitations.
+
+## Room v6 migration
+
+`MIGRATION_5_6` creates the network-location table without changing or dropping prior data. Migration instrumentation starts from v5, preserves Steps 1–6 rows and then exercises the new table. Destructive fallback is not configured.
 
 # Step-6 professional decoder architecture
 
@@ -147,7 +215,7 @@ The UI therefore cannot claim Software or Hardware merely because the user tappe
 
 `DeviceCapabilityProvider.collectDecoderProfile()` produces an immutable codec inventory. `PlayerViewModel` loads it on `Dispatchers.Default`, not during Compose recomposition or the Step-5 realtime audio callback. The Decoder dialog exposes an advanced per-codec panel and an explicit off-main-thread manual refresh.
 
-## Room v5 and decoder persistence
+## Room v5 decoder persistence — preserved through v6
 
 Step 6 advances Room from v4 to v5.
 
@@ -223,6 +291,8 @@ Videos/folders/Continue Watching/Recent/History/Favourites/Playlists, search/sor
 Service-owned playback, MediaSession background foundation, resume/history, URI-based media, long-safe values and device capability foundation remain authoritative.
 
 # Verification architecture
+
+Step-7 certification adds authenticated progressive/range/redirect tests, HLS VOD/live and adaptive-quality fixtures, multi-representation DASH, secure WebDAV PROPFIND/XXE/root tests, credential-vault lifecycle tests, Room v5→v6 migration, and an isolated API-35 Samba/FTP/RTSP server lane. The protocol lane verifies Unicode listing, wrong-password failure, exact ranged bytes, >3 GB sparse offsets and actual service-owned Media3 playback. All Step-1–6 lanes remain required.
 
 Step-6 software/emulator certification adds:
 

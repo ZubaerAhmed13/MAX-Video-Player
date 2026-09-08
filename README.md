@@ -6,22 +6,13 @@ MX Player Pro is used only as a functionality/workflow reference. This repositor
 
 ## Current development status
 
-**Step 6 of 10 — Professional Decoder Engine: PASS**
+**Step 7 of 10 — Professional Network Playback and Sources: certification pending**
 
-Step 6 extends the existing service-owned Media3 player with real, materially distinct video decoder policies:
+Step 7 adds real HTTP/HTTPS progressive playback, HLS, DASH, RTSP, SMB2/3, WebDAV, FTP and explicit FTPS integration to the existing single service-owned Media3 player. It includes direct streams, authenticated saved locations, server browsing, stable remote history, network playlists, remote subtitle/audio attachment, adaptive quality, live controls, bounded reconnect, secure credential storage and redacted diagnostics.
 
-- **Auto** — hardware-first, with controlled compatible fallback across available backends
-- **Hardware** — strict preferred hardware decoder only
-- **Enhanced Hardware** — hardware-only multi-candidate fallback
-- **Software** — software-only platform decoder candidates, with truthful unavailable state when none exists
+The implementation is on `step-7-professional-network-playback` in draft PR #12. Repository status will become PASS only after the exact documentation-complete branch head and the exact resulting `main` head pass debug/unit, release, lint, API-35 full instrumentation, API-26/API-28 regression and the isolated Samba/FTP/RTSP certification lane.
 
-The requested mode and the decoder that actually initializes are tracked separately. Step 6 does not add a second ExoPlayer, fake decoder labels, an Activity-owned playback engine, a proprietary decoder pack or a bundled FFmpeg/native video decoder.
-
-The original Step-6 implementation passed its exact pre-merge gate on branch head `c463ecf526b359833053ac505ebc68598e435b12` in Android CI run #216. PR #9 merged that exact head, and the resulting `main` merge commit `b47c4315cb895269a14a1ef8dc71696423f8fdc0` passed post-merge run #218.
-
-A later Step-6 coexistence hardening closed the remaining cross-step certification gaps without starting Step 7. Exact hardening implementation head `1249363cdd9f5843c85dca399650db9a457a192d` passed run #223 with **41 API-35 tests, 0 failures, 0 errors and 0 skipped**. Exact documentation-complete hardening head `4a7c1e351dab7e5dc1e6d1acd4e1954cec3ceee8` passed run #225, PR #10 merged that exact head, and resulting exact `main` merge commit `4921f43deae9c1b3ff221071a30cc1dab26efa0b` passed the complete post-merge matrix in run #226: debug/JVM, release compilation, lint, API-35 full instrumentation, API-26 regression and API-28 regression.
-
-Physical 3 GB+/4K/HDR/device-matrix, Snapdragon/Exynos/MediaTek/Tensor behavior, OEM codec quirks, battery and thermal certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
+FTPS remains explicitly PARTIAL until a real automated TLS FTP server connection passes. SFTP is not implemented. Physical NAS, weak-network, large remote media, 4K/HDR, long-play, battery, thermal and OEM certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
 ## Platform baseline
 
@@ -30,7 +21,7 @@ Physical 3 GB+/4K/HDR/device-matrix, Snapdragon/Exynos/MediaTek/Tensor behavior,
 - AndroidX
 - Media3 / ExoPlayer 1.11.0
 - MediaSession + MediaSessionService
-- Room 2.8.4, schema version 5
+- Room 2.8.4, schema version 6
 - Coroutines + Flow / StateFlow
 - minSdk 23
 - targetSdk 36
@@ -40,6 +31,18 @@ Physical 3 GB+/4K/HDR/device-matrix, Snapdragon/Exynos/MediaTek/Tensor behavior,
 - Gradle 9.6.0
 
 This is a fully native Android application. It does not use WebView, Capacitor, Cordova, React Native, Flutter or TWA as its application architecture.
+
+## Step-7 professional network playback
+
+Network sources flow through `NetworkRepository`, protocol-specific clients and `NetworkDataSourceRouter` into the existing `ProfessionalMediaSourceFactory`, `PlaybackService`, MediaSession and ExoPlayer. SMB and FTP use bounded random-access DataSources; HTTP/WebDAV/HLS/DASH use the shared OkHttp-backed Media3 path; RTSP uses Media3's RTSP module. No normal protocol path copies a full movie before playback.
+
+The Network center supports saved server add/edit/test/browse/remove/forget flows, recent remote history, breadcrumbs, search, refresh and folders-first listings. Direct HTTP requires an explicit cleartext warning acknowledgement. Plain FTP credentials require the same. WebDAV is HTTPS-only.
+
+Credentials are AES/GCM encrypted with an Android Keystore key. Room stores only an opaque reference and username hint. Authorization is scoped by origin and directory; cross-host redirects do not receive it. Diagnostics redact userinfo and sensitive query/header values. WebDAV XML rejects DTD/XXE and off-root entries.
+
+Adaptive controls are real Media3 track overrides. The UI reports live state and Go Live from Media3, and buffering diagnostics distinguish initial loading, buffering, reconnecting and failure. Network subtitles and external audio remain on the Step-4/5 source-composition path, while network video uses the Step-6 decoder policy without a second player.
+
+See `STEP_7_COMPLETION_REPORT.md`, `STEP_7_TEST_MATRIX.md` and `STEP_7_PROTOCOL_SECURITY.md` for the exact protocol matrix, certification evidence and limitations.
 
 ## Step-6 professional decoder engine
 
@@ -248,7 +251,7 @@ No `Assume`/skip is used to convert a missing emulator backend into a decoder-mo
 
 ## Documentation
 
-Canonical documents through Step 6:
+Canonical documents through Step 7:
 
 - `README.md`
 - `ARCHITECTURE.md`
@@ -257,6 +260,9 @@ Canonical documents through Step 6:
 
 Step-specific evidence:
 
+- `STEP_7_COMPLETION_REPORT.md`
+- `STEP_7_TEST_MATRIX.md`
+- `STEP_7_PROTOCOL_SECURITY.md`
 - `STEP_6_ARCHITECTURE.md`
 - `STEP_6_DEPENDENCIES.md`
 - `STEP_6_TEST_MATRIX.md`
@@ -269,9 +275,7 @@ Step-specific evidence:
 
 ## Roadmap boundary
 
-Step 6 is complete. Step 7 has **not** been started by the Step-6 work or its certification/finalization commits.
-
-A future bundled native software-video decoder would require a separate explicit dependency/license/ABI review. Step 6 deliberately does not claim one exists.
+Step 7 stops at professional network playback and sources. It does not add cloud-provider OAuth, casting/DLNA, final Android TV/USB workflows, a private vault, sleep timer, child mode or Step-10 physical certification.
 
 ## Contribution principle
 
