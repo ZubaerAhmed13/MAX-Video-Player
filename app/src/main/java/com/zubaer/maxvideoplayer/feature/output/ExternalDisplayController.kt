@@ -5,7 +5,9 @@ import android.app.Presentation
 import android.hardware.display.DisplayManager
 import android.os.Bundle
 import android.view.Display
+import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import androidx.media3.common.DeviceInfo
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -35,7 +37,8 @@ data class OutputDeviceUiState(
 /**
  * Activity-owned external-display router. It never creates a second playback engine. The
  * Presentation's PlayerView is attached to the same service-owned MediaController exposed by
- * PlaybackConnection; when external output is active the phone PlayerView must detach.
+ * PlaybackConnection. While external output owns the renderer, PlayerViews in the Activity window
+ * are actively kept detached so Compose recomposition cannot steal the video surface back.
  */
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class ExternalDisplayController(
@@ -49,14 +52,16 @@ class ExternalDisplayController(
     private var presentation: VideoPresentation? = null
     private var boundPlayer: Player? = null
     private var started = false
+    private var phoneSurfaceGuard: ViewTreeObserver.OnPreDrawListener? = null
 
     private val playerListener = object : Player.Listener {
         override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
             if (deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
-                dismissPresentation()
+                dismissPresentation(updateState = false, reattachPhone = false)
                 _state.value = _state.value.copy(active = OutputDeviceState.Cast(), error = null)
             } else if (_state.value.active is OutputDeviceState.Cast) {
                 _state.value = _state.value.copy(active = OutputDeviceState.Local, error = null)
+                restorePhonePlayerViews()
             }
         }
     }
@@ -73,7 +78,8 @@ class ExternalDisplayController(
         if (!started) return
         started = false
         displayManager?.unregisterDisplayListener(this)
-        dismissPresentation()
+        dismissPresentation(updateState = false, reattachPhone = false)
+        removePhoneSurfaceGuard(reattachPhone = false)
         boundPlayer?.removeListener(playerListener)
         boundPlayer = null
         _state.value = OutputDeviceUiState()
@@ -87,10 +93,11 @@ class ExternalDisplayController(
         boundPlayer = next
         next?.addListener(playerListener)
         if (next?.deviceInfo?.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
-            dismissPresentation()
+            dismissPresentation(updateState = false, reattachPhone = false)
             _state.value = _state.value.copy(active = OutputDeviceState.Cast(), error = null)
         } else if (_state.value.active is OutputDeviceState.Cast) {
             _state.value = _state.value.copy(active = OutputDeviceState.Local, error = null)
+            restorePhonePlayerViews()
         }
     }
 
@@ -114,25 +121,31 @@ class ExternalDisplayController(
             refreshDisplays()
             return false
         }
-        dismissPresentation(updateState = false)
+
+        dismissPresentation(updateState = false, reattachPhone = false)
         val info = ExternalDisplayInfo(display.displayId, display.name)
         return runCatching {
-            VideoPresentation(activity, display, player).also {
-                presentation = it
-                it.setOnDismissListener {
-                    if (presentation === it) {
+            installPhoneSurfaceGuard()
+            VideoPresentation(activity, display, player).also { externalPresentation ->
+                presentation = externalPresentation
+                externalPresentation.setOnDismissListener {
+                    if (presentation === externalPresentation) {
                         presentation = null
+                        removePhoneSurfaceGuard(
+                            reattachPhone = boundPlayer?.deviceInfo?.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE,
+                        )
                         if (_state.value.active is OutputDeviceState.External) {
                             _state.value = _state.value.copy(active = OutputDeviceState.Local, error = null)
                         }
                     }
                 }
-                it.show()
+                externalPresentation.show()
             }
             _state.value = _state.value.copy(active = OutputDeviceState.External(info), error = null)
             true
         }.getOrElse { error ->
             presentation = null
+            removePhoneSurfaceGuard(reattachPhone = true)
             _state.value = _state.value.copy(
                 active = OutputDeviceState.Local,
                 error = error.message ?: "External display could not be opened.",
@@ -142,7 +155,7 @@ class ExternalDisplayController(
     }
 
     fun returnToPhone() {
-        dismissPresentation()
+        dismissPresentation(updateState = false, reattachPhone = true)
         _state.value = _state.value.copy(active = OutputDeviceState.Local, error = null)
     }
 
@@ -157,7 +170,7 @@ class ExternalDisplayController(
     override fun onDisplayRemoved(displayId: Int) {
         val active = _state.value.active
         if (active is OutputDeviceState.External && active.display.displayId == displayId) {
-            dismissPresentation(updateState = false)
+            dismissPresentation(updateState = false, reattachPhone = true)
             _state.value = _state.value.copy(
                 active = OutputDeviceState.Local,
                 error = "External display disconnected. Video returned to the phone.",
@@ -182,10 +195,64 @@ class ExternalDisplayController(
             ?.filter { display -> display.displayId != Display.DEFAULT_DISPLAY && display.isValid }
             .orEmpty()
 
-    private fun dismissPresentation(updateState: Boolean = true) {
+    /**
+     * Compose's AndroidView update block may run while the Presentation is active. Guard the
+     * Activity window every frame so any phone PlayerView that gets reattached is immediately
+     * detached before drawing. The Presentation lives in a different window and is unaffected.
+     */
+    private fun installPhoneSurfaceGuard() {
+        val root = activity.window.decorView
+        detachPlayerViews(root)
+        if (phoneSurfaceGuard != null) return
+        val listener = ViewTreeObserver.OnPreDrawListener {
+            if (_state.value.active is OutputDeviceState.External || presentation != null) {
+                detachPlayerViews(activity.window.decorView)
+            }
+            true
+        }
+        phoneSurfaceGuard = listener
+        root.viewTreeObserver.addOnPreDrawListener(listener)
+    }
+
+    private fun removePhoneSurfaceGuard(reattachPhone: Boolean) {
+        val root = activity.window.decorView
+        phoneSurfaceGuard?.let { listener ->
+            if (root.viewTreeObserver.isAlive) {
+                root.viewTreeObserver.removeOnPreDrawListener(listener)
+            }
+        }
+        phoneSurfaceGuard = null
+        if (reattachPhone) restorePhonePlayerViews()
+    }
+
+    private fun restorePhonePlayerViews() {
+        val player = boundPlayer ?: return
+        if (player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) return
+        attachPlayerViews(activity.window.decorView, player)
+    }
+
+    private fun detachPlayerViews(view: View) {
+        when (view) {
+            is PlayerView -> if (view.player != null) view.player = null
+            is ViewGroup -> for (index in 0 until view.childCount) detachPlayerViews(view.getChildAt(index))
+        }
+    }
+
+    private fun attachPlayerViews(view: View, player: Player) {
+        when (view) {
+            is PlayerView -> if (view.player !== player) view.player = player
+            is ViewGroup -> for (index in 0 until view.childCount) attachPlayerViews(view.getChildAt(index), player)
+        }
+    }
+
+    private fun dismissPresentation(
+        updateState: Boolean = true,
+        reattachPhone: Boolean = true,
+    ) {
         val current = presentation
         presentation = null
         if (current != null) runCatching { current.dismiss() }
+        removePhoneSurfaceGuard(reattachPhone = reattachPhone)
         if (updateState && _state.value.active is OutputDeviceState.External) {
             _state.value = _state.value.copy(active = OutputDeviceState.Local)
         }
