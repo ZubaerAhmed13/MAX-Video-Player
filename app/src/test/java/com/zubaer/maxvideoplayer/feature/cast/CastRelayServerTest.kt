@@ -5,17 +5,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.InetAddress
-import java.net.Socket
 import java.net.URI
 
 class CastRelayServerTest {
     @Test
     fun getAndHeadExposeOnlyActiveResource() {
-        withRelay { server, endpoint ->
+        withRelay { _, endpoint ->
             open(endpoint.uri).use { connection ->
                 assertEquals(200, connection.responseCode)
                 assertEquals("video/mp4", connection.contentType)
@@ -26,7 +24,7 @@ class CastRelayServerTest {
             open(endpoint.uri, method = "HEAD").use { connection ->
                 assertEquals(200, connection.responseCode)
                 assertEquals(VIRTUAL_LENGTH, connection.contentLengthLong)
-                assertEquals(0, connection.inputStream.read())
+                assertEquals(-1, connection.inputStream.read())
             }
             val root = URI("http://${endpoint.uri.host}:${endpoint.uri.port}/")
             open(root).use { connection -> assertEquals(403, connection.responseCode) }
