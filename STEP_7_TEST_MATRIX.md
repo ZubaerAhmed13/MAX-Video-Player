@@ -42,7 +42,7 @@ The fixtures are repository-owned two-second synthetic media served by in-proces
 - Samba 4.19.5 from Ubuntu 24.04, configured on a non-default test port with SMB2 minimum, SMB3 maximum and mandatory signing
 - pyftpdlib 1.5.9 with a dedicated test account and passive/binary transfer
 - MediaMTX 1.21.0 pinned to image digest `sha256:19fddade8d6110a3d718ac0045681fbeba344ae563a066205fe5929a87f7582f`
-- FFmpeg 6.1.1 publishing the synthetic repository fixture to RTSP over TCP
+- FFmpeg 6.1.1 publishing continuous deterministic lavfi H.264/AAC sources to RTSP over TCP
 
 The emulator reaches only the isolated runner host. Assertions cover:
 
