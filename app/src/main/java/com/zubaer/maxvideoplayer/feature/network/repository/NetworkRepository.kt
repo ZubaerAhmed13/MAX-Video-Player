@@ -125,7 +125,9 @@ class NetworkRepository(
                 it.host.equals(uri.host, true) && it.port == (uri.port.takeIf { port -> port > 0 } ?: it.protocol.defaultPort) &&
                     it.protocol in setOf(NetworkProtocol.FTP, NetworkProtocol.FTPS)
             }
-            "http", "https" -> candidates.filter { it.protocol == NetworkProtocol.WEBDAV || it.protocol == NetworkProtocol.HTTP || it.protocol == NetworkProtocol.HTTPS }
+            "http", "https" -> candidates.filter {
+                it.protocol in setOf(NetworkProtocol.WEBDAV, NetworkProtocol.WEBDAV_HTTP, NetworkProtocol.HTTP, NetworkProtocol.HTTPS)
+            }
                 .filter { it.host.equals(uri.host, true) }
                 .maxByOrNull { it.basePath.length }
             else -> null
@@ -183,7 +185,7 @@ class NetworkRepository(
 
     private fun client(protocol: NetworkProtocol): NetworkProtocolClient = when (protocol) {
         NetworkProtocol.SMB -> smb
-        NetworkProtocol.WEBDAV -> webDav
+        NetworkProtocol.WEBDAV, NetworkProtocol.WEBDAV_HTTP -> webDav
         NetworkProtocol.FTP, NetworkProtocol.FTPS -> ftp
         NetworkProtocol.HTTP, NetworkProtocol.HTTPS, NetworkProtocol.HLS, NetworkProtocol.DASH, NetworkProtocol.RTSP -> http
     }

@@ -1,0 +1,16 @@
+rtspTransports: [tcp]
+
+authMethod: internal
+authInternalUsers:
+  - user: maxci
+    pass: max-network-ci
+    ips: []
+    permissions:
+      - action: publish
+        path: step7
+      - action: read
+        path: step7
+
+paths:
+  step7:
+    source: publisher

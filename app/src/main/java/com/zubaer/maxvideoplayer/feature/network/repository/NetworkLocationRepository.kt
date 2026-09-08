@@ -61,7 +61,7 @@ class NetworkLocationRepository(
 
     private fun NetworkLocation.toEntity() = NetworkLocationEntity(
         id, displayName, protocol.name, host, port, basePath, credentialRef, usernameHint,
-        useGuest, ftpPassiveMode, ftpSecurityAcknowledged, createdAtMs, updatedAtMs, lastConnectedAtMs,
+        useGuest, ftpPassiveMode, cleartextSecurityAcknowledged, createdAtMs, updatedAtMs, lastConnectedAtMs,
     )
 
     private fun NetworkLocationEntity.toModel() = NetworkLocation(
@@ -75,7 +75,7 @@ class NetworkLocationRepository(
         usernameHint = usernameHint,
         useGuest = useGuest,
         ftpPassiveMode = ftpPassiveMode,
-        ftpSecurityAcknowledged = ftpSecurityAcknowledged,
+        cleartextSecurityAcknowledged = ftpSecurityAcknowledged,
         createdAtMs = createdAtMs,
         updatedAtMs = updatedAtMs,
         lastConnectedAtMs = lastConnectedAtMs,

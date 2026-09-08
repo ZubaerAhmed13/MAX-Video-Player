@@ -33,7 +33,7 @@ class Step7NetworkUiInstrumentedTest {
     }
 
     @Test
-    fun ftpEditorDisplaysTheInsecureTransportWarning() {
+    fun ftpEditorDisplaysTheCleartextWarning() {
         composeRule.setContent {
             MaterialTheme {
                 LocationEditor(
@@ -45,6 +45,22 @@ class Step7NetworkUiInstrumentedTest {
         composeRule.onNodeWithText("FTP does not encrypt your password or media traffic. Prefer FTPS, WebDAV over HTTPS, SMB3, or HTTPS.")
             .performScrollTo()
             .assertExists()
-        composeRule.onNodeWithText("I understand the FTP security risk").assertExists()
+        composeRule.onNodeWithText("I understand the cleartext security risk").assertExists()
+    }
+
+    @Test
+    fun savedWebDavHttpRequiresExplicitAcknowledgement() {
+        composeRule.setContent {
+            MaterialTheme {
+                LocationEditor(
+                    draft = NetworkLocationDraft(displayName = "WebDAV HTTP", protocol = NetworkProtocol.WEBDAV_HTTP, host = "dav.example.test", port = "80"),
+                    onDraft = {}, onTest = {}, onSave = {}, onCancel = {},
+                )
+            }
+        }
+        composeRule.onNodeWithText("HTTP does not encrypt your password or media traffic. Prefer FTPS, WebDAV over HTTPS, SMB3, or HTTPS.")
+            .performScrollTo()
+            .assertExists()
+        composeRule.onNodeWithText("Save").performScrollTo().assertIsNotEnabled()
     }
 }

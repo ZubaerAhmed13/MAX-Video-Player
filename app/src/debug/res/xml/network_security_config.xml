@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Release builds trust only the Android system store. Debug additionally trusts the
+         deterministic CA used by the isolated explicit-FTPS integration server. -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/step7_ftps_test_ca" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
