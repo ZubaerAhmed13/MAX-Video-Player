@@ -14,7 +14,12 @@ import org.json.JSONObject
 class DropboxClient(
     override val accountId: String,
     private val tokenProvider: CloudAccessTokenProvider,
+    apiBase: String = PRODUCTION_API,
+    contentBase: String = PRODUCTION_CONTENT,
 ) : CloudProviderClient {
+    private val api = apiBase.trimEnd('/')
+    private val content = contentBase.trimEnd('/')
+
     override suspend fun browse(parentId: String?, pageToken: String?, pageSize: Int): CloudPage {
         if (!pageToken.isNullOrBlank()) {
             return rpc("/2/files/list_folder/continue", JSONObject().put("cursor", pageToken)) { parseListFolder(it) }
@@ -65,7 +70,7 @@ class DropboxClient(
         val token = tokenProvider.accessToken(forceRefresh)
         return CloudPlaybackResource(
             identity = identity,
-            uri = Uri.parse("$CONTENT/2/files/download"),
+            uri = Uri.parse("$content/2/files/download"),
             mimeType = entry.mimeType,
             sizeBytes = entry.sizeBytes,
             revision = entry.revision,
@@ -80,7 +85,7 @@ class DropboxClient(
     private suspend fun <T> rpc(path: String, body: JSONObject, parse: (JSONObject) -> T): T {
         suspend fun execute(token: String): okhttp3.Response {
             val request = Request.Builder()
-                .url(API + path)
+                .url(api + path)
                 .header("Authorization", "Bearer $token")
                 .header("Content-Type", "application/json")
                 .post(body.toString().toRequestBody(JSON))
@@ -143,8 +148,8 @@ class DropboxClient(
     }
 
     private companion object {
-        const val API = "https://api.dropboxapi.com"
-        const val CONTENT = "https://content.dropboxapi.com"
+        const val PRODUCTION_API = "https://api.dropboxapi.com"
+        const val PRODUCTION_CONTENT = "https://content.dropboxapi.com"
         val JSON = "application/json; charset=utf-8".toMediaType()
     }
 }
