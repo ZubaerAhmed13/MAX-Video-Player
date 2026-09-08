@@ -27,7 +27,7 @@ MAX Video Player remains a clean-room native Android application. Step 7 adds na
 - **SMBJ 0.14.0** is pure Java and is limited to SMB 2.0.2 through 3.1.1. SMB1 is excluded. Signing is enabled; server/share-required SMB3 encryption is honored.
 - **Apache Commons Net 3.13.0** supplies FTP and explicit FTPS. Binary mode is mandatory. FTPS enables endpoint checking and a private data channel.
 - **No full-file download library or network cache was added.** SMB/FTP media is read by custom bounded random-access DataSources, and HTTP-family media streams through Media3.
-- **No trust-all certificate helper was added.** HTTPS/WebDAV/FTPS use platform validation.
+- **No trust-all certificate helper was added.** HTTPS/WebDAV/FTPS use platform validation. The deterministic FTPS CA is referenced only by the debug resource overlay; release trust remains system-only.
 - **No SFTP dependency was added.** SFTP remains NOT IMPLEMENTED rather than being mislabeled as FTP.
 - **No native protocol library or ABI payload was added.** APK networking remains Java/Kotlin.
 - **No cloud, casting, discovery or provider SDK was added.** Those are outside Step 7.
@@ -39,8 +39,8 @@ These are not runtime or APK dependencies:
 | Tool | Exact tested version/source | CI purpose | License family |
 |---|---|---|---|
 | Samba | 4.19.5 Ubuntu 24.04 package | isolated authenticated SMB2/3 listing, random-read and playback server | GPLv3 (CI only) |
-| pyftpdlib | 1.5.9 Ubuntu 24.04 package | isolated authenticated FTP server with REST support | MIT |
-| MediaMTX | 1.21.0, pinned container digest `sha256:19fddade8d6110a3d718ac0045681fbeba344ae563a066205fe5929a87f7582f` | isolated RTSP server | MIT |
+| pyftpdlib + PyOpenSSL | 1.5.9 / Ubuntu package | isolated authenticated FTP and TLS-required explicit-FTPS servers with REST support | MIT / Apache 2.0 |
+| MediaMTX | 1.21.0, pinned container digest `sha256:19fddade8d6110a3d718ac0045681fbeba344ae563a066205fe5929a87f7582f` | isolated authenticated RTSP server | MIT |
 | FFmpeg | 6.1.1 Ubuntu 24.04 package | publish repository-owned H.264/AAC fixture to the isolated RTSP server | Ubuntu GPL-enabled build; CI only |
 
 MockWebServer runs in the instrumentation process; none of the protocol tests depends on a public media server or personal NAS.

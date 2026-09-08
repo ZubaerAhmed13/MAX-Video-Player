@@ -16,6 +16,9 @@ Implementation and certification are complete for the declared software/emulator
 - Documentation-complete certification: Android CI run #243 / workflow `34241083327` — PASS
 - Merge SHA / certified implementation `main`: `9d271c4786236577e009f63d65ad7435b31c015b`
 - Post-merge certification: Android CI run #244 / workflow `34242218019` — PASS
+- Review-gap implementation SHA: `3addcee62754afb61479415d67e8e654cf171e16`
+- Review-gap implementation verification: Android CI run #248 / workflow `34251887641` — every build/test/protocol step PASS; workflow conclusion affected only by a retried immutable artifact-name collision
+- Review-gap pull request: #14
 
 ## Steps 1–6 regression
 
@@ -49,7 +52,7 @@ All local, HTTP-family, RTSP, SMB, WebDAV and FTP-family media feed the same ser
 - Android system trust and hostname verification for TLS
 - structured 401/403/404/416/429/5xx and timeout/TLS error mapping
 
-Cleartext HTTP is available only through a warning-and-acknowledgement direct URL flow. Saved server creation excludes HTTP.
+Cleartext HTTP is available through direct and saved HTTP/WebDAV-HTTP flows only after an explicit warning acknowledgement. Saved consent is persisted with the non-secret location configuration; credentials continue to use the Keystore-backed vault.
 
 ## HLS
 
@@ -61,7 +64,7 @@ Media3 DASH handles MPDs on the same player. The deterministic static fixture co
 
 ## RTSP
 
-The Media3 RTSP module is included and direct RTSP uses `RtspMediaSource.Factory` on the single player. RTP-over-RTSP/TCP is explicitly selected for NAT and TCP-only server compatibility, with a 15-second inactivity/end-of-stream timeout. The isolated CI server publishes a real H.264/AAC stream over TCP and the test requires Media3 READY plus controller-visible `isPlaying`. UDP-only servers are not claimed. URL userinfo is rejected, so authenticated RTSP is not claimed when doing so would place a password in the MediaItem URI.
+The Media3 RTSP module is included and direct RTSP uses `RtspMediaSource.Factory` on the single player. RTP-over-RTSP/TCP is explicitly selected for NAT and TCP-only server compatibility, with a 15-second inactivity/end-of-stream timeout. BASIC/DIGEST credentials entered separately are resolved from process-local state and injected into the private RTSP source URI required by Media3. A wrapping source replaces every public timeline window with the original credential-free MediaItem; Room, history, MediaSession controllers and logs never receive the private URI. The authenticated isolated CI server publishes a real H.264/AAC stream and the test requires READY, `isPlaying`, and the exact credential-free controller-visible URI. UDP-only servers are not claimed.
 
 ## SMB
 
@@ -69,13 +72,13 @@ SMBJ 0.14.0 provides real SMB 2.0.2/2.1/3.0/3.0.2/3.1.1 support; SMB1 is not off
 
 ## WebDAV
 
-WebDAV locations are HTTPS-only. OkHttp sends authenticated PROPFIND requests with Depth 0/1. Responses are capped at 4 MiB and parsed by a DTD-disabled pull parser. Same-origin/root confinement prevents malicious href traversal. Entries sort folders first and play through the normal HTTPS OkHttp Media3 path, including server-dependent range support.
+WebDAV supports HTTPS by default and explicitly acknowledged HTTP for LAN servers. OkHttp sends authenticated PROPFIND requests with Depth 0/1. Declared and unknown-length responses are capped at 4 MiB during streaming, before oversized allocation, then parsed by a DTD-disabled pull parser. Same-origin/root confinement prevents malicious href traversal. Entries sort folders first and play through the shared OkHttp Media3 path, including server-dependent range support.
 
 ## FTP / FTPS
 
 Apache Commons Net 3.13.0 provides directory listing, login, passive/active selection, binary transfers and restart-offset streaming. `FtpDataSource` checks remote size across reconnects and retries at most three times. Plain FTP credentials require explicit acknowledgement.
 
-Explicit FTPS enables endpoint checking, `PBSZ 0` and protected data channel `PROT P`. Its implementation is present but status remains **PARTIAL** because a real automated TLS FTP connection is not in the final candidate matrix. Implicit FTPS and SFTP are not claimed.
+Explicit FTPS enables endpoint checking, `PBSZ 0` and protected data channel `PROT P`. Run #248 certifies authenticated browse, Unicode listing, wrong-password rejection, exact random access, a >3 GB sparse offset and production playback against a real server that requires TLS on both control and data channels. The deterministic CA is debug-only; release builds retain Android system trust. Implicit FTPS and SFTP are not claimed.
 
 ## Credentials
 
@@ -119,7 +122,7 @@ Network AVC reaches the same `ProfessionalRenderersFactory` and `ProfessionalMed
 
 ## Security
 
-See `STEP_7_PROTOCOL_SECURITY.md`. Automated checks cover URL/query/header redaction, credential encryption/lifecycle, credential-URL rejection, cross-origin redirect isolation, FTP warnings, DTD/XXE rejection, WebDAV origin/root confinement and remote-path traversal. TLS verification is never disabled in production.
+See `STEP_7_PROTOCOL_SECURITY.md`. Automated checks cover URL/query/header redaction, credential encryption/lifecycle, credential-URL rejection, cross-origin redirect isolation, cleartext-consent gates, RTSP timeline masking, WebDAV allocation bounds, DTD/XXE rejection, origin/root confinement and remote-path traversal. TLS verification is never disabled in production.
 
 ## Tests and CI
 
@@ -131,9 +134,9 @@ See `STEP_7_TEST_MATRIX.md`. The final gate consists of:
 - complete API-35 instrumentation
 - API-26 thumbnail regression
 - API-28 thumbnail regression
-- isolated API-35 Samba/FTP/RTSP protocol certification
+- isolated API-35 Samba/FTP/explicit-FTPS/authenticated-RTSP protocol certification
 
-The implementation head passed run #242 (`34239231820`), the documentation-complete head passed run #243 (`34241083327`), and exact merged `main` passed run #244 (`34242218019`). Each run passed build/JVM tests, release, lint, API-35, API-26, API-28 and the real Samba/FTP/RTSP lane. Run #242 archived API-35 59/59, API-26 2/2, API-28 2/2 and protocol 1/1. Exact job IDs, artifact IDs and digests are recorded in `STEP_7_BRANCH_CERTIFICATION.md` and `STEP_7_FINAL_CERTIFICATION.md`.
+The original implementation, documentation and merge heads passed runs #242–#244. Review-gap implementation head `3addcee62754afb61479415d67e8e654cf171e16` passed debug/JVM, release, lint, complete API-35, API-26, API-28 and the expanded real-protocol test steps in run #248 (`34251887641`). A repeated API-26 upload collided with an immutable artifact name, so report names now include `github.run_attempt`; no verification step was skipped. Exact-head closure is recorded in GitHub history and the final handoff.
 
 ## Dependencies
 
@@ -141,10 +144,9 @@ Runtime additions are OkHttp 5.1.0, Media3 DataSource OkHttp 1.11.0, SMBJ 0.14.0
 
 ## Known software limitations
 
-- FTPS is implemented but not fully certified; status is PARTIAL.
 - SFTP is NOT IMPLEMENTED.
-- Authenticated RTSP is not claimed because credentials are forbidden in persisted/playback URLs.
-- WebDAV is HTTPS-only and has no insecure-certificate bypass.
+- RTSP over TLS (`rtsps`) and UDP-only server certification are not claimed.
+- WebDAV HTTPS has no insecure-certificate bypass; WebDAV HTTP is intentionally cleartext and acknowledgement-gated.
 - HTTP and FTP are intentionally labeled insecure and gated by explicit acknowledgement.
 - SMB transport encryption is server/share dependent; signing is always enabled.
 - Network M3U expansion is currently limited to HTTP/WebDAV M3U files.
@@ -160,11 +162,12 @@ Runtime additions are OkHttp 5.1.0, Media3 DataSource OkHttp 1.11.0, SMBJ 0.14.0
 | HTTPS | N/A | Yes | server-dependent ranges | Basic/bearer/custom | system TLS | PASS |
 | HLS | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | PASS |
 | DASH | N/A | Yes | stream-dependent | scoped HTTP headers | transport-dependent | PASS |
-| RTSP | N/A | Yes | server-dependent | unauthenticated in Step 7 | RTP-over-RTSP/TCP | PASS |
+| RTSP | N/A | Yes | server-dependent | BASIC/DIGEST | RTP-over-RTSP/TCP; private credential URI masked from public timeline | PASS |
 | SMB2/3 | Yes | Yes | Yes | guest/anonymous/domain user | signing; SMB3 encryption server-dependent | PASS |
 | WebDAV HTTPS | Yes | Yes | server-dependent ranges | Basic/bearer/custom | system TLS + secure XML | PASS |
+| WebDAV HTTP | Yes | Yes | server-dependent ranges | Basic/bearer/custom | cleartext warning + secure XML | PASS |
 | FTP | Yes | Yes | REST/server-dependent | anonymous/user | insecure warning | PASS |
-| FTPS explicit | Yes | Yes | REST/server-dependent | user | verified TLS + private data channel | PARTIAL — not server-certified |
+| FTPS explicit | Yes | Yes | REST/server-dependent | user | verified TLS + private data channel | PASS — real server run #248 |
 | SFTP | No | No | No | No | N/A | NOT IMPLEMENTED |
 
 ## Not verified — deferred to Step 10

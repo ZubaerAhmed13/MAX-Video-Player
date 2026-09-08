@@ -10,9 +10,9 @@ MX Player Pro is used only as a functionality/workflow reference. This repositor
 
 Step 7 adds real HTTP/HTTPS progressive playback, HLS, DASH, RTSP, SMB2/3, WebDAV, FTP and explicit FTPS integration to the existing single service-owned Media3 player. It includes direct streams, authenticated saved locations, server browsing, stable remote history, network playlists, remote subtitle/audio attachment, adaptive quality, live controls, bounded reconnect, secure credential storage and redacted diagnostics.
 
-The implementation head `4cb661b978de502b99bef864cc99a53c1540939a` passed run #242, documentation-complete PR head `1a89ecc48906e151378373eb4af7f5210b8353c9` passed run #243, and PR #12 merged as `9d271c4786236577e009f63d65ad7435b31c015b`, which passed post-merge run #244. Every gate included debug/unit, release, lint, API-35 full instrumentation, API-26/API-28 regression and the isolated Samba/FTP/RTSP certification lane. See `STEP_7_FINAL_CERTIFICATION.md` for immutable evidence.
+The original Step-7 chain passed runs #242–#244. Review-gap implementation head `3addcee62754afb61479415d67e8e654cf171e16` passed every build, release, lint, emulator and expanded Samba/FTP/explicit-FTPS/authenticated-RTSP test step in run #248. PR #14's documentation-complete head and resulting `main` gate are authoritative in GitHub history and the final handoff. See `STEP_7_FINAL_CERTIFICATION.md`.
 
-FTPS remains explicitly PARTIAL until a real automated TLS FTP server connection passes. SFTP is not implemented. Physical NAS, weak-network, large remote media, 4K/HDR, long-play, battery, thermal and OEM certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
+Explicit FTPS is fully automated with required control/data TLS and hostname verification. SFTP is not implemented. Physical NAS, weak-network, large remote media, 4K/HDR, long-play, battery, thermal and OEM certification remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
 ## Platform baseline
 
@@ -36,9 +36,9 @@ This is a fully native Android application. It does not use WebView, Capacitor, 
 
 Network sources flow through `NetworkRepository`, protocol-specific clients and `NetworkDataSourceRouter` into the existing `ProfessionalMediaSourceFactory`, `PlaybackService`, MediaSession and ExoPlayer. SMB and FTP use bounded random-access DataSources; HTTP/WebDAV/HLS/DASH use the shared OkHttp-backed Media3 path; RTSP uses Media3's RTSP module with RTP-over-RTSP/TCP selected explicitly. No normal protocol path copies a full movie before playback.
 
-The Network center supports saved server add/edit/test/browse/remove/forget flows, recent remote history, breadcrumbs, search, refresh and folders-first listings. Direct HTTP requires an explicit cleartext warning acknowledgement. Plain FTP credentials require the same. WebDAV is HTTPS-only.
+The Network center supports saved HTTP/HTTPS, WebDAV over HTTPS or explicitly acknowledged HTTP, SMB, FTP and FTPS locations with add/edit/test/browse/remove/forget flows. Direct and saved cleartext transports require explicit acknowledgement. Authenticated RTSP BASIC/DIGEST uses credentials entered separately from the URL.
 
-Credentials are AES/GCM encrypted with an Android Keystore key. Room stores only an opaque reference and username hint. Authorization is scoped by origin and directory; cross-host redirects do not receive it. Diagnostics redact userinfo and sensitive query/header values. WebDAV XML rejects DTD/XXE and off-root entries.
+Credentials are AES/GCM encrypted with an Android Keystore key. Room stores only an opaque reference and username hint. Authorization is scoped by origin and directory; cross-host redirects do not receive it. RTSP user-info exists only inside a private Media3 source and is masked from the session timeline. Diagnostics redact userinfo and sensitive query/header values. WebDAV XML rejects DTD/XXE and off-root entries, and its 4 MiB response cap is enforced while streaming before oversized allocation.
 
 Adaptive controls are real Media3 track overrides. The UI reports live state and Go Live from Media3, and buffering diagnostics distinguish initial loading, buffering, reconnecting and failure. Network subtitles and external audio remain on the Step-4/5 source-composition path, while network video uses the Step-6 decoder policy without a second player.
 
