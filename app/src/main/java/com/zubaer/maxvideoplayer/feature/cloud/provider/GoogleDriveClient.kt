@@ -15,7 +15,10 @@ import org.json.JSONObject
 class GoogleDriveClient(
     override val accountId: String,
     private val tokenProvider: CloudAccessTokenProvider,
+    apiBase: String = PRODUCTION_BASE,
 ) : CloudProviderClient {
+    private val base = apiBase.trimEnd('/')
+
     override suspend fun browse(parentId: String?, pageToken: String?, pageSize: Int): CloudPage {
         val parent = parentId ?: "root"
         val query = "'$parent' in parents and trashed = false"
@@ -29,7 +32,7 @@ class GoogleDriveClient(
 
     override suspend fun get(identity: CloudFileIdentity): CloudEntry {
         requireIdentity(identity)
-        val url = "$BASE/files/${identity.providerFileId}".toHttpUrl().newBuilder()
+        val url = "$base/files/${identity.providerFileId}".toHttpUrl().newBuilder()
             .addQueryParameter("fields", FILE_FIELDS)
             .addQueryParameter("supportsAllDrives", "true")
             .build()
@@ -50,7 +53,7 @@ class GoogleDriveClient(
             throw CloudFailure.DownloadDisabled("This file cannot be streamed because its owner has disabled downloading.")
         }
         val token = tokenProvider.accessToken(forceRefresh)
-        val uri = Uri.parse("$BASE/files/${identity.providerFileId}?alt=media&supportsAllDrives=true")
+        val uri = Uri.parse("$base/files/${identity.providerFileId}?alt=media&supportsAllDrives=true")
         return CloudPlaybackResource(
             identity = identity,
             uri = uri,
@@ -63,7 +66,7 @@ class GoogleDriveClient(
     }
 
     private suspend fun list(q: String, pageToken: String?, pageSize: Int): CloudPage {
-        val url = "$BASE/files".toHttpUrl().newBuilder()
+        val url = "$base/files".toHttpUrl().newBuilder()
             .addQueryParameter("q", q)
             .addQueryParameter("spaces", "drive")
             .addQueryParameter("pageSize", pageSize.coerceIn(1, 1000).toString())
@@ -126,7 +129,7 @@ class GoogleDriveClient(
     }
 
     private companion object {
-        const val BASE = "https://www.googleapis.com/drive/v3"
+        const val PRODUCTION_BASE = "https://www.googleapis.com/drive/v3"
         const val FILE_FIELDS = "id,name,mimeType,size,modifiedTime,version,md5Checksum,capabilities(canDownload),thumbnailLink,parents"
     }
 }
