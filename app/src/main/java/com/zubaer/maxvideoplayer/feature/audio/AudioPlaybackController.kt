@@ -1,5 +1,6 @@
 package com.zubaer.maxvideoplayer.feature.audio
 
+import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -42,7 +43,8 @@ class AudioPlaybackController(
         override fun onPlayerError(error: PlaybackException) {
             val player = boundPlayer ?: return
             val mediaId = player.currentMediaItem?.mediaId ?: return
-            if (repository.selectedExternalFor(mediaId) != null && !recoveringExternalFailure) {
+            val external = repository.selectedExternalFor(mediaId) ?: return
+            if (!recoveringExternalFailure && isAttributedExternalSourceFailure(error, external)) {
                 recoveringExternalFailure = true
                 repository.rememberAuto(mediaId)
                 rebuildCurrentMediaSource(player)
@@ -254,11 +256,6 @@ class AudioPlaybackController(
             !player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
         ) return
         player.currentTracks.groups.forEach { group ->
-            // MergingMediaSource child 0 is primary and child 1 is the selected external audio.
-            // MergingMediaPeriod prefixes both group and Format IDs with the child index. Across a
-            // MediaSession boundary Media3 may rewrite TrackGroup IDs to controller-unique IDs,
-            // while the merged Format IDs retain the child prefix. Therefore identification must
-            // accept either representation rather than relying only on TrackGroup.id.
             if (group.type != C.TRACK_TYPE_AUDIO || !isExternalGroup(group)) return@forEach
             for (index in 0 until group.length) {
                 if (group.isTrackSupported(index)) {
@@ -267,8 +264,6 @@ class AudioPlaybackController(
                         .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                         .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
                         .build()
-                    // Keep pending until Media3 reports the external track as selected. This avoids
-                    // claiming success merely because an override command was sent.
                     if (group.isTrackSelected(index)) pendingExternalMediaId = null
                     return
                 }
@@ -315,6 +310,17 @@ class AudioPlaybackController(
         return (0 until group.length).any { index ->
             group.getTrackFormat(index).id?.startsWith("1:") == true
         }
+    }
+
+    private fun isAttributedExternalSourceFailure(error: PlaybackException, external: ExternalAudioInfo): Boolean {
+        if (error.errorCode !in SOURCE_ERROR_CODE_RANGE) return false
+        val uri = external.uri
+        val path = runCatching { Uri.parse(uri).path }.getOrNull()
+        val messages = generateSequence<Throwable?>(error) { it.cause }
+            .take(MAX_ERROR_CAUSE_DEPTH)
+            .mapNotNull { it.message }
+            .joinToString("\n")
+        return messages.contains(uri) || (!path.isNullOrBlank() && messages.contains(path))
     }
 
     private fun bestDescriptorMatch(player: Player, descriptor: AudioTrackDescriptor): Pair<androidx.media3.common.Tracks.Group, Int>? {
@@ -377,5 +383,9 @@ class AudioPlaybackController(
         return match.groupValues[1].toIntOrNull()?.let { group -> match.groupValues[2].toIntOrNull()?.let { group to it } }
     }
 
-    private companion object { val TRACK_KEY = Regex("g(\\d+)t(\\d+)") }
+    private companion object {
+        val TRACK_KEY = Regex("g(\\d+)t(\\d+)")
+        val SOURCE_ERROR_CODE_RANGE = 2_000..3_999
+        const val MAX_ERROR_CAUSE_DEPTH = 8
+    }
 }
