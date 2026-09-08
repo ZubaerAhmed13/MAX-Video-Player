@@ -5,14 +5,15 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ForwardingMediaSourceFactory
 import androidx.media3.exoplayer.source.ForwardingTimeline
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.WrappingMediaSource
-import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudPlaybackRegistry
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkDataSourceRouter
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
 import com.zubaer.maxvideoplayer.feature.subtitle.OffsetSubtitleParserFactory
@@ -28,15 +29,13 @@ class ProfessionalMediaSourceFactory(
     private val subtitleRepository: SubtitleRepository,
     private val audioRepository: AudioRepository,
     private val networkRequestRegistry: NetworkRequestRegistry,
-) : ForwardingMediaSourceFactory(baseFactory(context, networkRequestRegistry)) {
+    private val cloudPlaybackRegistry: CloudPlaybackRegistry,
+) : ForwardingMediaSourceFactory(baseFactory(context, networkRequestRegistry, cloudPlaybackRegistry)) {
     private val appContext = context.applicationContext
-    private val dataSourceFactory = NetworkDataSourceRouter.Factory(appContext, networkRequestRegistry)
+    private val dataSourceFactory = NetworkDataSourceRouter.Factory(appContext, networkRequestRegistry, cloudPlaybackRegistry)
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
         val primary = if (mediaItem.localConfiguration?.uri?.scheme.equals("rtsp", ignoreCase = true)) {
-            // RTP-over-RTSP/TCP works through NAT and with servers that reject UDP SETUP rather
-            // than waiting for Media3's UDP-inactivity fallback. This remains the same service-
-            // owned ExoPlayer and MediaSession; only the RTSP transport is selected explicitly.
             val publicUri = requireNotNull(mediaItem.localConfiguration).uri
             val authenticatedUri = networkRequestRegistry.authenticatedRtspUri(publicUri.toString())
             val privateItem = if (authenticatedUri == publicUri) mediaItem else mediaItem.buildUpon().setUri(authenticatedUri).build()
@@ -76,8 +75,12 @@ class ProfessionalMediaSourceFactory(
         const val NETWORK_RETRY_COUNT = 5
         const val RTSP_TIMEOUT_MS = 15_000L
 
-        fun baseFactory(context: Context, registry: NetworkRequestRegistry): DefaultMediaSourceFactory =
-            DefaultMediaSourceFactory(NetworkDataSourceRouter.Factory(context.applicationContext, registry))
+        fun baseFactory(
+            context: Context,
+            registry: NetworkRequestRegistry,
+            cloudRegistry: CloudPlaybackRegistry,
+        ): DefaultMediaSourceFactory =
+            DefaultMediaSourceFactory(NetworkDataSourceRouter.Factory(context.applicationContext, registry, cloudRegistry))
                 .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(NETWORK_RETRY_COUNT))
     }
 }
