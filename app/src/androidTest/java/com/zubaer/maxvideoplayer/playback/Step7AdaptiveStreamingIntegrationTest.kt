@@ -21,6 +21,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(AndroidJUnit4::class)
 class Step7AdaptiveStreamingIntegrationTest {
@@ -30,9 +33,9 @@ class Step7AdaptiveStreamingIntegrationTest {
         val context = instrumentation.targetContext
         val app = context.applicationContext as MaxVideoPlayerApplication
         val server = assetServer(instrumentation.context)
-        val hls = app.container.networkRepository.prepareDirect(server.url("/step7_hls/master.m3u8").toString(), "Step 7 HLS")
-        val hlsLive = app.container.networkRepository.prepareDirect(server.url("/step7_hls/live.m3u8").toString(), "Step 7 live HLS")
-        val dash = app.container.networkRepository.prepareDirect(server.url("/step7_dash/multi.mpd").toString(), "Step 7 DASH")
+        val hls = app.container.networkRepository.prepareDirect(server.server.url("/step7_hls/master.m3u8").toString(), "Step 7 HLS")
+        val hlsLive = app.container.networkRepository.prepareDirect(server.server.url("/step7_hls/live.m3u8").toString(), "Step 7 live HLS")
+        val dash = app.container.networkRepository.prepareDirect(server.server.url("/step7_dash/multi.mpd").toString(), "Step 7 DASH")
         context.stopService(Intent(context, PlaybackService::class.java))
         instrumentation.waitForIdleSync()
         val scenario = ActivityScenario.launch(MainActivity::class.java)
@@ -76,9 +79,19 @@ class Step7AdaptiveStreamingIntegrationTest {
             })
             assertNull("Live HLS failed: ${connection.state.value.error}", connection.state.value.error)
             assertTrue(connection.state.value.isLive)
+            assertTrue("Live HLS playlist did not advance its media sequence", await(5_000L) {
+                server.latestLiveMediaSequence.get() >= 1
+            })
+            instrumentation.runOnMainSync { connection.seekTo(0L) }
+            assertTrue("Live HLS did not expose a seekable offset behind the live edge", await(5_000L) {
+                (connection.state.value.liveOffsetMs ?: 0L) >= 2_000L
+            })
+            val behindLiveOffsetMs = connection.state.value.liveOffsetMs ?: Long.MAX_VALUE
             instrumentation.runOnMainSync { connection.goLive() }
-            assertTrue("Go Live did not retain a real live offset", await(5_000L) {
-                connection.state.value.mediaId == hlsLive.stableId && connection.state.value.liveOffsetMs != null
+            assertTrue("Go Live did not move playback toward the live edge", await(5_000L) {
+                val liveOffsetMs = connection.state.value.liveOffsetMs
+                connection.state.value.mediaId == hlsLive.stableId &&
+                    liveOffsetMs != null && liveOffsetMs < behindLiveOffsetMs
             })
         } finally {
             instrumentation.runOnMainSync {
@@ -88,39 +101,61 @@ class Step7AdaptiveStreamingIntegrationTest {
             }
             scenario.close()
             context.stopService(Intent(context, PlaybackService::class.java))
-            server.close()
+            server.server.close()
         }
     }
 
-    private fun assetServer(context: Context): MockWebServer = MockWebServer().apply {
-        dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                val path = request.url.encodedPath.removePrefix("/")
-                if (path == "step7_hls/live.m3u8") {
+    private fun assetServer(context: Context): LiveAssetServer {
+        val latestLiveMediaSequence = AtomicInteger()
+        val liveStartedAt = Instant.now().minusSeconds(LIVE_WINDOW_SEGMENTS.toLong())
+        val liveStartedRealtimeMs = SystemClock.elapsedRealtime()
+        val server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val path = request.url.encodedPath.removePrefix("/")
+                    if (path == "step7_hls/live.m3u8") {
+                        val mediaSequence = ((SystemClock.elapsedRealtime() - liveStartedRealtimeMs) / 1_000L).toInt()
+                        latestLiveMediaSequence.set(mediaSequence)
+                        return MockResponse.Builder()
+                            .code(200)
+                            .setHeader("Content-Type", "application/x-mpegURL")
+                            .body(livePlaylist(mediaSequence, liveStartedAt.plusSeconds(mediaSequence.toLong())))
+                            .build()
+                    }
+                    val bytes = runCatching { context.assets.open(path).use { it.readBytes() } }.getOrNull()
+                        ?: return MockResponse.Builder().code(404).build()
+                    val contentType = when {
+                        path.endsWith(".m3u8") -> "application/x-mpegURL"
+                        path.endsWith(".mpd") -> "application/dash+xml"
+                        path.endsWith(".ts") -> "video/mp2t"
+                        path.endsWith(".m4s") -> "video/mp4"
+                        else -> "application/octet-stream"
+                    }
                     return MockResponse.Builder()
                         .code(200)
-                        .setHeader("Content-Type", "application/x-mpegURL")
-                        .body(LIVE_PLAYLIST)
+                        .setHeader("Content-Type", contentType)
+                        .setHeader("Content-Length", bytes.size)
+                        .body(Buffer().write(bytes))
                         .build()
                 }
-                val bytes = runCatching { context.assets.open(path).use { it.readBytes() } }.getOrNull()
-                    ?: return MockResponse.Builder().code(404).build()
-                val contentType = when {
-                    path.endsWith(".m3u8") -> "application/x-mpegURL"
-                    path.endsWith(".mpd") -> "application/dash+xml"
-                    path.endsWith(".ts") -> "video/mp2t"
-                    path.endsWith(".m4s") -> "video/mp4"
-                    else -> "application/octet-stream"
-                }
-                return MockResponse.Builder()
-                    .code(200)
-                    .setHeader("Content-Type", contentType)
-                    .setHeader("Content-Length", bytes.size)
-                    .body(Buffer().write(bytes))
-                    .build()
             }
+            start()
         }
-        start()
+        return LiveAssetServer(server, latestLiveMediaSequence)
+    }
+
+    private fun livePlaylist(mediaSequence: Int, windowStartedAt: Instant): String = buildString {
+        appendLine("#EXTM3U")
+        appendLine("#EXT-X-VERSION:6")
+        appendLine("#EXT-X-TARGETDURATION:1")
+        appendLine("#EXT-X-MEDIA-SEQUENCE:$mediaSequence")
+        appendLine("#EXT-X-INDEPENDENT-SEGMENTS")
+        appendLine("#EXT-X-PROGRAM-DATE-TIME:${DateTimeFormatter.ISO_INSTANT.format(windowStartedAt)}")
+        repeat(LIVE_WINDOW_SEGMENTS) { index ->
+            val sequence = mediaSequence + index
+            appendLine("#EXTINF:1.000000,")
+            appendLine("low/segment${sequence % 2}.ts?sequence=$sequence")
+        }
     }
 
     private fun await(timeoutMs: Long, condition: () -> Boolean): Boolean {
@@ -132,17 +167,12 @@ class Step7AdaptiveStreamingIntegrationTest {
         return condition()
     }
 
+    private data class LiveAssetServer(
+        val server: MockWebServer,
+        val latestLiveMediaSequence: AtomicInteger,
+    )
+
     private companion object {
-        val LIVE_PLAYLIST = """
-            #EXTM3U
-            #EXT-X-VERSION:6
-            #EXT-X-TARGETDURATION:1
-            #EXT-X-MEDIA-SEQUENCE:0
-            #EXT-X-INDEPENDENT-SEGMENTS
-            #EXTINF:1.000000,
-            low/segment0.ts
-            #EXTINF:1.000000,
-            low/segment1.ts
-        """.trimIndent()
+        const val LIVE_WINDOW_SEGMENTS = 8
     }
 }

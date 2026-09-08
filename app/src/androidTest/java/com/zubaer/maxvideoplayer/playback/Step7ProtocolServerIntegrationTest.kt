@@ -193,12 +193,23 @@ class Step7ProtocolServerIntegrationTest {
         instrumentation.runOnMainSync { connection.load(media, playWhenReady = false) }
         assertTrue("$protocol did not reach Media3 READY/error state", await(timeoutMs) {
             connection.state.value.mediaId == media.stableId &&
-                (connection.playerOrNull()?.playbackState == Player.STATE_READY || connection.state.value.error != null)
+                (playerStateOnMain(instrumentation, connection) == Player.STATE_READY || connection.state.value.error != null)
         })
         assertNull("$protocol playback failed: ${connection.state.value.error}", connection.state.value.error)
         assertEquals(media.stableId, connection.state.value.mediaId)
         assertEquals(protocol, connection.state.value.network.protocol)
         assertEquals(NetworkConnectionState.CONNECTED, connection.state.value.network.connectionState)
+    }
+
+    private fun playerStateOnMain(
+        instrumentation: android.app.Instrumentation,
+        connection: PlaybackConnection,
+    ): Int {
+        var state = Player.STATE_IDLE
+        instrumentation.runOnMainSync {
+            state = connection.playerOrNull()?.playbackState ?: Player.STATE_IDLE
+        }
+        return state
     }
 
     private fun mediaFor(id: String, uri: String, sourceId: String) = AppMedia(
