@@ -56,6 +56,8 @@ class PlaybackConnection(
     private var pendingExternalSelectionId: String? = null
     private var lastAutoDiscoveryMediaId: String? = null
     private var recoverableSubtitleError: String? = null
+    private var pendingSeekMediaId: String? = null
+    private var pendingSeekPositionMs: Long? = null
     private val knownMediaById = ConcurrentHashMap<String, AppMedia>()
 
     fun connect() {
@@ -119,12 +121,14 @@ class PlaybackConnection(
         pendingExternalSelectionId = null
         lastAutoDiscoveryMediaId = null
         recoverableSubtitleError = null
+        clearPendingSeek()
         _state.value = PlaybackUiState()
     }
 
     fun load(media: AppMedia, startPositionMs: Long = 0L, playWhenReady: Boolean = true) {
         knownMediaById[media.stableId] = media
         withController { player ->
+            clearPendingSeek()
             applyAutoPolicy(player)
             player.setMediaItem(media.toMedia3Item(), startPositionMs.coerceAtLeast(0L))
             player.prepare()
@@ -136,6 +140,7 @@ class PlaybackConnection(
         if (media.isEmpty()) return
         media.forEach { knownMediaById[it.stableId] = it }
         withController { player ->
+            clearPendingSeek()
             applyAutoPolicy(player)
             player.setMediaItems(media.map { it.toMedia3Item() }, startIndex.coerceIn(media.indices), startPositionMs.coerceAtLeast(0L))
             player.prepare()
@@ -154,11 +159,26 @@ class PlaybackConnection(
     fun seekTo(positionMs: Long) = withController { player ->
         val duration = player.duration.takeIf { it > 0L }
         val safe = if (duration != null) positionMs.coerceIn(0L, duration) else positionMs.coerceAtLeast(0L)
-        player.seekTo(safe)
+        val mediaId = player.currentMediaItem?.mediaId
+        if (player.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
+            clearPendingSeek()
+            player.seekTo(safe)
+        } else if (mediaId != null) {
+            pendingSeekMediaId = mediaId
+            pendingSeekPositionMs = safe
+        }
     }
 
-    fun seekToNext() = withController { if (it.hasNextMediaItem()) it.seekToNextMediaItem() }
-    fun seekToPrevious() = withController { if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem() }
+    fun seekToNext() = withController {
+        clearPendingSeek()
+        if (it.hasNextMediaItem()) it.seekToNextMediaItem()
+    }
+
+    fun seekToPrevious() = withController {
+        clearPendingSeek()
+        if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem()
+    }
+
     fun setPlaybackSpeed(speed: Float) = withController { it.setPlaybackSpeed(speed.coerceIn(0.25f, 4f)) }
 
     fun setRepeatMode(mode: RepeatMode) = withController {
@@ -342,9 +362,10 @@ class PlaybackConnection(
     }
 
     private fun publish(player: Player) {
+        val mediaId = player.currentMediaItem?.mediaId
+        maybeApplyPendingSeek(player, mediaId)
         val duration = player.duration.takeIf { it > 0L } ?: 0L
         val subtitleState = buildSubtitleState(player)
-        val mediaId = player.currentMediaItem?.mediaId
 
         if (pendingExternalSelectionMediaId == mediaId) {
             val associationId = pendingExternalSelectionId
@@ -385,6 +406,23 @@ class PlaybackConnection(
         )
 
         maybeDiscoverSidecars(mediaId)
+    }
+
+    private fun maybeApplyPendingSeek(player: Player, mediaId: String?) {
+        val expectedMediaId = pendingSeekMediaId ?: return
+        val positionMs = pendingSeekPositionMs ?: return
+        if (mediaId != null && mediaId != expectedMediaId) {
+            clearPendingSeek()
+            return
+        }
+        if (mediaId != expectedMediaId || !player.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) return
+        clearPendingSeek()
+        player.seekTo(positionMs)
+    }
+
+    private fun clearPendingSeek() {
+        pendingSeekMediaId = null
+        pendingSeekPositionMs = null
     }
 
     private fun maybeDiscoverSidecars(mediaId: String?) {
