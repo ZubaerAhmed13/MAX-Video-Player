@@ -52,11 +52,6 @@ class PlaybackService : MediaSessionService() {
             val mediaId = mediaItem?.mediaId
             container.networkDiagnosticsMonitor.activate(mediaItem?.localConfiguration?.uri?.toString())
             container.audioRepository.activateMedia(mediaId)
-            // Decoder reconfiguration restores the same MediaItem through setMediaItems(), which
-            // produces another transition callback. Re-activating decoder state for that identical
-            // media ID would emit another mode request and create a reconfigure -> transition ->
-            // reconfigure loop. Activate decoder persistence only when the authoritative media
-            // identity actually changes; explicit user mode changes already emit their own request.
             if (decoderActivatedMediaId != mediaId) {
                 decoderActivatedMediaId = mediaId
                 container.decoderRepository.activateMedia(mediaId)
@@ -79,11 +74,8 @@ class PlaybackService : MediaSessionService() {
             container.audioRepository,
             container.decoderRepository,
             container.networkRequestRegistry,
+            container.cloudPlaybackRegistry,
         )
-        // Step 8 keeps the Step-1..7 ExoPlayer as the local playback engine. CastPlayer is the
-        // single authoritative Player exposed by the service and MediaSession; it transfers the
-        // existing queue/state between the local player and the Cast receiver when a Cast session
-        // becomes available.
         castPlayer = CastPlayer.Builder(this)
             .setLocalPlayer(engine.player)
             .build()
@@ -92,8 +84,6 @@ class PlaybackService : MediaSessionService() {
         container.decoderRepository.activateMedia(castPlayer.currentMediaItem?.mediaId)
         serviceScope.launch {
             container.decoderRepository.modeRequests.collect { mode ->
-                // Decoder selection is a local-device feature. Keep the requested setting while
-                // casting but never rebuild the inactive local player on behalf of a remote target.
                 if (::castPlayer.isInitialized && castPlayer.deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                     engine.reconfigureVideoDecoder(mode)
                 }
