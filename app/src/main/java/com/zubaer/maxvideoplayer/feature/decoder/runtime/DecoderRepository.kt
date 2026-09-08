@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 class DecoderRepository(
     private val dao: DecoderMediaStateDao,
@@ -44,19 +45,23 @@ class DecoderRepository(
 
     private val candidatesByName = ConcurrentHashMap<String, DecoderCandidate>()
     private val rejectedNames = Collections.synchronizedSet(linkedSetOf<String>())
+    private val activationGeneration = AtomicLong(0L)
     @Volatile private var currentOverride: DecoderMode? = null
 
     init {
         scope.launch {
             playerPreferences.state.collect { preferences ->
                 val current = _state.value
-                if (!preferences.rememberDecoderPerVideo || currentOverride == null) {
+                val override = currentOverride.takeIf { preferences.rememberDecoderPerVideo }
+                val desiredMode = override ?: preferences.defaultDecoderMode
+                val usingOverride = override != null
+                if (current.requestedMode != desiredMode || current.usingMediaOverride != usingOverride) {
                     applyRequestedMode(
-                        mode = preferences.defaultDecoderMode,
+                        mode = desiredMode,
                         mediaId = current.mediaId,
-                        usingOverride = false,
+                        usingOverride = usingOverride,
                         resetAttempts = true,
-                        emitRequest = current.requestedMode != preferences.defaultDecoderMode,
+                        emitRequest = current.mediaId != null && current.requestedMode != desiredMode,
                     )
                 }
             }
@@ -64,10 +69,16 @@ class DecoderRepository(
     }
 
     fun activateMedia(mediaId: String?) {
+        val current = _state.value
+        if (current.mediaId == mediaId) return
+
+        val generation = activationGeneration.incrementAndGet()
+        currentOverride = null
+        val defaultMode = playerPreferences.state.value.defaultDecoderMode
+
         if (mediaId == null) {
-            currentOverride = null
             applyRequestedMode(
-                playerPreferences.state.value.defaultDecoderMode,
+                mode = defaultMode,
                 mediaId = null,
                 usingOverride = false,
                 resetAttempts = true,
@@ -75,23 +86,53 @@ class DecoderRepository(
             )
             return
         }
+
+        // Publish the new media identity immediately, before asynchronous Room lookup and before
+        // Media3 can initialize its decoder. This prevents a late database read from wiping fresh
+        // decoder diagnostics and avoids a redundant reprepare when the effective mode is unchanged.
+        applyRequestedMode(
+            mode = defaultMode,
+            mediaId = mediaId,
+            usingOverride = false,
+            resetAttempts = true,
+            emitRequest = false,
+        )
+
         scope.launch {
             val preferences = playerPreferences.state.value
             val stored = if (preferences.rememberDecoderPerVideo) dao.get(mediaId) else null
+            if (activationGeneration.get() != generation || _state.value.mediaId != mediaId) return@launch
+
             val override = stored?.requestedMode?.let(::decodeMode)
             currentOverride = override
             val requested = override ?: preferences.defaultDecoderMode
-            applyRequestedMode(
-                mode = requested,
-                mediaId = mediaId,
-                usingOverride = override != null,
-                resetAttempts = true,
-                emitRequest = true,
-            )
+            val latest = _state.value
+            val usingOverride = override != null
+
+            if (latest.requestedMode == requested) {
+                if (latest.usingMediaOverride != usingOverride) {
+                    applyRequestedMode(
+                        mode = requested,
+                        mediaId = mediaId,
+                        usingOverride = usingOverride,
+                        resetAttempts = false,
+                        emitRequest = false,
+                    )
+                }
+            } else {
+                applyRequestedMode(
+                    mode = requested,
+                    mediaId = mediaId,
+                    usingOverride = usingOverride,
+                    resetAttempts = true,
+                    emitRequest = true,
+                )
+            }
         }
     }
 
     fun requestModeForCurrentMedia(mediaId: String?, mode: DecoderMode) {
+        activationGeneration.incrementAndGet()
         val remember = playerPreferences.state.value.rememberDecoderPerVideo && mediaId != null
         currentOverride = mode.takeIf { remember }
         applyRequestedMode(mode, mediaId, usingOverride = remember, resetAttempts = true, emitRequest = true)
@@ -103,6 +144,7 @@ class DecoderRepository(
     }
 
     fun useGlobalForCurrentMedia(mediaId: String?) {
+        activationGeneration.incrementAndGet()
         currentOverride = null
         val mode = playerPreferences.state.value.defaultDecoderMode
         applyRequestedMode(mode, mediaId, usingOverride = false, resetAttempts = true, emitRequest = true)
@@ -116,6 +158,7 @@ class DecoderRepository(
     fun setRememberPerVideo(enabled: Boolean) {
         playerPreferences.setRememberDecoderPerVideo(enabled)
         if (!enabled) {
+            activationGeneration.incrementAndGet()
             currentOverride = null
             applyRequestedMode(
                 playerPreferences.state.value.defaultDecoderMode,
@@ -130,6 +173,7 @@ class DecoderRepository(
     fun setShowDiagnostics(enabled: Boolean) = playerPreferences.setShowDecoderDiagnostics(enabled)
 
     fun resetDecoderPreferences() {
+        activationGeneration.incrementAndGet()
         currentOverride = null
         playerPreferences.setDefaultDecoderMode(DecoderMode.AUTO)
         playerPreferences.setRememberDecoderPerVideo(true)
