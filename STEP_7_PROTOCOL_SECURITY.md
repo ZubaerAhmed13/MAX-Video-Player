@@ -55,13 +55,17 @@ WebDAV XML is capped at 4 MiB before parsing. Declared oversized bodies fail bef
 
 Normal video/audio playback remains streaming and random-access. These bounds do not create a full-file download or a media-size ceiling.
 
+## Remote-file integrity across reconnects
+
+`SmbDataSource` records the initial file's 64-bit size, persistent SMB file index, creation time, last-write time and change time. After a transport failure it reconnects with the existing bounded retry policy, reopens the path, and compares every field before issuing a read at the previous offset. Any mismatch stops playback with a remote-file-changed error, including replacement by different content of exactly the same length. Read-access time is deliberately excluded because a read itself may update it.
+
 ## Credential lifecycle
 
 Saving a source can create or update an opaque vault record. Editing with blank secret fields preserves the saved secret; choosing not to remember removes it. `Forget credentials` keeps server configuration and removes the secret when no location references it. Removing a location preserves playback history and playlist rows, and deletes its vault record only after the final reference is gone.
 
 ## Test evidence
 
-Instrumentation certifies encryption/update/delete/invalidation, saved-HTTP Room/vault round-trip, signed-query canonical identity, header redaction, cross-origin redirect isolation, credential URL rejection, direct/saved cleartext acknowledgement, RTSP private credential injection, WebDAV HTTP, pre-allocation bounds, XXE rejection, Unicode parsing, root confinement and path traversal defense. The dedicated protocol lane additionally uses isolated authenticated servers and never depends on a personal NAS or a public media endpoint.
+Instrumentation certifies encryption/update/delete/invalidation, saved-HTTP Room/vault round-trip, signed-query canonical identity, header redaction, cross-origin redirect isolation, credential URL rejection, direct/saved cleartext acknowledgement, RTSP private credential injection, WebDAV HTTP, pre-allocation bounds, XXE rejection, Unicode parsing, root confinement and path traversal defense. The dedicated protocol lane additionally forces an SMB reconnect after a same-size remote replacement and proves stale-offset continuation is refused. It uses only isolated authenticated servers and never depends on a personal NAS or a public media endpoint.
 
 ## Explicit limitations
 

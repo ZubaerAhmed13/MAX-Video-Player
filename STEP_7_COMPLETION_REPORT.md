@@ -8,7 +8,8 @@ Implementation and certification are complete for the declared software/emulator
 
 ## Repository
 
-- Branch: `step-7-professional-network-playback`
+- Original branch: `step-7-professional-network-playback`
+- SMB closure branch: `step-7-smb-remote-change-detection`
 - Certified implementation remote SHA: `4cb661b978de502b99bef864cc99a53c1540939a`
 - Implementation certification: Android CI run #242 / workflow `34239231820` — PASS
 - Pull request: #12
@@ -19,6 +20,9 @@ Implementation and certification are complete for the declared software/emulator
 - Review-gap implementation SHA: `3addcee62754afb61479415d67e8e654cf171e16`
 - Review-gap implementation verification: Android CI run #248 / workflow `34251887641` — every build/test/protocol step PASS; workflow conclusion affected only by a retried immutable artifact-name collision
 - Review-gap pull request: #14
+- SMB change-detection implementation SHA: `762e9e894063d2a9fd203432f367d3eeea50bd19`
+- SMB change-detection verification: Android CI run #251 / workflow `34259916178` — PASS
+- SMB change-detection pull request: #15
 
 ## Steps 1–6 regression
 
@@ -68,7 +72,7 @@ The Media3 RTSP module is included and direct RTSP uses `RtspMediaSource.Factory
 
 ## SMB
 
-SMBJ 0.14.0 provides real SMB 2.0.2/2.1/3.0/3.0.2/3.1.1 support; SMB1 is not offered. Signing is enabled. Guest, anonymous and username/password/domain authentication are supported. `SmbProtocolClient` browses directories and `SmbDataSource` performs bounded random reads with 64-bit positions and at most three reconnects. The CI lane verifies authentication, Unicode listing, wrong-password failure, exact ranged bytes, a >3 GB sparse-file offset and actual service-owned Media3 playback.
+SMBJ 0.14.0 provides real SMB 2.0.2/2.1/3.0/3.0.2/3.1.1 support; SMB1 is not offered. Signing is enabled. Guest, anonymous and username/password/domain authentication are supported. `SmbProtocolClient` browses directories and `SmbDataSource` performs bounded random reads with 64-bit positions and at most three reconnects. The first open records the server-provided size, persistent file index, creation time, last-write time and change time. Every reconnect compares the complete identity before resuming, and fails explicitly if the remote object changed. The CI lane verifies authentication, Unicode listing, wrong-password failure, exact ranged bytes, a >3 GB sparse-file offset, same-length replacement detection after a forced reconnect and actual service-owned Media3 playback.
 
 ## WebDAV
 
@@ -104,7 +108,7 @@ Network `AppMedia` uses stable source/path identity, so refreshed signed tokens 
 
 - Media3 load policy: five minimum retries
 - OkHttp: connection-failure retry with bounded timeouts
-- SMB: three reconnects, 250/500/1,000 ms backoff, reopen at the 64-bit current offset
+- SMB: three reconnects, 250/500/1,000 ms backoff, compare full SMB metadata identity, then reopen at the 64-bit current offset only if unchanged
 - FTP/FTPS: three reconnects, 250/500/1,000 ms backoff, REST at current offset, reject changed remote size
 - connection and playback failures become structured UI state rather than infinite spinners
 
@@ -136,7 +140,7 @@ See `STEP_7_TEST_MATRIX.md`. The final gate consists of:
 - API-28 thumbnail regression
 - isolated API-35 Samba/FTP/explicit-FTPS/authenticated-RTSP protocol certification
 
-The original implementation, documentation and merge heads passed runs #242–#244. Review-gap implementation head `3addcee62754afb61479415d67e8e654cf171e16` passed debug/JVM, release, lint, complete API-35, API-26, API-28 and the expanded real-protocol test steps in run #248 (`34251887641`). A repeated API-26 upload collided with an immutable artifact name, so report names now include `github.run_attempt`; no verification step was skipped. Exact-head closure is recorded in GitHub history and the final handoff.
+The original implementation, documentation and merge heads passed runs #242–#244. Review-gap implementation head `3addcee62754afb61479415d67e8e654cf171e16` passed every functional step in run #248 (`34251887641`); retry-safe artifact names then allowed the exact PR #14 head and resulting `main` to pass runs #249–#250. SMB change-detection head `762e9e894063d2a9fd203432f367d3eeea50bd19` passed the complete workflow, including the forced-reconnect real-Samba assertion, in run #251 (`34259916178`). PR #15's exact documentation-complete head and resulting `main` run are recorded in GitHub history and the final handoff.
 
 ## Dependencies
 
