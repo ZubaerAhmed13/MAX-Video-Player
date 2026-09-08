@@ -49,6 +49,7 @@ class PlaybackConnection(
 
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
+    private var controllerListener: Player.Listener? = null
     private var tickerJob: Job? = null
     private var connectRequested = false
     private var pendingExternalSelectionMediaId: String? = null
@@ -56,14 +57,6 @@ class PlaybackConnection(
     private var lastAutoDiscoveryMediaId: String? = null
     private var recoverableSubtitleError: String? = null
     private val knownMediaById = ConcurrentHashMap<String, AppMedia>()
-
-    private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) = publish(player)
-
-        override fun onPlayerError(error: PlaybackException) {
-            _state.value = _state.value.copy(error = PlaybackErrorMapper.map(error), isBuffering = false)
-        }
-    }
 
     fun connect() {
         if (connectRequested || controller != null) return
@@ -73,11 +66,37 @@ class PlaybackConnection(
         controllerFuture = future
         future.addListener({
             runCatching { future.get() }.onSuccess { mediaController ->
+                if (controllerFuture !== future) {
+                    MediaController.releaseFuture(future)
+                    return@onSuccess
+                }
+                val listener = object : Player.Listener {
+                    override fun onEvents(player: Player, events: Player.Events) {
+                        if (controller !== mediaController) return
+                        publish(player)
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (controller !== mediaController) return
+                        // The callback payload can be queued before a media/session transition.
+                        // Publish the controller's current Player state instead of copying the
+                        // delayed payload into a newer media item. If the same error is still
+                        // authoritative, mediaController.playerError retains it and publish maps it.
+                        if (mediaController.playerError?.errorCode != error.errorCode) {
+                            publish(mediaController)
+                            return
+                        }
+                        publish(mediaController)
+                    }
+                }
                 controller = mediaController
+                controllerListener = listener
                 mediaController.addListener(listener)
                 publish(mediaController)
                 startTicker()
             }.onFailure {
+                if (controllerFuture !== future) return@onFailure
+                controllerFuture = null
                 connectRequested = false
                 _state.value = _state.value.copy(connected = false)
             }
@@ -88,9 +107,10 @@ class PlaybackConnection(
         tickerJob?.cancel()
         tickerJob = null
         controller?.let { current ->
-            current.removeListener(listener)
+            controllerListener?.let(current::removeListener)
             if (current.isCommandAvailable(Player.COMMAND_SET_VIDEO_SURFACE)) current.clearVideoSurface()
         }
+        controllerListener = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         controller = null
@@ -544,11 +564,6 @@ class PlaybackConnection(
         delayMs = attachment.delayMs,
     )
 
-    /**
-     * Media3 does not guarantee that SubtitleConfiguration.id is preserved in every downstream
-     * Format. Prefer the stable id when present, then fall back to descriptor identity. This is
-     * deliberately deterministic and restores the robust behavior used by the proven Step-4 SRT path.
-     */
     private fun resolveExternalAttachment(
         format: Format,
         attachments: List<ExternalSubtitleAttachment>,
