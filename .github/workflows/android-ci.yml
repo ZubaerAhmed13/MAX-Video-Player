@@ -77,7 +77,7 @@ jobs:
           script: |
             gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
             mkdir -p app/build/reports/step6
-            adb shell run-as com.zubaer.maxvideoplayer cat files/step6-decoder-capability-report.txt > app/build/reports/step6/decoder-capability-report-api35.txt
+            adb pull /data/local/tmp/step6-decoder-capability-report.txt app/build/reports/step6/decoder-capability-report-api35.txt
             test -s app/build/reports/step6/decoder-capability-report-api35.txt
       - name: Upload instrumentation reports
         if: always()
