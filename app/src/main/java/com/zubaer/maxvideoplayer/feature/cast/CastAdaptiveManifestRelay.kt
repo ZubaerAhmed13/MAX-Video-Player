@@ -218,7 +218,19 @@ object CastManifestRewriter {
     private val uriAttribute = Regex("URI=\\\"([^\\\"]+)\\\"", RegexOption.IGNORE_CASE)
     private val dashUrlAttribute = Regex("\\b(media|initialization|sourceURL|href)=\\\"([^\\\"]+)\\\"", RegexOption.IGNORE_CASE)
     private val baseUrlElement = Regex("(<BaseURL(?:\\s[^>]*)?>)([^<]+)(</BaseURL>)", RegexOption.IGNORE_CASE)
-    private val sensitiveQueryNames = setOf("sig", "signature", "token", "access_token", "auth", "authorization", "se", "sp", "sv")
+    private val sensitiveQueryNames = setOf(
+        "sig",
+        "signature",
+        "token",
+        "access_token",
+        "auth",
+        "authorization",
+        "se",
+        "sp",
+        "sv",
+        "x-amz-signature",
+        "x-goog-signature",
+    )
 
     fun rewrite(manifest: String, manifestUri: URI, relayEndpoint: String): String {
         val trimmed = manifest.trimStart()
@@ -231,8 +243,15 @@ object CastManifestRewriter {
 
     fun hasSensitiveQuery(uri: URI): Boolean {
         val raw = uri.rawQuery ?: return false
-        return raw.split('&').map { it.substringBefore('=').lowercase() }
-            .any { candidate -> sensitiveQueryNames.any { secret -> candidate.contains(secret) } }
+        return raw.split('&')
+            .map { component -> URLDecoder.decode(component.substringBefore('='), StandardCharsets.UTF_8.name()).lowercase() }
+            .any { key ->
+                key in sensitiveQueryNames ||
+                    key.endsWith("_token") ||
+                    key.endsWith("-token") ||
+                    key.endsWith("_signature") ||
+                    key.endsWith("-signature")
+            }
     }
 
     private fun rewriteHls(manifest: String, base: URI, endpoint: String): String =
@@ -269,9 +288,6 @@ object CastManifestRewriter {
         require(resolved.userInfo == null) { "Adaptive child URL must not contain user-info credentials." }
         require(!hasSensitiveQuery(resolved)) { "Sensitive adaptive query cannot be copied into a Cast URL." }
 
-        // Use an absolute credential-free target so nested manifests and cross-origin public CDNs
-        // resolve deterministically. Keep DASH template '$' markers unescaped so the receiver can
-        // substitute $Number$, $Time$, $RepresentationID$, etc. before issuing the request.
         val encoded = URLEncoder.encode(resolved.toString(), StandardCharsets.UTF_8.name())
             .replace("+", "%20")
             .replace("%24", "$")
