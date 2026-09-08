@@ -31,7 +31,7 @@ The fixtures are repository-owned two-second synthetic media served by in-proces
 |---|---|---|
 | HLS VOD | Master playlist, 160×90 and 320×180 variants, real Media3 playback | PASS |
 | HLS quality | Real `TrackSelectionOverride` selects a variant; Auto removes the override | PASS |
-| HLS live | Updating-style playlist without ENDLIST exposes Media3 live state and a real live offset; Go Live invokes default-position seek | PASS |
+| HLS live | Wall-clock-driven rolling playlist advances its media sequence, exposes Media3 live state/offset and proves Go Live moves from the DVR-window start toward the live edge | PASS |
 | DASH VOD | Static MPD, two AVC representations and AAC adaptation set, real Media3 playback | PASS |
 | DASH tracks | Media3 exposes both 90p and 180p representations | PASS |
 
@@ -50,7 +50,7 @@ The emulator reaches only the isolated runner host. Assertions cover:
 |---|---|---|---|---|
 | SMB | authenticated listing, Unicode directory, rejected wrong password | exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `SmbDataSource` | PENDING exact-head run |
 | FTP | authenticated listing, Unicode directory, rejected wrong password | REST-backed exact byte comparison and a read at 3,221,225,472 | service-owned Media3 through `FtpDataSource` | PENDING exact-head run |
-| RTSP | open isolated server | explicitly configured Media3 RTP-over-RTSP/TCP transport | service-owned Media3 reaches READY | PENDING exact-head run |
+| RTSP | open isolated server | explicitly configured Media3 RTP-over-RTSP/TCP transport | service-owned Media3 reaches READY and `isPlaying` | PENDING exact-head run |
 
 FTPS remains `PARTIAL`: explicit TLS, endpoint checking and private data-channel code are present, but a real automated TLS FTP server test is not yet part of the lane.
 

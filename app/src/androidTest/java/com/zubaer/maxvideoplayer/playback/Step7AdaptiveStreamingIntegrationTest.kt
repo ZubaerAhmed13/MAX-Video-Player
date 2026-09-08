@@ -84,7 +84,8 @@ class Step7AdaptiveStreamingIntegrationTest {
             })
             instrumentation.runOnMainSync { connection.seekTo(0L) }
             assertTrue("Live HLS did not expose a seekable offset behind the live edge", await(5_000L) {
-                (connection.state.value.liveOffsetMs ?: 0L) >= 2_000L
+                connection.state.value.currentPositionMs <= 1_000L &&
+                    (connection.state.value.liveOffsetMs ?: 0L) >= 6_000L
             })
             val behindLiveOffsetMs = connection.state.value.liveOffsetMs ?: Long.MAX_VALUE
             instrumentation.runOnMainSync { connection.goLive() }

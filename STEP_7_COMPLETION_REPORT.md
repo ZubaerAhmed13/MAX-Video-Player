@@ -51,7 +51,7 @@ Cleartext HTTP is available only through a warning-and-acknowledgement direct UR
 
 ## HLS
 
-Media3 HLS handles master/media playlists on the authoritative player. Deterministic fixtures provide two AVC variants. The quality menu is backed by real Media3 track groups and `TrackSelectionOverride`; Auto removes the override. VOD and live-style playlists are tested, and live UI uses Media3 `isCurrentMediaItemLive`, live offset and default-position seek for Go Live. HTTP authentication/header scoping applies to manifest children.
+Media3 HLS handles master/media playlists on the authoritative player. Deterministic fixtures provide two AVC variants. The quality menu is backed by real Media3 track groups and `TrackSelectionOverride`; Auto removes the override. VOD and a wall-clock-driven rolling live playlist are tested; certification seeks to the start of its DVR window and requires Go Live to reduce the measured Media3 live offset. HTTP authentication/header scoping applies to manifest children.
 
 ## DASH
 
@@ -59,7 +59,7 @@ Media3 DASH handles MPDs on the same player. The deterministic static fixture co
 
 ## RTSP
 
-The Media3 RTSP module is included and direct RTSP uses `RtspMediaSource.Factory` on the single player. RTP-over-RTSP/TCP is explicitly selected for NAT and TCP-only server compatibility, with a 15-second inactivity/end-of-stream timeout. The isolated CI server publishes a real H.264/AAC stream over TCP and the test requires Media3 READY. UDP-only servers are not claimed. URL userinfo is rejected, so authenticated RTSP is not claimed when doing so would place a password in the MediaItem URI.
+The Media3 RTSP module is included and direct RTSP uses `RtspMediaSource.Factory` on the single player. RTP-over-RTSP/TCP is explicitly selected for NAT and TCP-only server compatibility, with a 15-second inactivity/end-of-stream timeout. The isolated CI server publishes a real H.264/AAC stream over TCP and the test requires Media3 READY plus controller-visible `isPlaying`. UDP-only servers are not claimed. URL userinfo is rejected, so authenticated RTSP is not claimed when doing so would place a password in the MediaItem URI.
 
 ## SMB
 

@@ -190,27 +190,40 @@ class Step7ProtocolServerIntegrationTest {
         protocol: NetworkProtocol,
         timeoutMs: Long = 20_000L,
     ) {
-        instrumentation.runOnMainSync { connection.load(media, playWhenReady = false) }
+        val shouldPlay = protocol == NetworkProtocol.RTSP
+        instrumentation.runOnMainSync { connection.load(media, playWhenReady = shouldPlay) }
         assertTrue("$protocol did not reach Media3 READY/error state", await(timeoutMs) {
-            connection.state.value.mediaId == media.stableId &&
-                (playerStateOnMain(instrumentation, connection) == Player.STATE_READY || connection.state.value.error != null)
+            val snapshot = playerSnapshotOnMain(instrumentation, connection)
+            (snapshot.mediaId == media.stableId && snapshot.playbackState == Player.STATE_READY) ||
+                connection.state.value.error != null
         })
         assertNull("$protocol playback failed: ${connection.state.value.error}", connection.state.value.error)
-        assertEquals(media.stableId, connection.state.value.mediaId)
+        assertEquals(media.stableId, playerSnapshotOnMain(instrumentation, connection).mediaId)
+        if (shouldPlay) {
+            assertTrue("RTSP reached READY but did not play through the service-owned player", await(5_000L) {
+                connection.state.value.isPlaying
+            })
+        }
         assertEquals(protocol, connection.state.value.network.protocol)
         assertEquals(NetworkConnectionState.CONNECTED, connection.state.value.network.connectionState)
     }
 
-    private fun playerStateOnMain(
+    private fun playerSnapshotOnMain(
         instrumentation: android.app.Instrumentation,
         connection: PlaybackConnection,
-    ): Int {
-        var state = Player.STATE_IDLE
+    ): PlayerSnapshot {
+        var snapshot = PlayerSnapshot(Player.STATE_IDLE, null)
         instrumentation.runOnMainSync {
-            state = connection.playerOrNull()?.playbackState ?: Player.STATE_IDLE
+            val player = connection.playerOrNull()
+            snapshot = PlayerSnapshot(
+                playbackState = player?.playbackState ?: Player.STATE_IDLE,
+                mediaId = player?.currentMediaItem?.mediaId,
+            )
         }
-        return state
+        return snapshot
     }
+
+    private data class PlayerSnapshot(val playbackState: Int, val mediaId: String?)
 
     private fun mediaFor(id: String, uri: String, sourceId: String) = AppMedia(
         stableId = id,

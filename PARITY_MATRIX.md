@@ -18,7 +18,7 @@ A `PASS` requires implementation, a real product flow, error handling and automa
 | Cleartext | HTTP warning/acknowledgement | PASS candidate | Compose test requires explicit acknowledgement; saved-source editor excludes HTTP |
 | HLS | VOD/master/variants | PASS candidate | Real Media3 playback of two synthetic variants |
 | HLS | Manual quality and Auto | PASS candidate | Real Media3 track override and removal |
-| HLS | Live / Go Live | PASS candidate | Live-style local playlist, Media3 live state/offset and default-position seek |
+| HLS | Live / Go Live | PASS candidate | Rolling local playlist, advancing media sequence, DVR-window seek and measured live-offset reduction |
 | DASH | MPD VOD / adaptive representations / audio | PASS candidate | Static local MPD with two AVC representations and AAC adaptation set |
 | RTSP | Production playback | PENDING protocol lane | Media3 RTP-over-RTSP/TCP against isolated MediaMTX H.264/AAC server |
 | RTSP | Credential safety | PASS candidate | URL userinfo rejected; authenticated RTSP not falsely claimed |

@@ -150,6 +150,10 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace -Pandroid.testInstrumentationRunnerArguments.class=com.zubaer.maxvideoplayer.playback.Step7ProtocolServerIntegrationTest -Pandroid.testInstrumentationRunnerArguments.step7ProtocolServers=true -Pandroid.testInstrumentationRunnerArguments.step7ServerHost=10.0.2.2
+      - name: Capture RTSP server log
+        if: always()
+        shell: bash
+        run: docker logs max-video-step7-rtsp > /tmp/max-video-step7-rtsp.log 2>&1 || true
       - name: Upload network protocol reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -163,6 +167,7 @@ jobs:
             /tmp/max-video-step7-samba.log
             /tmp/max-video-step7-ftp.log
             /tmp/max-video-step7-ffmpeg.log
+            /tmp/max-video-step7-rtsp.log
 
   legacy-thumbnail-instrumentation:
     runs-on: ubuntu-latest
