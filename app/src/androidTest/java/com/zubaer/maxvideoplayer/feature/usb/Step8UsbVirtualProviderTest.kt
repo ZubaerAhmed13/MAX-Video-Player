@@ -7,7 +7,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudPlaybackRegistry
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkDataSourceRouter
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
-import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -17,24 +16,20 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class Step8UsbVirtualProviderTest {
-    @After
-    fun restoreSource() {
-        Step8LargeVirtualContentProvider.available = true
-    }
-
     @Test
     fun contentPlaybackReadsCorrectBytesBeyondTwoGiBWithoutWholeFileCopy() {
         // The virtual provider exists only in the androidTest APK and is exported there so the
         // target app process can exercise the same production content:// routing path used for
-        // removable SAF sources. No production manifest/provider exposure is changed by this test.
+        // removable SAF sources. The provider exposes a >3.2 GB sparse file, so this performs a
+        // real 64-bit seek/read without allocating or buffering the entire logical file.
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val source = NetworkDataSourceRouter.Factory(
             context,
             NetworkRequestRegistry(),
             CloudPlaybackRegistry(),
         ).createDataSource()
-        val start = 2_147_483_648L + 33_333L
-        val requested = 8192L
+        val start = Step8LargeVirtualContentProvider.VERIFICATION_OFFSET
+        val requested = Step8LargeVirtualContentProvider.VERIFICATION_LENGTH.toLong()
         val resolved = source.open(
             DataSpec.Builder()
                 .setUri(Step8LargeVirtualContentProvider.URI)
@@ -52,7 +47,9 @@ class Step8UsbVirtualProviderTest {
                 offset += read
             }
             assertEquals(actual.size, offset)
-            val expected = ByteArray(actual.size) { index -> ((start + index.toLong()) and 0xff).toByte() }
+            val expected = ByteArray(actual.size) { index ->
+                ((start + index.toLong()) and 0xff).toByte()
+            }
             assertArrayEquals(expected, actual)
         } finally {
             source.close()
@@ -62,14 +59,17 @@ class Step8UsbVirtualProviderTest {
     @Test
     fun disconnectedRemovableProviderFailsCleanly() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        Step8LargeVirtualContentProvider.available = false
         val source = NetworkDataSourceRouter.Factory(
             context,
             NetworkRequestRegistry(),
             CloudPlaybackRegistry(),
         ).createDataSource()
         assertThrows(Exception::class.java) {
-            source.open(DataSpec.Builder().setUri(Step8LargeVirtualContentProvider.URI).build())
+            source.open(
+                DataSpec.Builder()
+                    .setUri(Step8LargeVirtualContentProvider.REMOVED_URI)
+                    .build(),
+            )
         }
         runCatching { source.close() }
     }
