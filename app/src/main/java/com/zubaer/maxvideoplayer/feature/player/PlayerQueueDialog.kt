@@ -11,6 +11,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 
 /**
@@ -30,7 +31,7 @@ fun PlayerQueueDialog(
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth().testTag("player_queue_dialog"),
-                verticalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(10f)),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
                     if (playback.mediaItemCount > 0) {
