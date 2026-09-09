@@ -16,6 +16,17 @@ enum class RepeatMode {
     ALL,
 }
 
+/**
+ * Truthful effective playback destination exposed by the service-owned Media3 Player.
+ * EXTERNAL_DISPLAY is retained for the Activity-owned Presentation path, while PlaybackConnection
+ * itself publishes LOCAL_DEVICE or CAST_DEVICE from Media3 DeviceInfo.
+ */
+enum class PlaybackTarget {
+    LOCAL_DEVICE,
+    CAST_DEVICE,
+    EXTERNAL_DISPLAY,
+}
+
 enum class ImplementationStatus {
     IMPLEMENTED,
     SHARED_IMPLEMENTATION,
@@ -92,6 +103,7 @@ data class PlaybackUiState(
     val mediaItemCount: Int = 0,
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val shuffleEnabled: Boolean = false,
+    val playbackTarget: PlaybackTarget = PlaybackTarget.LOCAL_DEVICE,
     val subtitles: SubtitlePlaybackState = SubtitlePlaybackState(),
     val decoder: DecoderSessionState = DecoderSessionState(),
     val network: NetworkDiagnostics = NetworkDiagnostics(),
