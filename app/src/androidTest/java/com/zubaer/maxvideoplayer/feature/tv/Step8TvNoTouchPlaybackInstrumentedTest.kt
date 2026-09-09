@@ -2,7 +2,6 @@ package com.zubaer.maxvideoplayer.feature.tv
 
 import android.content.res.Configuration
 import android.net.Uri
-import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.CompositionLocalProvider
@@ -180,6 +179,12 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             }
         }
 
+        fun dispatchBack() {
+            instrumentation.runOnMainSync {
+                compose.activity.onBackPressedDispatcher.onBackPressed()
+            }
+        }
+
         compose.waitForIdle()
         compose.onNodeWithTag("tv_destination_library").assertIsFocused().performKeyInput {
             keyDown(Key.Enter)
@@ -211,12 +216,15 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             val state = playbackConnection.state.value
             !state.isPlaying && state.currentPositionMs <= 500L && state.error == null
         }
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("tv_subtitle_button").assertIsFocused() }.isSuccess
+        }
 
-        // Hide controls first so the player root owns focus exactly as it does during normal
-        // full-screen TV viewing. Compose key injection then routes the hardware key through the
-        // focused hierarchy and PlayerScreen.onPreviewKeyEvent instead of relying on Android's
-        // system MediaSession dispatch to rediscover this isolated test Activity.
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        // KEYCODE_ESCAPE maps to the exact same semantic TvPlayerAction.BACK as a TV Back key.
+        // Inject it through the focused Compose hierarchy so this isolated host deterministically
+        // exercises PlayerScreen.onPreviewKeyEvent without Android redispatching a system key to
+        // another MediaSession/Activity.
+        pressFocused("tv_subtitle_button", Key.Escape)
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("tv_player_shortcuts").fetchSemanticsNode() }.isFailure
         }
@@ -253,7 +261,7 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
 
         // Certify the required TV policy explicitly: Back hides visible controls, the root regains
         // focus, and D-pad Up restores the shortcut strip with Subtitles focused.
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        pressFocused("tv_subtitle_button", Key.Escape)
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("tv_player_shortcuts").fetchSemanticsNode() }.isFailure
         }
@@ -272,7 +280,7 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("subtitle_dialog").fetchSemanticsNode() }.isSuccess
         }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        dispatchBack()
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("subtitle_dialog").fetchSemanticsNode() }.isFailure
         }
@@ -291,7 +299,7 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("professional_audio_panel").fetchSemanticsNode() }.isSuccess
         }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        dispatchBack()
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("professional_audio_panel").fetchSemanticsNode() }.isFailure
         }
@@ -312,18 +320,24 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("player_queue_dialog").fetchSemanticsNode() }.isSuccess
         }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        dispatchBack()
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("player_queue_dialog").fetchSemanticsNode() }.isFailure
+        }
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("tv_queue_button").assertIsFocused() }.isSuccess
         }
 
         // Back hierarchy: with no panel open, first Back hides controls and second Back exits the
         // player. The TV library then restores deterministic focus to the current video.
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        pressFocused("tv_queue_button", Key.Escape)
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("tv_player_shortcuts").fetchSemanticsNode() }.isFailure
         }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("player_root").assertIsFocused() }.isSuccess
+        }
+        pressFocused("player_root", Key.Escape)
         compose.waitUntil(5_000L) { stage.value == Stage.LIBRARY }
         compose.onNodeWithTag("tv_media_${media.stableId}").assertIsFocused()
     }
