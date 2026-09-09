@@ -293,7 +293,7 @@ class MainActivity : ComponentActivity() {
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     biometricCancellation = null
                     if (errorCode != android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED &&
-                        errorCode != android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON
+                        errorCode != android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_CANCELED
                     ) {
                         Toast.makeText(this@MainActivity, "Biometric unlock unavailable. Use PIN.", Toast.LENGTH_LONG).show()
                     }
