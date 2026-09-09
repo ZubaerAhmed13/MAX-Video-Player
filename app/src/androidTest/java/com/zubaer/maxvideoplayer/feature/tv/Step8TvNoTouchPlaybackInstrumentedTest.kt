@@ -55,9 +55,12 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
 
     @After
     fun tearDown() {
-        connection?.pause()
-        connection?.disconnect()
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            connection?.pause()
+            connection?.disconnect()
+        }
+        val context = instrumentation.targetContext
         context.stopService(android.content.Intent(context, PlaybackService::class.java))
         fixture?.delete()
     }
@@ -86,12 +89,12 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             sourceType = MediaSourceType.SAF,
         )
 
-        val playbackConnection = PlaybackConnection(
-            targetContext,
-            container.subtitleRepository,
-            container.networkDiagnosticsMonitor,
-        )
+        // MainActivity connects this same container-owned connection before rendering MaxApp.
+        // The isolated TV host mirrors that production lifecycle instead of creating a second
+        // MediaController that can race the service-owned session.
+        val playbackConnection = container.playbackConnection
         connection = playbackConnection
+        instrumentation.runOnMainSync { playbackConnection.connect() }
         val stage = mutableStateOf(Stage.HOME)
 
         val tvConfiguration = Configuration(targetContext.resources.configuration).apply {
