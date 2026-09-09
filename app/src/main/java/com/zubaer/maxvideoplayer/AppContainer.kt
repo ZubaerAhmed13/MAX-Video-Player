@@ -24,6 +24,15 @@ import com.zubaer.maxvideoplayer.feature.network.repository.NetworkLocationRepos
 import com.zubaer.maxvideoplayer.feature.network.repository.NetworkRepository
 import com.zubaer.maxvideoplayer.feature.network.security.CredentialVault
 import com.zubaer.maxvideoplayer.feature.player.PlayerPreferences
+import com.zubaer.maxvideoplayer.feature.privatevault.auth.AppLockController
+import com.zubaer.maxvideoplayer.feature.privatevault.auth.PrivateVaultAuthenticator
+import com.zubaer.maxvideoplayer.feature.privatevault.auth.PrivateVaultBiometricKeyManager
+import com.zubaer.maxvideoplayer.feature.privatevault.auth.PrivateVaultSession
+import com.zubaer.maxvideoplayer.feature.privatevault.datasource.PrivateVaultResolver
+import com.zubaer.maxvideoplayer.feature.privatevault.repository.PrivateVaultRepository
+import com.zubaer.maxvideoplayer.feature.privatevault.storage.PrivateVaultStorage
+import com.zubaer.maxvideoplayer.feature.settings.SettingsRepository
+import com.zubaer.maxvideoplayer.feature.sleeptimer.SleepTimerRepository
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 import com.zubaer.maxvideoplayer.feature.usb.RemovableStorageController
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
@@ -60,6 +69,28 @@ class AppContainer(context: Context) {
     val decoderRepository: DecoderRepository by lazy {
         DecoderRepository(database.decoderMediaStateDao(), playerPreferences)
     }
+
+    // Step 9 security/settings. One authoritative vault session owns in-memory master-secret state.
+    val settingsRepository: SettingsRepository by lazy { SettingsRepository(appContext) }
+    val privateVaultSession: PrivateVaultSession by lazy { PrivateVaultSession() }
+    val privateVaultAuthenticator: PrivateVaultAuthenticator by lazy {
+        PrivateVaultAuthenticator(appContext, privateVaultSession)
+    }
+    val privateVaultBiometricKeyManager: PrivateVaultBiometricKeyManager by lazy {
+        PrivateVaultBiometricKeyManager(appContext, privateVaultSession)
+    }
+    val appLockController: AppLockController by lazy {
+        AppLockController(settingsRepository, privateVaultAuthenticator, privateVaultSession)
+    }
+    val privateVaultStorage: PrivateVaultStorage by lazy { PrivateVaultStorage(appContext) }
+    val privateVaultResolver: PrivateVaultResolver by lazy {
+        PrivateVaultResolver(privateVaultSession, privateVaultStorage)
+    }
+    val privateVaultRepository: PrivateVaultRepository by lazy {
+        PrivateVaultRepository(appContext, database.privateMediaDao(), privateVaultStorage, privateVaultSession)
+    }
+    val sleepTimerRepository: SleepTimerRepository by lazy { SleepTimerRepository() }
+
     val playbackConnection: PlaybackConnection by lazy {
         PlaybackConnection(appContext, subtitleRepository, networkDiagnosticsMonitor)
     }
