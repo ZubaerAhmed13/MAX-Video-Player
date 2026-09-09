@@ -173,9 +173,8 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         }
 
         fun dispatchBack() {
-            instrumentation.runOnMainSync {
-                compose.activity.onBackPressedDispatcher.onBackPressed()
-            }
+            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            instrumentation.waitForIdleSync()
         }
 
         compose.waitForIdle()
