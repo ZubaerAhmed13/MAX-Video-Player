@@ -3,6 +3,6 @@
     <!-- Private Vault content lives in noBackupFilesDir and is excluded by platform semantics. -->
     <exclude domain="sharedpref" path="private_vault_auth_v1.xml" />
     <exclude domain="sharedpref" path="private_vault_biometric_v1.xml" />
-    <exclude domain="sharedpref" path="network_credentials.xml" />
-    <exclude domain="sharedpref" path="cloud_token_vault.xml" />
+    <exclude domain="sharedpref" path="network_credential_vault_v1.xml" />
+    <exclude domain="sharedpref" path="cloud_token_vault_v1.xml" />
 </full-backup-content>
