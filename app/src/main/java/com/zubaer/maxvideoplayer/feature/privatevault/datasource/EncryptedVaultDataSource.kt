@@ -28,9 +28,17 @@ class PrivateVaultResolver(
         val raw = uri.toString()
         val id = PrivateVaultIdentity.vaultId(raw) ?: throw IOException("Invalid private-vault URI")
         val uuid = runCatching { UUID.fromString(id) }.getOrElse { throw IOException("Invalid private-vault identity") }
-        val file = storage.containerFile(id)
-        if (!file.isFile) throw IOException("Private media is unavailable")
-        return Resolved(uuid, file, session.masterSecretCopy())
+        // Authenticate the vault session before probing whether an opaque container exists. This
+        // keeps locked callers from learning private-vault item existence through error differences.
+        val masterSecret = session.masterSecretCopy()
+        return try {
+            val file = storage.containerFile(id)
+            if (!file.isFile) throw IOException("Private media is unavailable")
+            Resolved(uuid, file, masterSecret)
+        } catch (error: Throwable) {
+            PrivateVaultCrypto.zero(masterSecret)
+            throw error
+        }
     }
 }
 
