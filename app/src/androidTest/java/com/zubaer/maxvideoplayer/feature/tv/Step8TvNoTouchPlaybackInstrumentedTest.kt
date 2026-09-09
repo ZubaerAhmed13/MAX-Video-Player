@@ -173,10 +173,10 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         }
 
         fun dispatchBack() {
-            // Dialog/panel windows own Android Back separately from the host Activity. Keep a real
-            // KEYCODE_BACK injection here so subtitle/audio/queue dismissal exercises that window
-            // path rather than bypassing it through the Activity dispatcher.
-            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            // Dialog/panel windows own Android Back separately from the host Activity. Espresso's
+            // pressBack targets the active focused Android window, avoiding process-global key
+            // delivery races while still exercising the real system Back path for each dialog.
+            androidx.test.espresso.Espresso.pressBack()
             instrumentation.waitForIdleSync()
         }
 
