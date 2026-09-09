@@ -1,5 +1,6 @@
 package com.zubaer.maxvideoplayer.feature.cast
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,11 +60,61 @@ class CastAdaptiveManifestRewriterTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun sensitive_child_query_is_never_copied_into_receiver_url() {
+    fun sensitive_child_query_withoutOpaqueMapper_is_never_copiedIntoReceiverUrl() {
         CastManifestRewriter.rewrite(
             "#EXTM3U\nhttps://media.example.test/segment.ts?access_token=secret\n",
             source,
             relay,
         )
+    }
+
+    @Test
+    fun signedHlsChild_isRewrittenToOpaqueReceiverReference_withoutSecretLeakage() {
+        var captured: URI? = null
+        val opaqueUrl = "$relay?r=0123456789abcdef01234567"
+
+        val output = CastManifestRewriter.rewrite(
+            "#EXTM3U\nsegment001.ts?token=SUPER_SECRET\n",
+            source,
+            relay,
+            opaqueReference = { original ->
+                captured = original
+                opaqueUrl
+            },
+        )
+
+        assertEquals("https://media.example.test/private/segment001.ts?token=SUPER_SECRET", captured.toString())
+        assertTrue(output.contains(opaqueUrl))
+        assertFalse(output.contains("SUPER_SECRET"))
+        assertFalse(output.contains("token="))
+        assertFalse(output.contains("media.example.test"))
+    }
+
+    @Test
+    fun signedDashTemplate_keepsSecretPhoneSide_andExposesOnlyOpaqueIdAndTemplateValue() {
+        val signedBase = URI("https://cdn.example.test/video/manifest.mpd?x-amz-signature=PHONE_ONLY")
+        val captured = mutableListOf<URI>()
+        val input = """
+            <MPD>
+              <SegmentTemplate media="chunk-${'$'}Number${'$'}.m4s?x-goog-signature=SECRET_SIG" />
+            </MPD>
+        """.trimIndent()
+
+        val output = CastManifestRewriter.rewrite(
+            input,
+            signedBase,
+            relay,
+            opaqueReference = { original ->
+                captured += original
+                "$relay?r=abcdefabcdefabcdefabcdef&v0=${'$'}Number${'$'}"
+            },
+        )
+
+        assertTrue(captured.single().toString().contains("x-goog-signature=SECRET_SIG"))
+        assertTrue(output.contains("r=abcdefabcdefabcdefabcdef"))
+        assertTrue(output.contains("${'$'}Number${'$'}"))
+        assertFalse(output.contains("SECRET_SIG"))
+        assertFalse(output.contains("x-goog-signature"))
+        assertFalse(output.contains("cdn.example.test"))
     }
 }
