@@ -144,6 +144,6 @@ class LocalPlaybackIntegrationTest {
 
     private companion object {
         const val FIXTURE_SIZE_BYTES = 1_609
-        const val FIXTURE_SHA256 = "bfc84c1d68e0c43336ba3c3e2103a95c732d96a7aa1ff1a8f6247bf7a0f3d22a"
+        const val FIXTURE_SHA256 = "f636bcf8f6bedbd668888db0e71a199c6b24f56e0c27b455d3d1725ab3165a69"
     }
 }
