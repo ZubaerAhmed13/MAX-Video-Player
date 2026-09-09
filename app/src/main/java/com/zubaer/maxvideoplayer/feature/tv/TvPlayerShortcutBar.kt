@@ -40,11 +40,13 @@ fun TvPlayerShortcutBar(
 ) {
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
-        // The normal player controls and this TV-only shortcut strip enter the hierarchy in the
-        // same composition. Wait until the next frame so both are attached, then make the TV row
-        // the deterministic D-pad destination instead of racing the generic overlay for focus.
-        withFrameNanos { }
-        firstFocus.requestFocus()
+        // The generic player overlay and this TV-only row are introduced by the same controls
+        // transition. Claim focus across the settling frames so a later AnimatedVisibility/layout
+        // pass cannot steal the D-pad destination back from the TV shortcut row.
+        repeat(3) {
+            withFrameNanos { }
+            firstFocus.requestFocus()
+        }
     }
 
     Row(
