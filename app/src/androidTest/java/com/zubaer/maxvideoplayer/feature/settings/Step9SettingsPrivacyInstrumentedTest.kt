@@ -1,8 +1,11 @@
 package com.zubaer.maxvideoplayer.feature.settings
 
 import android.content.Context
+import android.graphics.Color
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleEdgeStyle
+import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -65,5 +68,29 @@ class Step9SettingsPrivacyInstrumentedTest {
         val result = repository.parseImport(ByteArrayInputStream(oversized))
         assertTrue(result is SettingsImportResult.Failure)
         assertEquals(before, repository.state.value)
+    }
+
+    @Test
+    fun systemCaptionBridgePreservesAndRestoresMaxCustomSubtitleStyle() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("subtitle_preferences_v1", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("step9_system_caption_bridge_v1", Context.MODE_PRIVATE).edit().clear().commit()
+        val subtitles = SubtitleRepository(context)
+        subtitles.setTextScale(1.25f)
+        subtitles.setForegroundColor(Color.YELLOW)
+        subtitles.setBackgroundColor(Color.DKGRAY)
+        subtitles.setEdgeStyle(SubtitleEdgeStyle.DROP_SHADOW)
+        val original = subtitles.style.value
+
+        assertTrue(SystemCaptionStyleBridge.apply(context, subtitles, true))
+        assertTrue(subtitles.style.value.useSystemCaptionStyle)
+
+        assertTrue(SystemCaptionStyleBridge.apply(context, subtitles, false))
+        val restored = subtitles.style.value
+        assertFalse(restored.useSystemCaptionStyle)
+        assertEquals(original.textScale, restored.textScale, 0.001f)
+        assertEquals(original.foregroundColor, restored.foregroundColor)
+        assertEquals(original.backgroundColor, restored.backgroundColor)
+        assertEquals(original.edgeStyle, restored.edgeStyle)
     }
 }
