@@ -105,11 +105,42 @@ class ProfessionalAudioIntegrationTest {
                 }
             })
 
-            val secondTrack = embedded[1]
-            instrumentation.runOnMainSync { controller.selectTrack(secondTrack.key) }
+            // Build the controller key from Media3's live topology after Auto-language policy has
+            // settled. Repository track keys are a UI projection of group/track indices and may be
+            // from the preceding onTracksChanged publication when the full instrumentation suite is
+            // under load; reusing such a stale key would test cache timing rather than track selection.
+            val manualTarget = onMain(instrumentation) {
+                val player = connection.playerOrNull() ?: return@onMain null
+                var target: Pair<Int, Int>? = null
+                player.currentTracks.groups.forEachIndexed { groupIndex, group ->
+                    if (target == null && group.type == C.TRACK_TYPE_AUDIO && !isExternalMedia3Group(group)) {
+                        for (trackIndex in 0 until group.length) {
+                            if (group.isTrackSupported(trackIndex) && !group.isTrackSelected(trackIndex)) {
+                                target = groupIndex to trackIndex
+                                break
+                            }
+                        }
+                    }
+                }
+                target
+            }
+            assertNotNull("Media3 did not expose an alternate supported embedded audio track", manualTarget)
+            val manualGroupIndex = manualTarget!!.first
+            val manualTrackIndex = manualTarget.second
+            val manualTrackKey = "g${manualGroupIndex}t${manualTrackIndex}"
+            instrumentation.runOnMainSync { controller.selectTrack(manualTrackKey) }
+            assertTrue("Manual embedded audio selection mode was not persisted", await(5_000L) {
+                audio.state.value.selectionMode == AudioSelectionMode.MANUAL
+            })
             assertTrue("Manual embedded audio selection did not reach Media3", await(5_000L) {
-                audio.state.value.selectionMode == AudioSelectionMode.MANUAL &&
-                    audio.state.value.tracks.any { it.key == secondTrack.key && it.selected }
+                onMain(instrumentation) {
+                    connection.playerOrNull()?.currentTracks?.groups?.getOrNull(manualGroupIndex)?.let { group ->
+                        group.type == C.TRACK_TYPE_AUDIO &&
+                            !isExternalMedia3Group(group) &&
+                            manualTrackIndex in 0 until group.length &&
+                            group.isTrackSelected(manualTrackIndex)
+                    } == true
+                }
             })
 
             instrumentation.runOnMainSync {
