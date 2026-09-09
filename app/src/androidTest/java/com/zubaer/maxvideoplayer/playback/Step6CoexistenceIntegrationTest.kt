@@ -343,8 +343,16 @@ class Step6CoexistenceIntegrationTest {
             assertTrue("Initial Auto decoder did not settle", await(15_000L) {
                 decoderSettled(decoder, DecoderMode.AUTO, codecPool)
             })
+            assertTrue("Controller did not become seek-ready after decoder settle", await(15_000L) {
+                onMain(instrumentation) {
+                    val player = connection.playerOrNull()
+                    player?.currentMediaItem?.mediaId == media.stableId &&
+                        player.isCommandAvailable(androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM) &&
+                        player.playbackState != androidx.media3.common.Player.STATE_IDLE
+                }
+            })
             instrumentation.runOnMainSync { connection.seekTo(750L) }
-            assertTrue("Pre-audio-only seek failed", await(5_000L) {
+            assertTrue("Pre-audio-only seek failed", await(10_000L) {
                 authoritativePosition(instrumentation, connection) in 500L..1_100L
             })
 

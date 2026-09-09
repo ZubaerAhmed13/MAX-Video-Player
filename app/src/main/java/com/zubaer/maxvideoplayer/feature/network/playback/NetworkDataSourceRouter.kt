@@ -8,6 +8,8 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudDataSource
+import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudPlaybackRegistry
 import com.zubaer.maxvideoplayer.feature.network.protocol.ftp.FtpProtocolClient
 import com.zubaer.maxvideoplayer.feature.network.protocol.http.NetworkHttpClientFactory
 import com.zubaer.maxvideoplayer.feature.network.protocol.smb.SmbProtocolClient
@@ -17,21 +19,23 @@ class NetworkDataSourceRouter private constructor(
     private val localFactory: DataSource.Factory,
     private val httpFactory: DataSource.Factory,
     private val registry: NetworkRequestRegistry,
+    private val cloudRegistry: CloudPlaybackRegistry,
     private val smbClient: SmbProtocolClient,
     private val ftpClient: FtpProtocolClient,
 ) : DataSource {
     class Factory(
         context: Context,
         private val registry: NetworkRequestRegistry,
+        private val cloudRegistry: CloudPlaybackRegistry = CloudPlaybackRegistry(),
     ) : DataSource.Factory {
         private val appContext = context.applicationContext
         private val http = OkHttpDataSource.Factory(NetworkHttpClientFactory.create(registry))
-            .setUserAgent("MAXVideoPlayer/0.7 Android")
+            .setUserAgent("MAXVideoPlayer/0.8 Android")
         private val local = DefaultDataSource.Factory(appContext, http)
         private val smb = SmbProtocolClient()
         private val ftp = FtpProtocolClient()
 
-        override fun createDataSource(): DataSource = NetworkDataSourceRouter(local, http, registry, smb, ftp)
+        override fun createDataSource(): DataSource = NetworkDataSourceRouter(local, http, registry, cloudRegistry, smb, ftp)
     }
 
     private val listeners = mutableListOf<TransferListener>()
@@ -52,6 +56,7 @@ class NetworkDataSourceRouter private constructor(
             }
             "maxsmb" -> SmbDataSource(registry, smbClient)
             "ftp", "ftps" -> FtpDataSource(registry, ftpClient)
+            "maxcloud" -> CloudDataSource.Factory(cloudRegistry).createDataSource()
             else -> localFactory.createDataSource()
         }
         listeners.forEach(source::addTransferListener)

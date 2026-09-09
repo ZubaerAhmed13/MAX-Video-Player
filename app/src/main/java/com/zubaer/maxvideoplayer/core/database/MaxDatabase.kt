@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.zubaer.maxvideoplayer.feature.cloud.persistence.CloudAccountDao
+import com.zubaer.maxvideoplayer.feature.cloud.persistence.CloudAccountEntity
 import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateDao
 import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateEntity
 
@@ -26,8 +28,9 @@ import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateEn
         AudioMediaStateEntity::class,
         DecoderMediaStateEntity::class,
         NetworkLocationEntity::class,
+        CloudAccountEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class MaxDatabase : RoomDatabase() {
@@ -43,6 +46,7 @@ abstract class MaxDatabase : RoomDatabase() {
     abstract fun audioDao(): AudioDao
     abstract fun decoderMediaStateDao(): DecoderMediaStateDao
     abstract fun networkLocationDao(): NetworkLocationDao
+    abstract fun cloudAccountDao(): CloudAccountDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -95,9 +99,23 @@ abstract class MaxDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `cloud_accounts` (`id` TEXT NOT NULL, `provider` TEXT NOT NULL, `providerAccountId` TEXT NOT NULL, `displayName` TEXT NOT NULL, `emailHint` TEXT, `authReference` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `lastUsedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_cloud_accounts_provider_providerAccountId` ON `cloud_accounts` (`provider`, `providerAccountId`)")
+            }
+        }
+
         fun create(context: Context): MaxDatabase =
             Room.databaseBuilder(context, MaxDatabase::class.java, "max-video-player.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                )
                 .build()
     }
 }

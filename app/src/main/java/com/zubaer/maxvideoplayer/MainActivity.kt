@@ -16,6 +16,7 @@ import androidx.lifecycle.lifecycleScope
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.feature.audio.BackgroundPlaybackMode
+import com.zubaer.maxvideoplayer.feature.output.ExternalDisplayController
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerInteractionPolicy
 import com.zubaer.maxvideoplayer.feature.player.PlayerOrientationPolicy
@@ -25,6 +26,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val externalMedia = MutableStateFlow<AppMedia?>(null)
     private val container: AppContainer get() = (application as MaxVideoPlayerApplication).container
+    private lateinit var externalDisplayController: ExternalDisplayController
     private var currentPipMedia: AppMedia? = null
     private var autoPipEnabled: Boolean = false
     private var audioBackgroundMode: BackgroundPlaybackMode = BackgroundPlaybackMode.CONTINUE_AUDIO
@@ -34,11 +36,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         container.playbackConnection.connect()
+        externalDisplayController = ExternalDisplayController(this, container.playbackConnection)
         handleViewIntent(intent)
         setContent {
             val pending by externalMedia.collectAsStateWithLifecycle()
             MaxApp(
                 container = container,
+                externalDisplayController = externalDisplayController,
                 externalMedia = pending,
                 onExternalConsumed = { externalMedia.value = null },
                 persistUriPermission = ::persistUriPermission,
@@ -53,26 +57,28 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Foreground entry always clears the lifecycle-only suppression flag. This is safe even
-        // when the user deliberately selected audio-only mode because the controller combines
-        // both policies and keeps user audio-only authoritative.
+        container.removableStorageController.start()
+        externalDisplayController.start()
+        externalDisplayController.refreshPlayerBinding()
         container.audioPlaybackController.setBackgroundVideoDisabled(false)
         backgroundVideoSuppressed = false
     }
 
     override fun onStop() {
+        container.removableStorageController.stop()
         if (!isChangingConfigurations && currentPipMedia != null && !isPipActive()) {
             when (audioBackgroundMode) {
                 BackgroundPlaybackMode.PAUSE -> container.playbackConnection.pause()
                 BackgroundPlaybackMode.CONTINUE_AUDIO -> suppressVideoForBackgroundIfRequested()
-                BackgroundPlaybackMode.PIP_WHEN_POSSIBLE -> {
-                    // onUserLeaveHint requests PiP first. If PiP cannot be entered, preserve the
-                    // service/session and continue audio rather than stopping unexpectedly.
-                    suppressVideoForBackgroundIfRequested()
-                }
+                BackgroundPlaybackMode.PIP_WHEN_POSSIBLE -> suppressVideoForBackgroundIfRequested()
             }
         }
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        if (::externalDisplayController.isInitialized) externalDisplayController.stop()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -105,6 +111,14 @@ class MainActivity : ComponentActivity() {
     private fun handleViewIntent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
+        if (uri.scheme.equals("maxvideoplayer", ignoreCase = true) && uri.host.equals("oauth", ignoreCase = true)) {
+            lifecycleScope.launch {
+                runCatching { container.cloudOAuthCoordinator.handleRedirect(uri) }
+                // CloudBrowser observes coordinator state and account Room flow; no raw token or
+                // OAuth code is copied into Activity state or logs.
+            }
+            return
+        }
         lifecycleScope.launch {
             val source = if (uri.scheme == "http" || uri.scheme == "https" || uri.scheme == "rtsp") MediaSourceType.NETWORK else MediaSourceType.SAF
             externalMedia.value = if (source == MediaSourceType.NETWORK) {
@@ -132,8 +146,7 @@ class MainActivity : ComponentActivity() {
     internal fun enterPip(media: AppMedia) {
         if (Build.VERSION.SDK_INT < 26 || isInPictureInPictureMode) return
         val (width, height) = PlayerInteractionPolicy.pipRatio(media.width, media.height, media.rotationDegrees)
-        val builder = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(width, height))
+        val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(width, height))
         if (Build.VERSION.SDK_INT >= 31) builder.setSeamlessResizeEnabled(true)
         enterPictureInPictureMode(builder.build())
     }
@@ -141,6 +154,7 @@ class MainActivity : ComponentActivity() {
     internal fun setPlayerHostState(media: AppMedia?, autoPip: Boolean) {
         currentPipMedia = media
         autoPipEnabled = media != null && autoPip
+        if (::externalDisplayController.isInitialized) externalDisplayController.refreshPlayerBinding()
     }
 
     internal fun setAudioBackgroundPolicy(mode: BackgroundPlaybackMode, disableVideo: Boolean) {
