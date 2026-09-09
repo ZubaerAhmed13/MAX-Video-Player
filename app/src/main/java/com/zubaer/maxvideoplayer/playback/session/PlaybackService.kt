@@ -16,6 +16,9 @@ import com.zubaer.maxvideoplayer.feature.cast.CastTransferEndpoint
 import com.zubaer.maxvideoplayer.feature.cast.CastTransferStatePolicy
 import com.zubaer.maxvideoplayer.feature.cast.SecureCastMediaItemConverter
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
+import com.zubaer.maxvideoplayer.feature.privatevault.PrivateVaultIdentity
+import com.zubaer.maxvideoplayer.feature.privatevault.PrivateVaultState
+import com.zubaer.maxvideoplayer.feature.sleeptimer.SleepTimerController
 import com.zubaer.maxvideoplayer.playback.engine.Media3PlaybackEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +26,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -34,6 +38,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var castMediaItemConverter: SecureCastMediaItemConverter
     private lateinit var mediaSession: MediaSession
     private lateinit var routeMonitor: AudioRouteMonitor
+    private lateinit var sleepTimerController: SleepTimerController
     private val transferContinuityMonitor = CastTransferContinuityMonitor()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var persistenceJob: Job? = null
@@ -69,7 +74,7 @@ class PlaybackService : MediaSessionService() {
                 decoderActivatedMediaId = mediaId
                 container.decoderRepository.activateMedia(mediaId)
             }
-            if (mediaItem != null) container.audioRepository.refreshExternalAvailability(mediaItem.mediaId)
+            if (mediaItem != null && !isPrivate(mediaItem)) container.audioRepository.refreshExternalAvailability(mediaItem.mediaId)
             persistCurrent()
         }
 
@@ -97,16 +102,10 @@ class PlaybackService : MediaSessionService() {
             container.decoderRepository,
             container.networkRequestRegistry,
             container.cloudPlaybackRegistry,
+            container.privateVaultResolver,
         )
-        castRelayManager = CastRelayManager(
-            this,
-            container.networkRequestRegistry,
-            container.cloudPlaybackRegistry,
-        )
-        castMediaItemConverter = SecureCastMediaItemConverter(
-            castRelayManager,
-            container.networkRequestRegistry,
-        )
+        castRelayManager = CastRelayManager(this, container.networkRequestRegistry, container.cloudPlaybackRegistry)
+        castMediaItemConverter = SecureCastMediaItemConverter(castRelayManager, container.networkRequestRegistry)
         val remoteCastPlayer = RemoteCastPlayer.Builder(this)
             .setMediaItemConverter(castMediaItemConverter)
             .build()
@@ -125,7 +124,20 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         }
+        // Lock is authoritative even if UI remains composed: stop private playback and remove its
+        // session metadata/queue immediately when the vault ceases to be unlocked.
+        serviceScope.launch {
+            container.privateVaultSession.state.collect { state ->
+                if (state != PrivateVaultState.UNLOCKED) clearPrivatePlaybackIfActive()
+            }
+        }
         routeMonitor = AudioRouteMonitor(this, container.audioRepository::setRoute).also { it.start() }
+        sleepTimerController = SleepTimerController(
+            player = castPlayer,
+            repository = container.sleepTimerRepository,
+            scope = serviceScope,
+            fadeDuration = { container.settingsRepository.state.value.sleepFadeDuration },
+        )
         mediaSession = MediaSession.Builder(this, castPlayer).build()
     }
 
@@ -139,6 +151,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         persistCurrent()
         persistenceJob?.cancel()
+        if (::sleepTimerController.isInitialized) sleepTimerController.release()
         if (::routeMonitor.isInitialized) routeMonitor.stop()
         if (::castPlayer.isInitialized) castPlayer.removeListener(listener)
         if (::mediaSession.isInitialized) mediaSession.release()
@@ -163,9 +176,7 @@ class PlaybackService : MediaSessionService() {
         if (!player.isCommandAvailable(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)) return
         val endpoint = if (player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
             CastTransferEndpoint.REMOTE
-        } else {
-            CastTransferEndpoint.LOCAL
-        }
+        } else CastTransferEndpoint.LOCAL
         transferContinuityMonitor.observe(endpoint, CastTransferStatePolicy.snapshot(player))
     }
 
@@ -175,21 +186,35 @@ class PlaybackService : MediaSessionService() {
         else -> null
     }
 
+    private fun clearPrivatePlaybackIfActive() {
+        val player = authoritativePlayerOrNull() ?: return
+        val item = player.currentMediaItem ?: return
+        if (!isPrivate(item)) return
+        player.pause()
+        if (player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) player.clearMediaItems()
+        persistenceJob?.cancel()
+        persistenceJob = null
+    }
+
     private fun persistCurrent() {
         val player = authoritativePlayerOrNull() ?: return
         val item = player.currentMediaItem ?: return
         val rawUri = item.localConfiguration?.uri?.toString() ?: return
+        val privateMedia = PrivateVaultIdentity.isPrivateUri(rawUri)
         val uri = if (rawUri.substringBefore(':').lowercase() in setOf("http", "https", "rtsp", "ftp", "ftps", "maxsmb")) {
             NetworkUriPolicy.persistenceSafeUri(rawUri)
         } else rawUri
         val mediaId = item.mediaId.takeIf { it.isNotBlank() } ?: return
         val duration = player.duration.takeIf { it > 0L } ?: 0L
         val position = player.currentPosition.coerceAtLeast(0L)
-        val title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { uri }
+        val title = if (privateMedia) "Private media" else item.mediaMetadata.title?.toString().orEmpty().ifBlank { uri }
         val mime = item.localConfiguration?.mimeType
         val repository = (application as MaxVideoPlayerApplication).container.historyRepository
         serviceScope.launch(Dispatchers.IO) {
             repository.recordSnapshot(mediaId, uri, title, position, duration, mime)
         }
     }
+
+    private fun isPrivate(item: MediaItem): Boolean =
+        PrivateVaultIdentity.isPrivateUri(item.localConfiguration?.uri?.toString()) || PrivateVaultIdentity.isPrivateUri(item.mediaId)
 }
