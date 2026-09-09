@@ -179,10 +179,14 @@ class PrivateVaultRepository(
         }
     }
 
+    /**
+     * MediaSession-facing representation is deliberately generic. Decrypted names remain confined
+     * to the unlocked vault UI and never become notification, history, recents, Cast or PiP metadata.
+     */
     fun toAppMedia(item: PrivateVaultItem): AppMedia = AppMedia(
         stableId = item.stableUri,
         uri = item.stableUri,
-        title = item.metadata.title,
+        title = "Private media",
         mimeType = item.metadata.mimeType,
         durationMs = item.metadata.durationMs,
         sizeBytes = item.originalSizeBytes,
