@@ -12,11 +12,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -39,15 +43,25 @@ fun TvPlayerShortcutBar(
     modifier: Modifier = Modifier,
 ) {
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(firstFocus) {
-        // Controls can become visible while the generic overlay is still completing its first
-        // layout/animation pass. A one-shot request (or a fixed handful of unconditional
-        // requests) is vulnerable to that timing on slower TV/emulator frames. Retry only until
-        // the focus system accepts the request; once accepted we stop immediately so subsequent
-        // user D-pad navigation is never pulled back to Subtitles.
-        repeat(30) {
+    var firstShortcutFocused by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        // The generic animated player overlay and this TV-only shortcut strip are restored by the
+        // same controls-visible transition. A request can be accepted and then be displaced by a
+        // later overlay layout/focus pass, so "requestFocus() == true" alone is not a sufficient
+        // hand-off guarantee. Keep reclaiming the first shortcut until it has actually remained
+        // focused across several consecutive frames. Then stop permanently for this bar instance
+        // so subsequent user D-pad navigation is never pulled back to Subtitles.
+        var stableFocusedFrames = 0
+        repeat(60) {
             withFrameNanos { }
-            if (firstFocus.requestFocus()) return@LaunchedEffect
+            if (firstShortcutFocused) {
+                stableFocusedFrames += 1
+                if (stableFocusedFrames >= 6) return@LaunchedEffect
+            } else {
+                stableFocusedFrames = 0
+                firstFocus.requestFocus()
+            }
         }
     }
 
@@ -64,6 +78,7 @@ fun TvPlayerShortcutBar(
             onClick = onSubtitles,
             modifier = Modifier
                 .focusRequester(firstFocus)
+                .onFocusChanged { firstShortcutFocused = it.isFocused }
                 .testTag("tv_subtitle_button")
                 .semantics { contentDescription = "TV subtitles" },
         ) { Text("Subtitles") }
