@@ -13,6 +13,8 @@ import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudPlaybackRegistry
 import com.zubaer.maxvideoplayer.feature.network.protocol.ftp.FtpProtocolClient
 import com.zubaer.maxvideoplayer.feature.network.protocol.http.NetworkHttpClientFactory
 import com.zubaer.maxvideoplayer.feature.network.protocol.smb.SmbProtocolClient
+import com.zubaer.maxvideoplayer.feature.privatevault.datasource.EncryptedVaultDataSource
+import com.zubaer.maxvideoplayer.feature.privatevault.datasource.PrivateVaultResolver
 
 @UnstableApi
 class NetworkDataSourceRouter private constructor(
@@ -22,20 +24,30 @@ class NetworkDataSourceRouter private constructor(
     private val cloudRegistry: CloudPlaybackRegistry,
     private val smbClient: SmbProtocolClient,
     private val ftpClient: FtpProtocolClient,
+    private val privateVaultResolver: PrivateVaultResolver?,
 ) : DataSource {
     class Factory(
         context: Context,
         private val registry: NetworkRequestRegistry,
         private val cloudRegistry: CloudPlaybackRegistry = CloudPlaybackRegistry(),
+        private val privateVaultResolver: PrivateVaultResolver? = null,
     ) : DataSource.Factory {
         private val appContext = context.applicationContext
         private val http = OkHttpDataSource.Factory(NetworkHttpClientFactory.create(registry))
-            .setUserAgent("MAXVideoPlayer/0.8 Android")
+            .setUserAgent("MAXVideoPlayer/0.9 Android")
         private val local = DefaultDataSource.Factory(appContext, http)
         private val smb = SmbProtocolClient()
         private val ftp = FtpProtocolClient()
 
-        override fun createDataSource(): DataSource = NetworkDataSourceRouter(local, http, registry, cloudRegistry, smb, ftp)
+        override fun createDataSource(): DataSource = NetworkDataSourceRouter(
+            local,
+            http,
+            registry,
+            cloudRegistry,
+            smb,
+            ftp,
+            privateVaultResolver,
+        )
     }
 
     private val listeners = mutableListOf<TransferListener>()
@@ -57,6 +69,9 @@ class NetworkDataSourceRouter private constructor(
             "maxsmb" -> SmbDataSource(registry, smbClient)
             "ftp", "ftps" -> FtpDataSource(registry, ftpClient)
             "maxcloud" -> CloudDataSource.Factory(cloudRegistry).createDataSource()
+            "maxvault" -> EncryptedVaultDataSource.Factory(
+                privateVaultResolver ?: throw java.io.IOException("Private Vault resolver is unavailable"),
+            ).createDataSource()
             else -> localFactory.createDataSource()
         }
         listeners.forEach(source::addTransferListener)
