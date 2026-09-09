@@ -70,6 +70,7 @@ import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleStyleState
 import com.zubaer.maxvideoplayer.feature.tv.TvPlayerAction
 import com.zubaer.maxvideoplayer.feature.tv.TvPlayerInputController
+import com.zubaer.maxvideoplayer.feature.tv.TvPlayerShortcutBar
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
@@ -84,6 +85,7 @@ fun PlayerScreen(
     onFullscreenChanged: (Boolean) -> Unit,
     onOrientationModeChanged: (OrientationMode) -> Unit,
     onPlayerHostStateChanged: (AppMedia?, Boolean) -> Unit,
+    onAudioControls: (() -> Unit)? = null,
 ) {
     val coordinator by viewModel.state.collectAsStateWithLifecycle()
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
@@ -99,6 +101,7 @@ fun PlayerScreen(
     val localVideoProcessingAvailable = playback.playbackTarget != PlaybackTarget.CAST_DEVICE
     val tvFocusRequester = remember { FocusRequester() }
     var subtitleDialogVisible by remember { mutableStateOf(false) }
+    var queueDialogVisible by remember { mutableStateOf(false) }
     var subtitleLoadError by remember { mutableStateOf<String?>(null) }
     var touchExploration by remember(accessibilityManager) {
         mutableStateOf(accessibilityManager.isEnabled && accessibilityManager.isTouchExplorationEnabled)
@@ -142,8 +145,8 @@ fun PlayerScreen(
     LaunchedEffect(coordinator.preferences.autoPip, currentMedia.stableId) {
         onPlayerHostStateChanged(currentMedia, coordinator.preferences.autoPip)
     }
-    LaunchedEffect(isTelevision) {
-        if (isTelevision) tvFocusRequester.requestFocus()
+    LaunchedEffect(isTelevision, coordinator.controlsVisible) {
+        if (isTelevision && !coordinator.controlsVisible) tvFocusRequester.requestFocus()
     }
     LaunchedEffect(localVideoProcessingAvailable, coordinator.activeMenu) {
         if (!localVideoProcessingAvailable && coordinator.activeMenu in setOf(PlayerMenu.DECODER, PlayerMenu.DISPLAY)) {
@@ -163,6 +166,7 @@ fun PlayerScreen(
     fun handlePlayerBack() {
         when {
             subtitleLoadError != null -> subtitleLoadError = null
+            queueDialogVisible -> queueDialogVisible = false
             subtitleDialogVisible -> subtitleDialogVisible = false
             coordinator.resumePositionMs != null -> onBack()
             coordinator.tutorialVisible -> viewModel.dismissTutorial()
@@ -470,6 +474,21 @@ fun PlayerScreen(
             },
         )
 
+        if (isTelevision && coordinator.controlsVisible && !coordinator.controlsLocked && !coordinator.tutorialVisible && coordinator.resumePositionMs == null) {
+            TvPlayerShortcutBar(
+                localVideoProcessingAvailable = localVideoProcessingAvailable,
+                onSubtitles = {
+                    viewModel.showControls()
+                    subtitleDialogVisible = true
+                },
+                onAudio = onAudioControls,
+                onDecoder = { if (localVideoProcessingAvailable) viewModel.openMenu(PlayerMenu.DECODER) },
+                onQueue = { queueDialogVisible = true },
+                onSettings = { viewModel.openMenu(PlayerMenu.SETTINGS) },
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 54.dp),
+            )
+        }
+
         PlayerDialogs(
             coordinator = coordinator,
             playback = playback,
@@ -503,6 +522,15 @@ fun PlayerScreen(
             onShowTutorial = viewModel::showTutorial,
             onDismissTutorial = viewModel::dismissTutorial,
         )
+
+        if (queueDialogVisible) {
+            PlayerQueueDialog(
+                playback = playback,
+                onDismiss = { queueDialogVisible = false },
+                onPrevious = playbackConnection::seekToPrevious,
+                onNext = playbackConnection::seekToNext,
+            )
+        }
 
         if (subtitleDialogVisible) {
             SubtitleDialog(
