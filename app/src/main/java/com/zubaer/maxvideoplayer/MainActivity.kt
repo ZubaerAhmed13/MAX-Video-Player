@@ -5,9 +5,12 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.util.Rational
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
@@ -20,6 +23,7 @@ import com.zubaer.maxvideoplayer.feature.output.ExternalDisplayController
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerInteractionPolicy
 import com.zubaer.maxvideoplayer.feature.player.PlayerOrientationPolicy
+import com.zubaer.maxvideoplayer.feature.privatevault.auth.BiometricPreparation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -32,6 +36,8 @@ class MainActivity : ComponentActivity() {
     private var audioBackgroundMode: BackgroundPlaybackMode = BackgroundPlaybackMode.CONTINUE_AUDIO
     private var disableVideoInBackground: Boolean = false
     private var backgroundVideoSuppressed: Boolean = false
+    private var privateSecureSurfaceActive: Boolean = false
+    private var biometricCancellation: CancellationSignal? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,12 +57,16 @@ class MainActivity : ComponentActivity() {
                 onOrientationModeChanged = ::setOrientationMode,
                 onPlayerHostStateChanged = ::setPlayerHostState,
                 onAudioBackgroundPolicyChanged = ::setAudioBackgroundPolicy,
+                onPrivateSurfaceChanged = ::setPrivateSurfaceProtected,
+                onBiometricUnlock = ::requestBiometricUnlock,
+                onBiometricEnroll = ::requestBiometricEnrollment,
             )
         }
     }
 
     override fun onStart() {
         super.onStart()
+        container.appLockController.onForeground()
         container.removableStorageController.start()
         externalDisplayController.start()
         externalDisplayController.refreshPlayerBinding()
@@ -66,17 +76,29 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         container.removableStorageController.stop()
+        if (!isChangingConfigurations) {
+            container.appLockController.onBackground()
+            // Vault key material never survives a real background transition. This remains true
+            // even when the user elects to allow screenshots on ordinary/private screens.
+            container.privateVaultSession.lock()
+        }
         if (!isChangingConfigurations && currentPipMedia != null && !isPipActive()) {
-            when (audioBackgroundMode) {
-                BackgroundPlaybackMode.PAUSE -> container.playbackConnection.pause()
-                BackgroundPlaybackMode.CONTINUE_AUDIO -> suppressVideoForBackgroundIfRequested()
-                BackgroundPlaybackMode.PIP_WHEN_POSSIBLE -> suppressVideoForBackgroundIfRequested()
+            if (currentPipMedia?.sourceType == MediaSourceType.PRIVATE) {
+                container.playbackConnection.pause()
+            } else {
+                when (audioBackgroundMode) {
+                    BackgroundPlaybackMode.PAUSE -> container.playbackConnection.pause()
+                    BackgroundPlaybackMode.CONTINUE_AUDIO -> suppressVideoForBackgroundIfRequested()
+                    BackgroundPlaybackMode.PIP_WHEN_POSSIBLE -> suppressVideoForBackgroundIfRequested()
+                }
             }
         }
         super.onStop()
     }
 
     override fun onDestroy() {
+        biometricCancellation?.cancel()
+        biometricCancellation = null
         if (::externalDisplayController.isInitialized) externalDisplayController.stop()
         super.onDestroy()
     }
@@ -90,6 +112,11 @@ class MainActivity : ComponentActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         val media = currentPipMedia ?: return
+        if (media.sourceType == MediaSourceType.PRIVATE) {
+            container.playbackConnection.pause()
+            container.privateVaultSession.lock()
+            return
+        }
         val shouldEnterPip = autoPipEnabled || audioBackgroundMode == BackgroundPlaybackMode.PIP_WHEN_POSSIBLE
         if (shouldEnterPip && Build.VERSION.SDK_INT >= 26 && !isInPictureInPictureMode) {
             enterPip(media)
@@ -114,8 +141,6 @@ class MainActivity : ComponentActivity() {
         if (uri.scheme.equals("maxvideoplayer", ignoreCase = true) && uri.host.equals("oauth", ignoreCase = true)) {
             lifecycleScope.launch {
                 runCatching { container.cloudOAuthCoordinator.handleRedirect(uri) }
-                // CloudBrowser observes coordinator state and account Room flow; no raw token or
-                // OAuth code is copied into Activity state or logs.
             }
             return
         }
@@ -144,6 +169,7 @@ class MainActivity : ComponentActivity() {
     }
 
     internal fun enterPip(media: AppMedia) {
+        if (media.sourceType == MediaSourceType.PRIVATE) return
         if (Build.VERSION.SDK_INT < 26 || isInPictureInPictureMode) return
         val (width, height) = PlayerInteractionPolicy.pipRatio(media.width, media.height, media.rotationDegrees)
         val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(width, height))
@@ -153,7 +179,10 @@ class MainActivity : ComponentActivity() {
 
     internal fun setPlayerHostState(media: AppMedia?, autoPip: Boolean) {
         currentPipMedia = media
-        autoPipEnabled = media != null && autoPip
+        autoPipEnabled = media != null && media.sourceType != MediaSourceType.PRIVATE && autoPip
+        if (media?.sourceType == MediaSourceType.PRIVATE && ::externalDisplayController.isInitialized) {
+            externalDisplayController.returnToPhone()
+        }
         if (::externalDisplayController.isInitialized) externalDisplayController.refreshPlayerBinding()
     }
 
@@ -187,5 +216,89 @@ class MainActivity : ComponentActivity() {
                     android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             } else 0
         }
+    }
+
+    internal fun setPrivateSurfaceProtected(enabled: Boolean) {
+        if (privateSecureSurfaceActive == enabled) return
+        privateSecureSurfaceActive = enabled
+        if (enabled) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    private fun requestBiometricEnrollment() {
+        when (val preparation = container.privateVaultBiometricKeyManager.prepareEnrollment()) {
+            is BiometricPreparation.Ready -> showBiometricPrompt(
+                title = "Enable biometric unlock",
+                cipher = preparation.cipher,
+                onSuccess = { authenticatedCipher ->
+                    if (container.privateVaultBiometricKeyManager.completeEnrollment(authenticatedCipher)) {
+                        container.settingsRepository.setBiometricUnlockEnabled(true)
+                        Toast.makeText(this, "Biometric unlock enabled", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "Biometric unlock could not be enabled. PIN remains available.", Toast.LENGTH_LONG).show()
+                    }
+                },
+            )
+            is BiometricPreparation.Unavailable -> Toast.makeText(this, preparation.reason, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun requestBiometricUnlock() {
+        when (val preparation = container.privateVaultBiometricKeyManager.prepareUnlock()) {
+            is BiometricPreparation.Ready -> showBiometricPrompt(
+                title = "Unlock Private Vault",
+                cipher = preparation.cipher,
+                onSuccess = { authenticatedCipher ->
+                    if (!container.privateVaultBiometricKeyManager.completeUnlock(authenticatedCipher)) {
+                        Toast.makeText(this, "Biometric unlock failed. Use PIN.", Toast.LENGTH_LONG).show()
+                    }
+                },
+            )
+            is BiometricPreparation.Unavailable -> Toast.makeText(this, preparation.reason, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun showBiometricPrompt(
+        title: String,
+        cipher: javax.crypto.Cipher,
+        onSuccess: (javax.crypto.Cipher) -> Unit,
+    ) {
+        if (Build.VERSION.SDK_INT < 28) {
+            Toast.makeText(this, "Biometric unlock is unavailable on this Android version. Use PIN.", Toast.LENGTH_LONG).show()
+            return
+        }
+        biometricCancellation?.cancel()
+        val cancellation = CancellationSignal()
+        biometricCancellation = cancellation
+        val prompt = android.hardware.biometrics.BiometricPrompt.Builder(this)
+            .setTitle(title)
+            .setSubtitle("MAX Video Player")
+            .setNegativeButton("Use PIN", mainExecutor) { _, _ -> cancellation.cancel() }
+            .build()
+        prompt.authenticate(
+            android.hardware.biometrics.BiometricPrompt.CryptoObject(cipher),
+            cancellation,
+            mainExecutor,
+            object : android.hardware.biometrics.BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: android.hardware.biometrics.BiometricPrompt.AuthenticationResult) {
+                    biometricCancellation = null
+                    val authenticatedCipher = result.cryptoObject?.cipher
+                    if (authenticatedCipher != null) onSuccess(authenticatedCipher)
+                    else Toast.makeText(this@MainActivity, "Biometric result did not contain cryptographic authorization. Use PIN.", Toast.LENGTH_LONG).show()
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    biometricCancellation = null
+                    if (errorCode != android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED &&
+                        errorCode != android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON
+                    ) {
+                        Toast.makeText(this@MainActivity, "Biometric unlock unavailable. Use PIN.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+        )
     }
 }
