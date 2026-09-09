@@ -57,10 +57,10 @@ class Step8CastRemoteUiInstrumentedTest {
         }
         compose.waitForIdle()
 
-        compose.onNodeWithTag("cast_video_processing_unavailable").assertTextContains("Cast")
-        compose.onNodeWithTag("decoder_button").assertIsNotEnabled().assertTextContains("Cast")
-        compose.onNodeWithTag("display_button").assertIsNotEnabled().assertTextContains("Cast")
-        compose.onNodeWithTag("rotation_button").assertIsNotEnabled().assertTextContains("Cast")
+        compose.onNodeWithTag("cast_video_processing_unavailable").assertTextContains("Cast", substring = true)
+        compose.onNodeWithTag("decoder_button").assertIsNotEnabled().assertTextContains("Cast", substring = true)
+        compose.onNodeWithTag("display_button").assertIsNotEnabled().assertTextContains("Cast", substring = true)
+        compose.onNodeWithTag("rotation_button").assertIsNotEnabled().assertTextContains("Cast", substring = true)
     }
 
     @Test
@@ -107,7 +107,7 @@ class Step8CastRemoteUiInstrumentedTest {
         compose.waitForIdle()
 
         compose.onNodeWithTag("cast_audio_processing_unavailable")
-            .assertTextContains("Available when playing on this device")
+            .assertTextContains("Available when playing on this device", substring = true)
     }
 
     @Test
@@ -126,9 +126,9 @@ class Step8CastRemoteUiInstrumentedTest {
         }
         compose.waitForIdle()
 
-        compose.onNodeWithTag("tv_decoder_button").assertIsNotEnabled().assertTextContains("Cast")
-        compose.onNodeWithTag("tv_audio_button").assertTextContains("Audio")
-        compose.onNodeWithTag("tv_queue_button").assertTextContains("Queue")
-        compose.onNodeWithTag("tv_cast_processing_notice").assertTextContains("phone-only")
+        compose.onNodeWithTag("tv_decoder_button").assertIsNotEnabled().assertTextContains("Cast", substring = true)
+        compose.onNodeWithTag("tv_audio_button").assertTextContains("Audio", substring = true)
+        compose.onNodeWithTag("tv_queue_button").assertTextContains("Queue", substring = true)
+        compose.onNodeWithTag("tv_cast_processing_notice").assertTextContains("phone-only", substring = true)
     }
 }
