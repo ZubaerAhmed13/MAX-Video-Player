@@ -108,8 +108,12 @@ jobs:
       - name: Provision deterministic SMB, FTP, explicit FTPS and authenticated RTSP servers
         shell: bash
         run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y samba python3-pyftpdlib python3-openssl ffmpeg netcat-openbsd
+          # These packages are all Ubuntu packages. Restrict APT metadata to Ubuntu's own source
+          # so unrelated preinstalled third-party repositories (for example Google Chrome) cannot
+          # break protocol certification with an external repository index/hash race.
+          APT_UBUNTU_ONLY=(-o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" -o Dir::Etc::sourceparts="-")
+          sudo apt-get "${APT_UBUNTU_ONLY[@]}" update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get "${APT_UBUNTU_ONLY[@]}" install -y samba python3-pyftpdlib python3-openssl ffmpeg netcat-openbsd
           sudo mkdir -p /tmp/max-video-step7/বাংলা-日本語
           sudo cp app/src/androidTest/assets/step5_multi_audio.mp4 /tmp/max-video-step7/step5_multi_audio.mp4
           sudo cp app/src/androidTest/assets/step5_multi_audio.mp4 /tmp/max-video-step7/smb-change-detection.bin
