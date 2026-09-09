@@ -21,6 +21,7 @@ import kotlin.math.max
  * It never requests MANAGE_EXTERNAL_STORAGE and never assumes a filesystem path. Modern
  * MediaStore mutations return a system confirmation IntentSender. SAF operations are delegated
  * to the owning DocumentsProvider and are reported truthfully when unsupported.
+ * Private Vault media is intentionally managed only by PrivateVaultRepository.
  */
 class MediaFileActionRepository(private val resolver: ContentResolver) {
     sealed interface Result {
@@ -34,6 +35,9 @@ class MediaFileActionRepository(private val resolver: ContentResolver) {
     }
 
     suspend fun delete(media: AppMedia): Result = withContext(Dispatchers.IO) {
+        if (media.sourceType == MediaSourceType.PRIVATE) {
+            return@withContext Result.Unsupported("Private Vault media must be deleted from Private Vault")
+        }
         val uri = runCatching { Uri.parse(media.uri) }.getOrNull()
             ?: return@withContext Result.Failed("Invalid media URI")
         if (media.sourceType == MediaSourceType.NETWORK) {
@@ -47,6 +51,7 @@ class MediaFileActionRepository(private val resolver: ContentResolver) {
                     if (deleted) Result.Completed() else Result.Unsupported("This document provider does not allow deletion")
                 }
                 MediaSourceType.NETWORK -> Result.Unsupported("Network media is not a local file")
+                MediaSourceType.PRIVATE -> Result.Unsupported("Private Vault media must be deleted from Private Vault")
             }
         } catch (security: SecurityException) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && security is RecoverableSecurityException) {
@@ -63,6 +68,9 @@ class MediaFileActionRepository(private val resolver: ContentResolver) {
     }
 
     suspend fun rename(media: AppMedia, requestedName: String): Result = withContext(Dispatchers.IO) {
+        if (media.sourceType == MediaSourceType.PRIVATE) {
+            return@withContext Result.Unsupported("Private Vault media names are managed inside Private Vault")
+        }
         val clean = requestedName.trim().take(240)
         if (clean.isBlank()) return@withContext Result.Failed("File name cannot be empty")
         val uri = runCatching { Uri.parse(media.uri) }.getOrNull()
@@ -79,6 +87,7 @@ class MediaFileActionRepository(private val resolver: ContentResolver) {
                 }
                 MediaSourceType.MEDIA_STORE -> renameMediaStore(uri, clean)
                 MediaSourceType.NETWORK -> Result.Unsupported("Network media cannot be renamed")
+                MediaSourceType.PRIVATE -> Result.Unsupported("Private Vault media names are managed inside Private Vault")
             }
         } catch (security: SecurityException) {
             when {
