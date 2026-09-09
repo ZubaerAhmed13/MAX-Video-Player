@@ -16,10 +16,10 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Authenticated adaptive-stream relay. The receiver only sees a session-scoped LAN URL. Original
- * Authorization/cookie headers remain inside the existing NetworkDataSourceRouter. HLS child
- * playlists and DASH URL templates are rewritten back through this same resource, including live
- * playlist refreshes and DASH $Number$/$Time$ substitutions.
+ * Authenticated adaptive-stream relay. The receiver sees only session-scoped LAN URLs. Original
+ * URLs, Authorization/cookie headers and signed query parameters stay on the phone. HLS child
+ * playlists and DASH URL templates are rewritten through opaque server-side mappings, including
+ * live playlist refreshes and DASH $Number$/$Time$ substitutions.
  */
 @UnstableApi
 class CastAdaptiveManifestRelayResource(
@@ -30,6 +30,8 @@ class CastAdaptiveManifestRelayResource(
     @Volatile
     private var endpoint: String? = null
     private val manifestCache = ConcurrentHashMap<String, CachedManifest>()
+    private val opaqueTargets = ConcurrentHashMap<String, OpaqueAdaptiveTarget>()
+    private val opaqueIdsByTarget = ConcurrentHashMap<String, String>()
 
     fun bindEndpoint(endpointUri: URI) {
         endpoint = endpointUri.toString()
@@ -73,6 +75,7 @@ class CastAdaptiveManifestRelayResource(
             manifest = text,
             manifestUri = target,
             relayEndpoint = relay,
+            opaqueReference = ::registerOpaqueTarget,
         ).toByteArray(Charsets.UTF_8)
         if (rewritten.size > MAX_REWRITTEN_MANIFEST_BYTES) {
             throw IOException("Rewritten Cast manifest exceeds the 8 MB safety limit.")
@@ -81,19 +84,69 @@ class CastAdaptiveManifestRelayResource(
         return rewritten
     }
 
+    /**
+     * Registers the complete original child URI only in phone memory. Receiver-visible URLs carry
+     * a random opaque id plus, for DASH templates, only the substituted template values needed to
+     * reconstruct the hidden URI. No original host/path/query credential is exposed.
+     */
+    private fun registerOpaqueTarget(target: URI): String {
+        validateTarget(target)
+        val key = target.toString()
+        val existingId = opaqueIdsByTarget[key]
+        val id = existingId ?: synchronized(opaqueIdsByTarget) {
+            opaqueIdsByTarget[key] ?: run {
+                if (opaqueTargets.size >= MAX_OPAQUE_TARGETS) {
+                    throw IOException("Adaptive Cast opaque target registry is full.")
+                }
+                var candidate: String
+                do {
+                    candidate = CastRelaySecurity.newSessionToken().take(24)
+                } while (opaqueTargets.containsKey(candidate))
+                opaqueIdsByTarget[key] = candidate
+                candidate
+            }
+        }
+        val template = opaqueTargets[id] ?: OpaqueAdaptiveTarget.from(target).also { opaqueTargets[id] = it }
+        val relay = requireNotNull(endpoint) { "Cast manifest relay endpoint is not bound." }
+        return template.receiverReference(relay, id)
+    }
+
     private fun targetFromRequest(requestTarget: String): URI? {
-        val encoded = requestTarget.substringAfter('?', "")
-            .split('&')
-            .firstOrNull { it.substringBefore('=') == "p" }
-            ?.substringAfter('=', "")
-            ?.takeIf(String::isNotBlank)
-            ?: return null
+        val query = parseQuery(requestTarget)
+        val opaqueId = query["r"]?.firstOrNull()?.takeIf(String::isNotBlank)
+        if (opaqueId != null) {
+            if (!OPAQUE_ID.matches(opaqueId)) throw IOException("Invalid Cast opaque resource id.")
+            val template = opaqueTargets[opaqueId] ?: throw IOException("Unknown Cast opaque resource id.")
+            val target = template.resolve(query)
+            validateTarget(target)
+            return target
+        }
+
+        // Compatibility for older unsigned relay references. Sensitive targets are never accepted
+        // through this receiver-visible form; production rewriting now uses opaque ids for all refs.
+        val encoded = query["p"]?.firstOrNull()?.takeIf(String::isNotBlank) ?: return null
         if (encoded.length > MAX_ENCODED_TARGET_CHARS) throw IOException("Cast relay target is too long.")
         val decoded = URLDecoder.decode(encoded, StandardCharsets.UTF_8.name())
         if (decoded.length > MAX_DECODED_TARGET_CHARS) throw IOException("Cast relay target is too long.")
         val resolved = URI(sourceUri.toString()).resolve(decoded).normalize()
         validateTarget(resolved)
+        if (CastManifestRewriter.hasSensitiveQuery(resolved)) {
+            throw IOException("Sensitive adaptive child queries require an opaque Cast mapping.")
+        }
         return resolved
+    }
+
+    private fun parseQuery(requestTarget: String): Map<String, List<String>> {
+        val raw = requestTarget.substringAfter('?', "")
+        if (raw.isBlank()) return emptyMap()
+        return raw.split('&').mapNotNull { component ->
+            if (component.isBlank()) return@mapNotNull null
+            val rawName = component.substringBefore('=')
+            val rawValue = component.substringAfter('=', "")
+            val name = URLDecoder.decode(rawName, StandardCharsets.UTF_8.name())
+            val value = URLDecoder.decode(rawValue, StandardCharsets.UTF_8.name())
+            name to value
+        }.groupBy({ it.first }, { it.second })
     }
 
     private fun validateTarget(target: URI) {
@@ -101,9 +154,6 @@ class CastAdaptiveManifestRelayResource(
             throw IOException("Adaptive Cast relay only proxies HTTP(S) child resources.")
         }
         if (target.userInfo != null) throw IOException("Credentials in adaptive child URLs are not allowed.")
-        if (CastManifestRewriter.hasSensitiveQuery(target)) {
-            throw IOException("Sensitive adaptive child query parameters cannot be exposed to the receiver.")
-        }
     }
 
     private fun probeLength(uri: Uri): Long? {
@@ -171,12 +221,52 @@ class CastAdaptiveManifestRelayResource(
 
     private data class CachedManifest(val bytes: ByteArray, val createdAtMs: Long)
 
+    private data class OpaqueAdaptiveTarget(
+        val template: String,
+        val placeholders: List<String>,
+    ) {
+        fun receiverReference(endpoint: String, id: String): String = buildString {
+            append(endpoint).append("?r=").append(id)
+            placeholders.forEachIndexed { index, placeholder ->
+                // DASH substitutes these expressions before making the HTTP request. They contain
+                // no source credential; only the resulting value returns to the phone as vN.
+                append("&v").append(index).append('=').append(placeholder)
+            }
+        }
+
+        fun resolve(query: Map<String, List<String>>): URI {
+            var resolved = template
+            placeholders.forEachIndexed { index, placeholder ->
+                val value = query["v$index"]?.firstOrNull()
+                    ?: throw IOException("Missing DASH template value for opaque Cast resource.")
+                if (!SAFE_TEMPLATE_VALUE.matches(value)) {
+                    throw IOException("Invalid DASH template value for opaque Cast resource.")
+                }
+                resolved = resolved.replace(placeholder, value)
+            }
+            return URI(resolved).normalize()
+        }
+
+        companion object {
+            private val DASH_TEMPLATE = Regex("\\$(?:Number|Time|RepresentationID|Bandwidth)(?:%0\\d+d)?\\$")
+            private val SAFE_TEMPLATE_VALUE = Regex("[A-Za-z0-9._~-]{1,128}")
+
+            fun from(uri: URI): OpaqueAdaptiveTarget {
+                val text = uri.toString()
+                val placeholders = DASH_TEMPLATE.findAll(text).map { it.value }.distinct().toList()
+                return OpaqueAdaptiveTarget(text, placeholders)
+            }
+        }
+    }
+
     private companion object {
         const val MAX_MANIFEST_BYTES = 4L * 1024L * 1024L
         const val MAX_REWRITTEN_MANIFEST_BYTES = 8 * 1024 * 1024
         const val MAX_ENCODED_TARGET_CHARS = 16 * 1024
         const val MAX_DECODED_TARGET_CHARS = 8 * 1024
+        const val MAX_OPAQUE_TARGETS = 4_096
         const val MANIFEST_CACHE_MS = 1_000L
+        val OPAQUE_ID = Regex("[0-9a-f]{24}")
 
         fun manifestMime(mime: String?, uri: String): String = when {
             mime?.equals(MimeTypes.APPLICATION_MPD, ignoreCase = true) == true || uri.substringBefore('?').endsWith(".mpd", true) -> MimeTypes.APPLICATION_MPD
@@ -232,12 +322,17 @@ object CastManifestRewriter {
         "x-goog-signature",
     )
 
-    fun rewrite(manifest: String, manifestUri: URI, relayEndpoint: String): String {
+    fun rewrite(
+        manifest: String,
+        manifestUri: URI,
+        relayEndpoint: String,
+        opaqueReference: ((URI) -> String)? = null,
+    ): String {
         val trimmed = manifest.trimStart()
         return if (trimmed.startsWith("#EXTM3U")) {
-            rewriteHls(manifest, manifestUri, relayEndpoint)
+            rewriteHls(manifest, manifestUri, relayEndpoint, opaqueReference)
         } else {
-            rewriteDash(manifest, manifestUri, relayEndpoint)
+            rewriteDash(manifest, manifestUri, relayEndpoint, opaqueReference)
         }
     }
 
@@ -254,40 +349,58 @@ object CastManifestRewriter {
             }
     }
 
-    private fun rewriteHls(manifest: String, base: URI, endpoint: String): String =
-        manifest.lineSequence().joinToString("\n") { line ->
-            when {
-                line.isBlank() -> line
-                line.startsWith('#') -> uriAttribute.replace(line) { match ->
-                    "URI=\"${relayReference(match.groupValues[1], base, endpoint)}\""
-                }
-                else -> relayReference(line.trim(), base, endpoint)
+    private fun rewriteHls(
+        manifest: String,
+        base: URI,
+        endpoint: String,
+        opaqueReference: ((URI) -> String)?,
+    ): String = manifest.lineSequence().joinToString("\n") { line ->
+        when {
+            line.isBlank() -> line
+            line.startsWith('#') -> uriAttribute.replace(line) { match ->
+                "URI=\"${relayReference(match.groupValues[1], base, endpoint, opaqueReference)}\""
             }
-        } + if (manifest.endsWith('\n')) "\n" else ""
+            else -> relayReference(line.trim(), base, endpoint, opaqueReference)
+        }
+    } + if (manifest.endsWith('\n')) "\n" else ""
 
-    private fun rewriteDash(manifest: String, manifestBase: URI, endpoint: String): String {
+    private fun rewriteDash(
+        manifest: String,
+        manifestBase: URI,
+        endpoint: String,
+        opaqueReference: ((URI) -> String)?,
+    ): String {
         val firstBase = baseUrlElement.find(manifest)?.groupValues?.getOrNull(2)?.trim()
             ?.takeIf(String::isNotBlank)
             ?.let { manifestBase.resolve(it) }
             ?: manifestBase
         var rewritten = baseUrlElement.replace(manifest) { match ->
             val value = match.groupValues[2].trim()
-            match.groupValues[1] + relayReference(value, manifestBase, endpoint) + match.groupValues[3]
+            match.groupValues[1] + relayReference(value, manifestBase, endpoint, opaqueReference) + match.groupValues[3]
         }
         rewritten = dashUrlAttribute.replace(rewritten) { match ->
             val name = match.groupValues[1]
             val value = match.groupValues[2]
-            "$name=\"${relayReference(value, firstBase, endpoint)}\""
+            "$name=\"${relayReference(value, firstBase, endpoint, opaqueReference)}\""
         }
         return rewritten
     }
 
-    private fun relayReference(reference: String, base: URI, endpoint: String): String {
+    private fun relayReference(
+        reference: String,
+        base: URI,
+        endpoint: String,
+        opaqueReference: ((URI) -> String)?,
+    ): String {
         val resolved = base.resolve(reference).normalize()
         require(resolved.scheme?.lowercase() in setOf("http", "https")) { "Adaptive child must resolve to HTTP(S)." }
         require(resolved.userInfo == null) { "Adaptive child URL must not contain user-info credentials." }
-        require(!hasSensitiveQuery(resolved)) { "Sensitive adaptive query cannot be copied into a Cast URL." }
 
+        if (opaqueReference != null) return opaqueReference(resolved)
+
+        // The fallback is retained for pure policy callers and backwards compatibility only.
+        // Sensitive query strings must never be rendered into a receiver-visible p= URL.
+        require(!hasSensitiveQuery(resolved)) { "Sensitive adaptive query requires an opaque Cast mapping." }
         val encoded = URLEncoder.encode(resolved.toString(), StandardCharsets.UTF_8.name())
             .replace("+", "%20")
             .replace("%24", "$")

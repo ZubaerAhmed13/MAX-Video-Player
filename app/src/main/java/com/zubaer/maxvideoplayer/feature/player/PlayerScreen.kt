@@ -3,13 +3,16 @@ package com.zubaer.maxvideoplayer.feature.player
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.res.Configuration
 import android.media.AudioManager
 import android.provider.Settings
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -38,10 +41,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.testTag
@@ -56,11 +63,15 @@ import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.PlaybackError
+import com.zubaer.maxvideoplayer.core.model.PlaybackTarget
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleDialog
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleEdgeStyle
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleFormatPolicy
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleStyleState
+import com.zubaer.maxvideoplayer.feature.tv.TvPlayerAction
+import com.zubaer.maxvideoplayer.feature.tv.TvPlayerInputController
+import com.zubaer.maxvideoplayer.feature.tv.TvPlayerShortcutBar
 import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
@@ -75,16 +86,23 @@ fun PlayerScreen(
     onFullscreenChanged: (Boolean) -> Unit,
     onOrientationModeChanged: (OrientationMode) -> Unit,
     onPlayerHostStateChanged: (AppMedia?, Boolean) -> Unit,
+    onAudioControls: (() -> Unit)? = null,
 ) {
     val coordinator by viewModel.state.collectAsStateWithLifecycle()
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
     val subtitleStyle by subtitleRepository.style.collectAsStateWithLifecycle()
     val currentMedia = viewModel.mediaForPlaybackId(playback.mediaId)
+    val configuration = LocalConfiguration.current
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val accessibilityManager = remember(context) { context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager }
+    val isTelevision =
+        (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val localVideoProcessingAvailable = playback.playbackTarget != PlaybackTarget.CAST_DEVICE
+    val tvFocusRequester = remember { FocusRequester() }
     var subtitleDialogVisible by remember { mutableStateOf(false) }
+    var queueDialogVisible by remember { mutableStateOf(false) }
     var subtitleLoadError by remember { mutableStateOf<String?>(null) }
     var touchExploration by remember(accessibilityManager) {
         mutableStateOf(accessibilityManager.isEnabled && accessibilityManager.isTouchExplorationEnabled)
@@ -128,6 +146,14 @@ fun PlayerScreen(
     LaunchedEffect(coordinator.preferences.autoPip, currentMedia.stableId) {
         onPlayerHostStateChanged(currentMedia, coordinator.preferences.autoPip)
     }
+    LaunchedEffect(isTelevision, coordinator.controlsVisible) {
+        if (isTelevision && !coordinator.controlsVisible) tvFocusRequester.requestFocus()
+    }
+    LaunchedEffect(localVideoProcessingAvailable, coordinator.activeMenu) {
+        if (!localVideoProcessingAvailable && coordinator.activeMenu in setOf(PlayerMenu.DECODER, PlayerMenu.DISPLAY)) {
+            viewModel.closeMenu()
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -138,9 +164,10 @@ fun PlayerScreen(
         }
     }
 
-    BackHandler {
+    fun handlePlayerBack() {
         when {
             subtitleLoadError != null -> subtitleLoadError = null
+            queueDialogVisible -> queueDialogVisible = false
             subtitleDialogVisible -> subtitleDialogVisible = false
             coordinator.resumePositionMs != null -> onBack()
             coordinator.tutorialVisible -> viewModel.dismissTutorial()
@@ -150,9 +177,24 @@ fun PlayerScreen(
                 viewModel.setFullscreen(false)
                 onFullscreenChanged(false)
             }
+            isTelevision && coordinator.controlsVisible -> viewModel.onSurfaceTap()
             else -> onBack()
         }
     }
+
+    fun togglePlayback() {
+        when {
+            playback.playbackEnded -> {
+                playbackConnection.seekTo(0L)
+                playbackConnection.play()
+            }
+            playback.isPlaying -> playbackConnection.pause()
+            else -> playbackConnection.play()
+        }
+        viewModel.showControls()
+    }
+
+    BackHandler { handlePlayerBack() }
 
     coordinator.resumePositionMs?.let { position ->
         AlertDialog(
@@ -164,7 +206,53 @@ fun PlayerScreen(
         )
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    val rootModifier = if (isTelevision) {
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .focusRequester(tvFocusRequester)
+            .onPreviewKeyEvent { composeEvent ->
+                val event = composeEvent.nativeKeyEvent
+                if (event.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                val action = TvPlayerInputController.actionFor(event.keyCode) ?: return@onPreviewKeyEvent false
+                val dpadNavigationKey = event.keyCode in setOf(
+                    KeyEvent.KEYCODE_DPAD_CENTER,
+                    KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_NUMPAD_ENTER,
+                    KeyEvent.KEYCODE_DPAD_LEFT,
+                    KeyEvent.KEYCODE_DPAD_RIGHT,
+                    KeyEvent.KEYCODE_DPAD_UP,
+                    KeyEvent.KEYCODE_DPAD_DOWN,
+                )
+                // Once controls are visible, let Compose focus navigation operate normally. Media
+                // transport keys and Back remain global. Hidden controls retain direct player keys.
+                if (coordinator.controlsVisible && dpadNavigationKey) return@onPreviewKeyEvent false
+                when (action) {
+                    TvPlayerAction.PLAY_PAUSE -> togglePlayback()
+                    TvPlayerAction.PLAY -> { playbackConnection.play(); viewModel.showControls() }
+                    TvPlayerAction.PAUSE -> { playbackConnection.pause(); viewModel.showControls() }
+                    TvPlayerAction.SEEK_BACKWARD -> {
+                        playbackConnection.seekTo((playback.currentPositionMs - TvPlayerInputController.SEEK_STEP_MS).coerceAtLeast(0L))
+                        viewModel.showControls()
+                    }
+                    TvPlayerAction.SEEK_FORWARD -> {
+                        val target = playback.currentPositionMs + TvPlayerInputController.SEEK_STEP_MS
+                        playbackConnection.seekTo(if (playback.durationMs > 0L) target.coerceAtMost(playback.durationMs) else target)
+                        viewModel.showControls()
+                    }
+                    TvPlayerAction.PREVIOUS -> { playbackConnection.seekToPrevious(); viewModel.showControls() }
+                    TvPlayerAction.NEXT -> { playbackConnection.seekToNext(); viewModel.showControls() }
+                    TvPlayerAction.SHOW_CONTROLS -> viewModel.showControls()
+                    TvPlayerAction.BACK -> handlePlayerBack()
+                }
+                true
+            }
+            .focusable()
+    } else {
+        Modifier.fillMaxSize().background(Color.Black)
+    }
+
+    Box(rootModifier.testTag("player_root")) {
         var viewportSize by remember { mutableStateOf(IntSize.Zero) }
         val latestCoordinator = rememberUpdatedState(coordinator)
         val latestPlayback = rememberUpdatedState(playback)
@@ -177,6 +265,7 @@ fun PlayerScreen(
             coordinator = coordinator,
             subtitleStyle = subtitleStyle,
             viewportSize = viewportSize,
+            localVideoProcessingAvailable = localVideoProcessingAvailable,
             modifier = Modifier
                 .fillMaxSize()
                 .onSizeChanged { viewportSize = it }
@@ -213,6 +302,7 @@ fun PlayerScreen(
                     coordinator.preferences.gestureSensitivity,
                     subtitleDialogVisible,
                     touchExploration,
+                    localVideoProcessingAvailable,
                 ) {
                     if (subtitleDialogVisible || surfaceInteractionBlocked(coordinator, touchExploration)) return@pointerInput
                     var startOffset = Offset.Zero
@@ -262,7 +352,7 @@ fun PlayerScreen(
                                     touchSlopPx = viewConfiguration.touchSlop,
                                     horizontalEnabled = currentCoordinator.preferences.horizontalSeekEnabled,
                                     brightnessEnabled = currentCoordinator.preferences.brightnessGestureEnabled,
-                                    volumeEnabled = currentCoordinator.preferences.volumeGestureEnabled,
+                                    volumeEnabled = currentCoordinator.preferences.volumeGestureEnabled && localVideoProcessingAvailable,
                                 )
                                 if (gestureKind != PlayerGestureKind.NONE) viewModel.updateGestureKind(gestureKind)
                             }
@@ -287,6 +377,7 @@ fun PlayerScreen(
                                     viewModel.updateBrightness(value)
                                 }
                                 PlayerGestureKind.VOLUME -> {
+                                    if (!localVideoProcessingAvailable) return@detectDragGestures
                                     change.consume()
                                     val fraction = PlayerInteractionPolicy.volumeFromDrag(volumeStart, accumulated.y, size.height.toFloat())
                                     val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
@@ -312,8 +403,9 @@ fun PlayerScreen(
                     coordinator.preferences.pinchZoomEnabled,
                     subtitleDialogVisible,
                     touchExploration,
+                    localVideoProcessingAvailable,
                 ) {
-                    if (subtitleDialogVisible || surfaceInteractionBlocked(coordinator, touchExploration) || !coordinator.preferences.pinchZoomEnabled) return@pointerInput
+                    if (!localVideoProcessingAvailable || subtitleDialogVisible || surfaceInteractionBlocked(coordinator, touchExploration) || !coordinator.preferences.pinchZoomEnabled) return@pointerInput
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
                         var transforming = false
@@ -353,18 +445,9 @@ fun PlayerScreen(
             coordinator = coordinator,
             playback = playback,
             fallbackTitle = currentMedia.title,
+            localVideoProcessingAvailable = localVideoProcessingAvailable,
             onBack = onBack,
-            onPlayPause = {
-                when {
-                    playback.playbackEnded -> {
-                        playbackConnection.seekTo(0L)
-                        playbackConnection.play()
-                    }
-                    playback.isPlaying -> playbackConnection.pause()
-                    else -> playbackConnection.play()
-                }
-                viewModel.showControls()
-            },
+            onPlayPause = ::togglePlayback,
             onPrevious = { playbackConnection.seekToPrevious(); viewModel.showControls() },
             onNext = { playbackConnection.seekToNext(); viewModel.showControls() },
             onGoLive = playbackConnection::goLive,
@@ -372,12 +455,16 @@ fun PlayerScreen(
             onSeekCommit = viewModel::commitSeek,
             onInteractionStart = { viewModel.beginInteraction(PlayerGestureKind.SEEK) },
             onInteractionEnd = viewModel::endInteraction,
-            onOpenMenu = viewModel::openMenu,
+            onOpenMenu = { menu ->
+                if (localVideoProcessingAvailable || menu !in setOf(PlayerMenu.DECODER, PlayerMenu.DISPLAY)) {
+                    viewModel.openMenu(menu)
+                }
+            },
             onSubtitles = {
                 viewModel.showControls()
                 subtitleDialogVisible = true
             },
-            onRotate = viewModel::rotateDisplay,
+            onRotate = { if (localVideoProcessingAvailable) viewModel.rotateDisplay() },
             onLock = viewModel::lockControls,
             onUnlock = viewModel::unlockControls,
             onPip = { onEnterPip(currentMedia) },
@@ -387,6 +474,21 @@ fun PlayerScreen(
                 onFullscreenChanged(next)
             },
         )
+
+        if (isTelevision && coordinator.controlsVisible && !coordinator.controlsLocked && !coordinator.tutorialVisible && coordinator.resumePositionMs == null) {
+            TvPlayerShortcutBar(
+                localVideoProcessingAvailable = localVideoProcessingAvailable,
+                onSubtitles = {
+                    viewModel.showControls()
+                    subtitleDialogVisible = true
+                },
+                onAudio = onAudioControls,
+                onDecoder = { if (localVideoProcessingAvailable) viewModel.openMenu(PlayerMenu.DECODER) },
+                onQueue = { queueDialogVisible = true },
+                onSettings = { viewModel.openMenu(PlayerMenu.SETTINGS) },
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 54.dp),
+            )
+        }
 
         PlayerDialogs(
             coordinator = coordinator,
@@ -398,16 +500,16 @@ fun PlayerScreen(
             onShuffle = playbackConnection::setShuffleEnabled,
             onVideoQualityAuto = playbackConnection::selectVideoQualityAuto,
             onVideoTrack = playbackConnection::selectVideoTrack,
-            onDecoderMode = viewModel::setDecoderMode,
-            onUseGlobalDecoder = viewModel::useGlobalDecoderForCurrentMedia,
-            onDefaultDecoderMode = viewModel::setDefaultDecoderMode,
+            onDecoderMode = { mode -> if (localVideoProcessingAvailable) viewModel.setDecoderMode(mode) },
+            onUseGlobalDecoder = { if (localVideoProcessingAvailable) viewModel.useGlobalDecoderForCurrentMedia() },
+            onDefaultDecoderMode = { mode -> if (localVideoProcessingAvailable) viewModel.setDefaultDecoderMode(mode) },
             onRememberDecoderPerVideo = viewModel::setRememberDecoderPerVideo,
             onShowDecoderDiagnostics = viewModel::setShowDecoderDiagnostics,
             onResetDecoderPreferences = viewModel::resetDecoderPreferences,
-            onResize = viewModel::setResizeMode,
-            onCustomAspect = viewModel::setCustomAspect,
-            onResetZoom = viewModel::resetZoom,
-            onRotate = viewModel::rotateDisplay,
+            onResize = { mode -> if (localVideoProcessingAvailable) viewModel.setResizeMode(mode) },
+            onCustomAspect = { width, height -> localVideoProcessingAvailable && viewModel.setCustomAspect(width, height) },
+            onResetZoom = { if (localVideoProcessingAvailable) viewModel.resetZoom() },
+            onRotate = { if (localVideoProcessingAvailable) viewModel.rotateDisplay() },
             onOrientation = viewModel::setOrientationMode,
             onDoubleTapSeconds = viewModel::setDoubleTapSeekSeconds,
             onSensitivity = viewModel::setGestureSensitivity,
@@ -421,6 +523,15 @@ fun PlayerScreen(
             onShowTutorial = viewModel::showTutorial,
             onDismissTutorial = viewModel::dismissTutorial,
         )
+
+        if (queueDialogVisible) {
+            PlayerQueueDialog(
+                playback = playback,
+                onDismiss = { queueDialogVisible = false },
+                onPrevious = playbackConnection::seekToPrevious,
+                onNext = playbackConnection::seekToNext,
+            )
+        }
 
         if (subtitleDialogVisible) {
             SubtitleDialog(
@@ -462,6 +573,7 @@ private fun PlayerVideoSurface(
     coordinator: PlayerCoordinatorState,
     subtitleStyle: SubtitleStyleState,
     viewportSize: IntSize,
+    localVideoProcessingAvailable: Boolean,
     modifier: Modifier = Modifier,
 ) {
     AndroidView(
@@ -475,25 +587,33 @@ private fun PlayerVideoSurface(
         },
         update = { playerView ->
             playerView.player = playbackConnection.playerOrNull()
-            playerView.resizeMode = when (coordinator.resizeMode) {
-                ResizeMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                ResizeMode.CROP -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+            playerView.resizeMode = if (!localVideoProcessingAvailable) {
+                AspectRatioFrameLayout.RESIZE_MODE_FIT
+            } else {
+                when (coordinator.resizeMode) {
+                    ResizeMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                    ResizeMode.CROP -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                }
             }
             playerView.subtitleView?.applySubtitleStyle(subtitleStyle)
-            val transform = PlayerInteractionPolicy.transform(
-                resizeMode = coordinator.resizeMode,
-                customAspectRatio = coordinator.customAspectRatio,
-                sourceWidth = media.width,
-                sourceHeight = media.height,
-                sourceRotationDegrees = media.rotationDegrees,
-                manualZoom = coordinator.zoom,
-                panX = coordinator.panX,
-                panY = coordinator.panY,
-                displayRotationDegrees = coordinator.displayRotationDegrees,
-                viewportWidthPx = viewportSize.width.toFloat(),
-                viewportHeightPx = viewportSize.height.toFloat(),
-            )
+            val transform = if (!localVideoProcessingAvailable) {
+                VideoTransform(1f, 1f, 0f, 0f, 0f)
+            } else {
+                PlayerInteractionPolicy.transform(
+                    resizeMode = coordinator.resizeMode,
+                    customAspectRatio = coordinator.customAspectRatio,
+                    sourceWidth = media.width,
+                    sourceHeight = media.height,
+                    sourceRotationDegrees = media.rotationDegrees,
+                    manualZoom = coordinator.zoom,
+                    panX = coordinator.panX,
+                    panY = coordinator.panY,
+                    displayRotationDegrees = coordinator.displayRotationDegrees,
+                    viewportWidthPx = viewportSize.width.toFloat(),
+                    viewportHeightPx = viewportSize.height.toFloat(),
+                )
+            }
             playerView.videoSurfaceView?.let { surface ->
                 surface.pivotX = surface.width / 2f
                 surface.pivotY = surface.height / 2f

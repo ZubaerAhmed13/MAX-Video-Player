@@ -11,6 +11,9 @@ import androidx.media3.session.MediaSessionService
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.feature.audio.AudioRouteMonitor
 import com.zubaer.maxvideoplayer.feature.cast.CastRelayManager
+import com.zubaer.maxvideoplayer.feature.cast.CastTransferContinuityMonitor
+import com.zubaer.maxvideoplayer.feature.cast.CastTransferEndpoint
+import com.zubaer.maxvideoplayer.feature.cast.CastTransferStatePolicy
 import com.zubaer.maxvideoplayer.feature.cast.SecureCastMediaItemConverter
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkUriPolicy
 import com.zubaer.maxvideoplayer.playback.engine.Media3PlaybackEngine
@@ -31,11 +34,16 @@ class PlaybackService : MediaSessionService() {
     private lateinit var castMediaItemConverter: SecureCastMediaItemConverter
     private lateinit var mediaSession: MediaSession
     private lateinit var routeMonitor: AudioRouteMonitor
+    private val transferContinuityMonitor = CastTransferContinuityMonitor()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var persistenceJob: Job? = null
     private var decoderActivatedMediaId: String? = null
 
     private val listener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            observeTransferContinuity(player)
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val player = authoritativePlayerOrNull() ?: return
             (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(player)
@@ -66,6 +74,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
+            val player = authoritativePlayerOrNull()
+            if (player != null) observeTransferContinuity(player)
             if (deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 if (::castRelayManager.isInitialized) castRelayManager.stopSession()
                 if (::castMediaItemConverter.isInitialized) castMediaItemConverter.clearOriginalMappings()
@@ -105,6 +115,7 @@ class PlaybackService : MediaSessionService() {
             .setRemotePlayer(remoteCastPlayer)
             .build()
         castPlayer.addListener(listener)
+        observeTransferContinuity(castPlayer)
         container.audioRepository.activateMedia(castPlayer.currentMediaItem?.mediaId)
         container.decoderRepository.activateMedia(castPlayer.currentMediaItem?.mediaId)
         serviceScope.launch {
@@ -146,6 +157,16 @@ class PlaybackService : MediaSessionService() {
                 persistCurrent()
             }
         }
+    }
+
+    private fun observeTransferContinuity(player: Player) {
+        if (!player.isCommandAvailable(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)) return
+        val endpoint = if (player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
+            CastTransferEndpoint.REMOTE
+        } else {
+            CastTransferEndpoint.LOCAL
+        }
+        transferContinuityMonitor.observe(endpoint, CastTransferStatePolicy.snapshot(player))
     }
 
     private fun authoritativePlayerOrNull(): Player? = when {

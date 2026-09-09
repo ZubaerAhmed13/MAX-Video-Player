@@ -1,10 +1,6 @@
 package com.zubaer.maxvideoplayer.feature.cast
 
-enum class PlaybackTarget {
-    LOCAL_DEVICE,
-    CAST_DEVICE,
-    EXTERNAL_DISPLAY,
-}
+typealias PlaybackTarget = com.zubaer.maxvideoplayer.core.model.PlaybackTarget
 
 enum class CastConnectionState {
     NOT_CONNECTED,
