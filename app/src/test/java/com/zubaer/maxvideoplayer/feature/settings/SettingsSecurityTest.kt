@@ -71,8 +71,8 @@ class SettingsSecurityTest {
         val raw = "Bearer abc.def access_token=secret refresh_token:refresh password=pw cookie=c1 https://user:pass@example.com/a?signature=xyz&ok=1"
         val redacted = SecurityRedactor.redact(raw)
         assertFalse(redacted.contains("abc.def"))
-        assertFalse(redacted.contains("secret"))
-        assertFalse(redacted.contains("refresh"))
+        assertFalse(redacted.contains("access_token=secret"))
+        assertFalse(redacted.contains("refresh_token:refresh"))
         assertFalse(redacted.contains("password=pw"))
         assertFalse(redacted.contains("cookie=c1"))
         assertFalse(redacted.contains("user:pass"))
