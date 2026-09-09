@@ -2,25 +2,28 @@
 
 ## Certification status
 
-**PASS — IMPLEMENTATION SOFTWARE / EMULATOR CERTIFIED**
+**PASS — HARDENED IMPLEMENTATION SOFTWARE / EMULATOR CERTIFIED**
 
-The Step-8 implementation commit `d63f256d6003b23c11d4e793d472f6f9f483eeed` passed both required software/emulator workflows without bypassing a failed gate:
+The original Step-8 implementation was merged through PR #16 into `main`. A subsequent hardening audit identified remaining Cast-routing, truthful remote-control, signed adaptive-relay, transfer-continuity and Android-TV no-touch certification gaps. Those gaps were addressed in PR #17 (`step-8-hardening-cast-tv`).
 
-- **Android CI #342** — run id `34321902079` — PASS
-- **Step 8 Certification #52** — run id `34321902080` — PASS
+The hardened implementation head `d276ddb2bc68fdc4811f5e7631ca28638851fb25` passed both required exact-head workflows without bypassing or weakening a failed gate:
 
-This report update is documentation-only. PR #16 remains unmerged until both workflows also pass on the documentation-only report head. Post-merge `main` must then be verified separately before Step 8 is declared merged/final on `main`.
+- **Android CI #399** — run id `34370056952` — PASS
+- **Step 8 Certification #110** — run id `34370056928` — PASS
+
+This report commit is documentation-only. It must itself pass both workflows before PR #17 is marked ready and merged. The resulting `main` merge commit must then pass the same post-merge verification before Step 8 is declared final on `main`.
 
 ## Certified software matrix
 
-The implementation commit above passed:
+The hardened implementation head above passed:
 
 - debug build and unit tests;
-- 120 Step-8 unit/security tests;
+- Step-8 unit/security tests;
 - release compilation;
 - Android lint;
 - full API-35 instrumentation, including Step-1–8 coexistence/regression coverage;
-- dedicated Step-8 API-35 cloud / USB / TV / external-display certification;
+- dedicated Step-8 API-35 cloud / Cast / USB / TV / external-display certification;
+- full Android-TV no-touch workflow using D-pad/media keys and Android Back dispatch;
 - API-26 legacy instrumentation;
 - API-28 legacy instrumentation;
 - Step-7 SMB, FTP, explicit FTPS and authenticated RTSP protocol certification.
@@ -46,13 +49,17 @@ No Step-8 software gate was skipped or marked successful by assumption.
 ### Google Cast
 
 - Media3 Cast integrated into the existing service-owned session/player architecture.
+- Production Media3 `MediaRouteButton` route picker.
+- Explicit playback target ownership (`LOCAL_DEVICE` / `CAST_DEVICE`).
+- Truthful gating of phone-only decoder/video-processing controls while Cast owns playback.
 - Direct/public versus relay/private source classification.
 - Session-tokenized LAN relay for SAF/content, local files, SMB, FTP/FTPS, WebDAV/private HTTP and cloud.
 - GET/HEAD, byte-range, bounded-buffer and >2 GiB-safe relay arithmetic.
 - Receiver-safe subtitle relay and bounded SRT/ASS/SSA → WebVTT normalization.
 - Authenticated HLS manifest/child rewriting through the same credential-aware DataSource path.
 - Authenticated DASH BaseURL/SegmentTemplate rewriting with receiver template variables preserved.
-- Sensitive child query credentials rejected instead of leaked to receiver URLs.
+- Opaque relay mapping for signed/sensitive HLS/DASH child URLs so receiver-visible URLs do not expose credentials or reject valid signed resources.
+- Deterministic local → Cast and Cast → local transfer continuity tests for queue, position and session state.
 - Transfer-back conversion retains original MediaItem mapping.
 
 Physical Cast receiver route discovery/transfer behavior remains an explicit hardware certification item; emulator CI does not claim to be a Chromecast.
@@ -70,10 +77,13 @@ Physical Cast receiver route discovery/transfer behavior remains an explicit har
 ### Android TV
 
 - Optional Leanback launcher support and touchscreen-not-required declaration.
-- Dedicated Compose-for-TV home surface.
+- Dedicated Compose-for-TV home and library surfaces.
 - Local, Network, Cloud and USB/OTG destinations.
-- D-pad focus movement, activation and focus-restoration instrumentation.
-- Playback continues through the same service/session implementation as phone.
+- Centralized TV player D-pad/media-key policy.
+- TV-native Material3 shortcut controls with deterministic focus restoration.
+- Remote-only playback certification covering TV home → library → playback → media play/pause → seek/rewind/fast-forward → subtitle panel → professional audio panel → queue panel → Back hierarchy → library return.
+- Android Back certification dispatches a real `KEYCODE_BACK` through the focused Android window so dialog and activity back paths are exercised truthfully.
+- Playback continues through the same service/session implementation as phone; no second TV player/session is introduced.
 
 ### External display
 
@@ -87,9 +97,9 @@ Physical Cast receiver route discovery/transfer behavior remains an explicit har
 
 ## Regression preservation
 
-Step 8 does not intentionally remove or replace Step 1–7 behavior. Android CI #342 certified the retained unit/build/lint, broad API-35 instrumentation, API-26/API-28 compatibility and Step-7 network protocol paths on the same implementation SHA.
+Step 8 does not intentionally remove or replace Step 1–7 behavior. Android CI #399 certified retained unit/build/lint behavior, broad API-35 instrumentation, API-26/API-28 compatibility and Step-7 network protocol paths on the same hardened SHA.
 
-The final broad API-35 regression also includes the Step-6 decoder/audio-only coexistence scenario with explicit MediaController seek-readiness synchronization; the behavioral position-preservation assertions remain intact.
+The broad API-35 regression also retains the Step-6 decoder/audio-only coexistence scenario and the prior playback-position preservation assertions.
 
 ## Dedicated Step-8 CI
 
@@ -98,7 +108,7 @@ The final broad API-35 regression also includes the Step-6 decoder/audio-only co
 - `step8-unit-security`
 - `step8-emulator-certification`
 
-The emulator lane explicitly certifies cloud provider Range/auth paths, USB large/removal behavior, TV D-pad/focus behavior, external-display lifecycle and the Step-8 database migration.
+The emulator lane explicitly certifies cloud provider Range/auth paths, Cast remote/truthful-control behavior, USB large/removal behavior, TV D-pad/focus/no-touch behavior, external-display lifecycle and the Step-8 database migration. The certification script requires every named Step-8 instrumentation class to execute at least one test and report success; zero-test or failed classes fail the job.
 
 ## Security conclusions
 
@@ -108,26 +118,28 @@ Implemented boundaries include:
 - no plaintext persisted OAuth access/refresh tokens;
 - no credentials in stable cloud media IDs;
 - no credentials in Cast relay URLs/metadata;
+- signed adaptive-stream resources are represented through opaque receiver-safe relay mappings;
 - no unrestricted LAN directory server;
 - no unrestricted Android storage permission;
 - no whole-file buffering for video relay/large-media certification;
 - no second ExoPlayer/MediaSession for TV/external devices;
 - no intentional 32-bit media offset conversion;
-- no silent direct-Cast downgrade for authenticated sources.
+- no silent direct-Cast downgrade for authenticated sources;
+- phone-only video/decoder controls do not pretend to affect a Cast receiver.
 
-See `STEP_8_SECURITY.md` for details.
+See `STEP_8_SECURITY.md` for additional security details.
 
 ## Final merge gate
 
-The implementation itself is software/emulator certified. The remaining release actions are procedural rather than missing Step-8 implementation:
+The hardened implementation itself is software/emulator certified on `d276ddb2bc68fdc4811f5e7631ca28638851fb25`. The remaining release actions are procedural:
 
-1. Run `Android CI` and `Step 8 Certification` on this documentation-only report commit.
+1. Run `Android CI` and `Step 8 Certification` on this documentation-only report head.
 2. Do not merge if either exact-head workflow is red.
-3. When both are green, mark PR #16 ready and merge using the certified exact head.
+3. When both are green, mark PR #17 ready and merge the certified exact head.
 4. Verify both workflows again on the resulting `main` merge commit.
 5. Only after green post-merge `main` verification record Step 8 as merged/final on `main`.
 
-The PR/check history is the authoritative evidence for the documentation-head and post-merge gates, avoiding an impossible self-referential report commit that would need to contain its own future SHA.
+The PR/check history is authoritative evidence for documentation-head and post-merge gates, avoiding an impossible self-referential report commit that would need to contain its own future SHA.
 
 ## Hardware-deferred items
 
@@ -143,6 +155,6 @@ These hardware-deferred items do not invalidate the Step-8 software/emulator PAS
 
 ## Declaration
 
-**Step 8 implementation: SOFTWARE / EMULATOR PASS on `d63f256d6003b23c11d4e793d472f6f9f483eeed`.**
+**Step 8 hardened implementation: SOFTWARE / EMULATOR PASS on `d276ddb2bc68fdc4811f5e7631ca28638851fb25`.**
 
-PR #16 is intentionally not yet declared merged/final in this report. The documentation-only exact-head gate and post-merge `main` verification remain mandatory. Step 9 has not been started.
+PR #16 is already merged. PR #17 remains intentionally unmerged until this documentation-only head passes both exact-head workflows and the resulting `main` merge commit also passes post-merge verification. Step 9 has not been started.
