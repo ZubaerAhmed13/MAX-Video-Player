@@ -173,7 +173,11 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         }
 
         fun dispatchBack() {
-            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            // Espresso injects Android KEYCODE_BACK into the currently active UI root. Unlike a
+            // process-global Instrumentation injection, this remains deterministic when the full
+            // instrumentation suite has created/destroyed other activity or dialog windows first,
+            // while still exercising the real window/dialog Back path used by a TV remote.
+            androidx.test.espresso.Espresso.pressBack()
             instrumentation.waitForIdleSync()
         }
 
