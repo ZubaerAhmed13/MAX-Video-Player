@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="private_vault_auth_v1.xml" />
+        <exclude domain="sharedpref" path="private_vault_biometric_v1.xml" />
+        <exclude domain="sharedpref" path="network_credential_vault_v1.xml" />
+        <exclude domain="sharedpref" path="cloud_token_vault_v1.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="private_vault_auth_v1.xml" />
+        <exclude domain="sharedpref" path="private_vault_biometric_v1.xml" />
+        <exclude domain="sharedpref" path="network_credential_vault_v1.xml" />
+        <exclude domain="sharedpref" path="cloud_token_vault_v1.xml" />
+    </device-transfer>
+</data-extraction-rules>
