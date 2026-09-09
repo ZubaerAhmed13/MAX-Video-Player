@@ -13,6 +13,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -38,7 +39,13 @@ fun TvPlayerShortcutBar(
     modifier: Modifier = Modifier,
 ) {
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { firstFocus.requestFocus() }
+    LaunchedEffect(Unit) {
+        // The normal player controls and this TV-only shortcut strip enter the hierarchy in the
+        // same composition. Wait until the next frame so both are attached, then make the TV row
+        // the deterministic D-pad destination instead of racing the generic overlay for focus.
+        withFrameNanos { }
+        firstFocus.requestFocus()
+    }
 
     Row(
         modifier = modifier
