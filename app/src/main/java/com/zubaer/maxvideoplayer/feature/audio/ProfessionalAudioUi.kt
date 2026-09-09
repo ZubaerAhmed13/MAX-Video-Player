@@ -95,6 +95,11 @@ fun ProfessionalAudioPlayerHost(
     }
     DisposableEffect(audioController) { onDispose { audioController.unbind() } }
 
+    val openAudioControls = {
+        audioDialogVisible = true
+        audioController.bind()
+    }
+
     Box(Modifier.fillMaxSize()) {
         PlayerScreen(
             media = media,
@@ -106,11 +111,12 @@ fun ProfessionalAudioPlayerHost(
             onFullscreenChanged = onFullscreenChanged,
             onOrientationModeChanged = onOrientationModeChanged,
             onPlayerHostStateChanged = onPlayerHostStateChanged,
+            onAudioControls = openAudioControls,
         )
 
         if (coordinator.controlsVisible && !coordinator.controlsLocked && !coordinator.tutorialVisible && coordinator.resumePositionMs == null) {
             Button(
-                onClick = { audioDialogVisible = true; audioController.bind() },
+                onClick = openAudioControls,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 14.dp, bottom = 118.dp)
