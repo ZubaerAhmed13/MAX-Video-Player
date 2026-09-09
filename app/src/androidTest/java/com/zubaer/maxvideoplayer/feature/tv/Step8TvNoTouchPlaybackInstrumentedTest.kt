@@ -40,7 +40,7 @@ import org.junit.runner.RunWith
 /**
  * API/emulator certification for the production Android-TV path without touch input:
  * TV home -> TV library -> real service-owned playback -> media keys/D-pad -> player panels ->
- * Back hides controls -> Back exits to the TV library.
+ * Back hides controls -> D-pad restores controls -> Back exits to the TV library.
  *
  * This intentionally uses the real PlaybackConnection/PlaybackService and the production
  * ProfessionalAudioPlayerHost. It does not emulate a Cast receiver or physical TV hardware.
@@ -189,36 +189,61 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             state.connected && state.mediaId == media.stableId && state.durationMs >= 1_500L && state.error == null
         }
 
+        // Explicit MEDIA_PAUSE / MEDIA_PLAY proof while the requested item is safely near its
+        // beginning. Position advancement is the authoritative proof that MEDIA_PLAY reached the
+        // service-owned player; it is more robust than sampling a short-lived isPlaying=true on a
+        // two-second fixture under a loaded emulator.
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PAUSE)
+        compose.waitUntil(5_000L) { !playbackConnection.state.value.isPlaying }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_REWIND)
+        compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs <= 500L }
+        val beforeMediaPlay = playbackConnection.state.value.currentPositionMs
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY)
+        compose.waitUntil(5_000L) {
+            playbackConnection.state.value.currentPositionMs > beforeMediaPlay + 100L
+        }
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PAUSE)
         compose.waitUntil(5_000L) { !playbackConnection.state.value.isPlaying }
 
-        // The short deterministic fixture can finish quickly on a loaded emulator. Rewind first
-        // with a real media key so the subsequent fast-forward assertion is deterministic.
+        // Rewind and fast-forward are sent as real media keys. On this deliberately short fixture
+        // the 10-second policy clamps to the media boundaries; the exact 10-second arithmetic is
+        // independently unit-certified by TvPlayerInputController.
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_REWIND)
         compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs <= 500L }
         val beforeForward = playbackConnection.state.value.currentPositionMs
-
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
-        compose.waitUntil(5_000L) {
-            playbackConnection.state.value.currentPositionMs >= 1_500L
-        }
+        compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs >= 1_500L }
         val afterForward = playbackConnection.state.value.currentPositionMs
         assertTrue("TV fast-forward must move the authoritative MediaSession position", afterForward > beforeForward)
-
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_REWIND)
         compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs < afterForward }
 
-        val beforePlay = playbackConnection.state.value.currentPositionMs
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY)
-        compose.waitUntil(5_000L) { playbackConnection.state.value.isPlaying }
-        compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs > beforePlay + 100L }
+        // Exercise PLAY_PAUSE after the boundary seeks. PlayerScreen's toggle path is explicitly
+        // ended-safe (seek-to-zero + play) and must advance the same authoritative position.
+        val beforeToggle = playbackConnection.state.value.currentPositionMs
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+        compose.waitUntil(5_000L) {
+            playbackConnection.state.value.currentPositionMs > beforeToggle + 100L
+        }
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PAUSE)
         compose.waitUntil(5_000L) { !playbackConnection.state.value.isPlaying }
 
+        // Certify the required TV policy rather than assuming stale focus: Back hides the visible
+        // controls, the root regains focus, and D-pad Up restores the shortcut strip with the first
+        // action (Subtitles) focused for deterministic remote navigation.
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntil(5_000L) {
-            runCatching { compose.onNodeWithTag("tv_subtitle_button").fetchSemanticsNode() }.isSuccess
+            runCatching { compose.onNodeWithTag("tv_player_shortcuts").fetchSemanticsNode() }.isFailure
         }
-        compose.onNodeWithTag("tv_subtitle_button").assertIsFocused().performKeyInput {
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("player_root").assertIsFocused() }.isSuccess
+        }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("tv_subtitle_button").assertIsFocused() }.isSuccess
+        }
+
+        compose.onNodeWithTag("tv_subtitle_button").performKeyInput {
             keyDown(Key.Enter)
             keyUp(Key.Enter)
         }
@@ -228,6 +253,9 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("subtitle_dialog").fetchSemanticsNode() }.isFailure
+        }
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("tv_subtitle_button").assertIsFocused() }.isSuccess
         }
 
         compose.onNodeWithTag("tv_subtitle_button").performKeyInput {
@@ -244,6 +272,9 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("professional_audio_panel").fetchSemanticsNode() }.isFailure
+        }
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("tv_audio_button").assertIsFocused() }.isSuccess
         }
 
         compose.onNodeWithTag("tv_audio_button").performKeyInput {
@@ -264,6 +295,8 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             runCatching { compose.onNodeWithTag("player_queue_dialog").fetchSemanticsNode() }.isFailure
         }
 
+        // Back hierarchy: with no panel open, first Back hides controls and second Back exits the
+        // player. The TV library then restores deterministic focus to the current video.
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("tv_player_shortcuts").fetchSemanticsNode() }.isFailure
