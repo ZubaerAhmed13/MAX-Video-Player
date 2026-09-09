@@ -21,7 +21,6 @@ enum class PlayerMenu {
     DECODER,
     DISPLAY,
     ORIENTATION,
-    QUEUE,
     SETTINGS,
     INFO,
 }
