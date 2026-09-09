@@ -135,7 +135,27 @@ class DecoderRepository(
         activationGeneration.incrementAndGet()
         val remember = playerPreferences.state.value.rememberDecoderPerVideo && mediaId != null
         currentOverride = mode.takeIf { remember }
-        applyRequestedMode(mode, mediaId, usingOverride = remember, resetAttempts = true, emitRequest = true)
+
+        val current = _state.value
+        val sameEffectiveRequest = current.mediaId == mediaId && current.requestedMode == mode
+        if (sameEffectiveRequest) {
+            // Selecting the mode that is already active must not reprepare the player. A redundant
+            // reprepare can recreate the same codec name; a late release callback from the old
+            // instance can then make diagnostics look inactive even though the replacement codec is
+            // already running. Preserve live diagnostics/candidates and only update override ownership.
+            if (current.usingMediaOverride != remember) {
+                applyRequestedMode(
+                    mode = mode,
+                    mediaId = mediaId,
+                    usingOverride = remember,
+                    resetAttempts = false,
+                    emitRequest = false,
+                )
+            }
+        } else {
+            applyRequestedMode(mode, mediaId, usingOverride = remember, resetAttempts = true, emitRequest = true)
+        }
+
         if (remember && mediaId != null) {
             scope.launch {
                 dao.upsert(DecoderMediaStateEntity(mediaId, mode.name, System.currentTimeMillis()))
