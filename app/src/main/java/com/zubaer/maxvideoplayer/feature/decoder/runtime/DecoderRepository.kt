@@ -45,6 +45,7 @@ class DecoderRepository(
 
     private val candidatesByName = ConcurrentHashMap<String, DecoderCandidate>()
     private val rejectedNames = Collections.synchronizedSet(linkedSetOf<String>())
+    private val mediaOverrides = ConcurrentHashMap<String, DecoderMode>()
     private val activationGeneration = AtomicLong(0L)
     @Volatile private var currentOverride: DecoderMode? = null
 
@@ -73,10 +74,11 @@ class DecoderRepository(
         if (current.mediaId == mediaId) return
 
         val generation = activationGeneration.incrementAndGet()
-        currentOverride = null
-        val defaultMode = playerPreferences.state.value.defaultDecoderMode
+        val preferences = playerPreferences.state.value
+        val defaultMode = preferences.defaultDecoderMode
 
         if (mediaId == null) {
+            currentOverride = null
             applyRequestedMode(
                 mode = defaultMode,
                 mediaId = null,
@@ -87,25 +89,38 @@ class DecoderRepository(
             return
         }
 
-        // Publish the new media identity immediately, before asynchronous Room lookup and before
-        // Media3 can initialize its decoder. This prevents a late database read from wiping fresh
-        // decoder diagnostics and avoids a redundant reprepare when the effective mode is unchanged.
+        // A mode selected during this process lifetime is authoritative immediately. Restoring it
+        // from memory avoids a default-mode window while Room is queried and also avoids racing a
+        // just-scheduled DAO upsert when the user quickly navigates away and back to the same item.
+        val cachedOverride = mediaOverrides[mediaId].takeIf { preferences.rememberDecoderPerVideo }
+        currentOverride = cachedOverride
+        val immediateMode = cachedOverride ?: defaultMode
+        val restoreNeedsReprepare = cachedOverride != null && current.requestedMode != immediateMode
+
+        // Publish the new media identity before Media3 selects a decoder for the transitioned item.
+        // If an in-session override changes the requested backend, emit immediately so renderer
+        // reuse cannot silently keep the previous item's decoder policy.
         applyRequestedMode(
-            mode = defaultMode,
+            mode = immediateMode,
             mediaId = mediaId,
-            usingOverride = false,
+            usingOverride = cachedOverride != null,
             resetAttempts = true,
-            emitRequest = false,
+            emitRequest = restoreNeedsReprepare,
         )
 
+        // Cached overrides were created or confirmed by this repository and are newer than any
+        // asynchronous lookup that may still be queued. Do not let a stale null DAO read erase one.
+        if (!preferences.rememberDecoderPerVideo || cachedOverride != null) return
+
         scope.launch {
-            val preferences = playerPreferences.state.value
-            val stored = if (preferences.rememberDecoderPerVideo) dao.get(mediaId) else null
+            val latestPreferences = playerPreferences.state.value
+            val stored = if (latestPreferences.rememberDecoderPerVideo) dao.get(mediaId) else null
             if (activationGeneration.get() != generation || _state.value.mediaId != mediaId) return@launch
 
             val override = stored?.requestedMode?.let(::decodeMode)
+            if (override != null) mediaOverrides[mediaId] = override else mediaOverrides.remove(mediaId)
             currentOverride = override
-            val requested = override ?: preferences.defaultDecoderMode
+            val requested = override ?: latestPreferences.defaultDecoderMode
             val latest = _state.value
             val usingOverride = override != null
 
@@ -135,6 +150,7 @@ class DecoderRepository(
         activationGeneration.incrementAndGet()
         val remember = playerPreferences.state.value.rememberDecoderPerVideo && mediaId != null
         currentOverride = mode.takeIf { remember }
+        if (remember && mediaId != null) mediaOverrides[mediaId] = mode
 
         val current = _state.value
         val sameEffectiveRequest = current.mediaId == mediaId && current.requestedMode == mode
@@ -166,6 +182,7 @@ class DecoderRepository(
     fun useGlobalForCurrentMedia(mediaId: String?) {
         activationGeneration.incrementAndGet()
         currentOverride = null
+        if (mediaId != null) mediaOverrides.remove(mediaId)
         val mode = playerPreferences.state.value.defaultDecoderMode
         applyRequestedMode(mode, mediaId, usingOverride = false, resetAttempts = true, emitRequest = true)
         if (mediaId != null) scope.launch { dao.delete(mediaId) }
@@ -195,6 +212,7 @@ class DecoderRepository(
     fun resetDecoderPreferences() {
         activationGeneration.incrementAndGet()
         currentOverride = null
+        mediaOverrides.clear()
         playerPreferences.setDefaultDecoderMode(DecoderMode.AUTO)
         playerPreferences.setRememberDecoderPerVideo(true)
         playerPreferences.setShowDecoderDiagnostics(false)
