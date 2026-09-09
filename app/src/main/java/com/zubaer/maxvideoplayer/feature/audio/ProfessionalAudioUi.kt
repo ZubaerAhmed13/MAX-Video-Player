@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zubaer.maxvideoplayer.core.model.AppMedia
+import com.zubaer.maxvideoplayer.core.model.PlaybackTarget
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerScreen
 import com.zubaer.maxvideoplayer.feature.player.PlayerViewModel
@@ -65,6 +66,7 @@ fun ProfessionalAudioPlayerHost(
     val coordinator by viewModel.state.collectAsStateWithLifecycle()
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
     val audio by audioRepository.state.collectAsStateWithLifecycle()
+    val localProcessingAvailable = playback.playbackTarget != PlaybackTarget.CAST_DEVICE
     var audioDialogVisible by remember { mutableStateOf(false) }
     var pickerError by remember { mutableStateOf<String?>(null) }
     var relinkAssociationId by remember { mutableStateOf<String?>(null) }
@@ -113,14 +115,21 @@ fun ProfessionalAudioPlayerHost(
                     .align(Alignment.BottomEnd)
                     .padding(end = 14.dp, bottom = 118.dp)
                     .testTag("audio_button")
-                    .semantics { contentDescription = "Open professional audio controls" },
-            ) { Text("Audio") }
+                    .semantics {
+                        contentDescription = if (localProcessingAvailable) {
+                            "Open professional audio controls"
+                        } else {
+                            "Audio controls; phone processing unavailable during Cast"
+                        }
+                    },
+            ) { Text(if (localProcessingAvailable) "Audio" else "Audio (Cast)") }
         }
     }
 
     if (audioDialogVisible) {
         ProfessionalAudioDialog(
             state = audio,
+            localProcessingAvailable = localProcessingAvailable,
             onDismiss = { audioDialogVisible = false },
             onAuto = audioController::selectAuto,
             onPreferredLanguage = audioController::setPreferredLanguage,
@@ -170,6 +179,7 @@ fun ProfessionalAudioPlayerHost(
 @Composable
 fun ProfessionalAudioDialog(
     state: AudioEngineState,
+    localProcessingAvailable: Boolean = true,
     onDismiss: () -> Unit,
     onAuto: () -> Unit,
     onPreferredLanguage: (String) -> Unit,
@@ -278,140 +288,153 @@ fun ProfessionalAudioDialog(
                 }
                 state.recoverableError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
-                SectionTitle("Equalizer")
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Equalizer", Modifier.weight(1f))
-                    Switch(checked = state.equalizerEnabled, onCheckedChange = onEqEnabled)
-                }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    EqualizerPreset.entries.filter { it != EqualizerPreset.CUSTOM }.forEach { preset ->
-                        TextButton(onClick = { onPreset(preset) }) {
-                            Text((if (state.equalizerPreset == preset) "✓ " else "") + preset.name.lowercase().replaceFirstChar { it.uppercase() })
-                        }
+                if (!localProcessingAvailable) {
+                    SectionTitle("Phone audio processing")
+                    Text(
+                        "Available when playing on this device. Cast receiver playback does not run MAX EQ, preamp, digital boost/limiter, local audio delay, balance, pitch, audio-only video suppression, or route compensation.",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("cast_audio_processing_unavailable"),
+                    )
+                    Text(
+                        "Your saved audio settings are unchanged and are applied again automatically when playback returns to this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    SectionTitle("Equalizer")
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Equalizer", Modifier.weight(1f))
+                        Switch(checked = state.equalizerEnabled, onCheckedChange = onEqEnabled)
                     }
-                }
-                EQ_FREQUENCIES_HZ.forEachIndexed { index, frequency ->
-                    val value = state.equalizerBandsDb.getOrElse(index) { 0f }
-                    Column(Modifier.fillMaxWidth()) {
-                        Text("${frequencyLabel(frequency)}  ${signedDb(value)}")
-                        Slider(
-                            value = value,
-                            onValueChange = { onBand(index, it) },
-                            valueRange = AudioPolicy.MIN_EQ_DB..AudioPolicy.MAX_EQ_DB,
-                            modifier = Modifier.semantics {
-                                contentDescription = "$frequency hertz equalizer"
-                                stateDescription = "${signedDb(value)} decibels"
-                            },
-                        )
-                    }
-                }
-
-                SectionTitle("Gain")
-                AudioSlider("Preamp", state.preampDb, AudioPolicy.MIN_PREAMP_DB..AudioPolicy.MAX_PREAMP_DB, onPreamp)
-                AudioSlider("Digital boost", state.boostDb, AudioPolicy.MIN_BOOST_DB..AudioPolicy.MAX_BOOST_DB, onBoost)
-                val dspStatus = when {
-                    !state.dspPipelineInstalled -> "DSP unavailable — playback service audio pipeline is not active"
-                    state.dspAvailable -> "DSP active"
-                    else -> state.dspBypassReason ?: "DSP bypassed for this output format"
-                }
-                Text(dspStatus, style = MaterialTheme.typography.bodySmall, color = if (state.dspPipelineInstalled && state.dspAvailable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
-
-                SectionTitle("Audio synchronization")
-                Text("Media: ${signedMs(state.audioDelayMs)}")
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    listOf(-500L, -250L, -100L, -50L, -10L, 10L, 50L, 100L, 250L, 500L).forEach { delta ->
-                        TextButton(onClick = { onDelayDelta(delta) }) { Text(if (delta > 0) "+$delta" else "$delta") }
-                    }
-                    TextButton(onClick = onDelayReset) { Text("Reset") }
-                }
-                Text("Positive delay = audio plays later. Negative delay = audio plays earlier.", style = MaterialTheme.typography.bodySmall)
-
-                val stereoControlsAvailable = state.stereoChannelControlsAvailable
-                SectionTitle("Channel / balance — stereo only")
-                Text(
-                    when (val count = state.selectedChannelCount) {
-                        2 -> "Selected track is 2.0 stereo. Channel mode and left/right balance are active."
-                        null -> "Channel mode and left/right balance stay disabled until the selected track is confirmed as 2.0 stereo."
-                        else -> "Selected track is ${channelLabel(count)}. Multichannel layout is preserved; stereo-only channel mode and balance are not applied."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    AudioChannelMode.entries.forEach { mode ->
-                        TextButton(
-                            onClick = { onChannel(mode) },
-                            enabled = stereoControlsAvailable,
-                        ) {
-                            Text((if (state.channelMode == mode) "✓ " else "") + mode.name.lowercase().replaceFirstChar { it.uppercase() })
-                        }
-                    }
-                }
-                Text(balanceLabel(state.balance))
-                Slider(
-                    value = state.balance,
-                    onValueChange = onBalance,
-                    enabled = stereoControlsAvailable,
-                    valueRange = -1f..1f,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Left right audio balance, stereo tracks only"
-                        stateDescription = if (stereoControlsAvailable) balanceLabel(state.balance) else "Unavailable for non-stereo track"
-                    },
-                )
-
-                SectionTitle("Pitch")
-                Text("${"%.2f".format(state.pitch)}×")
-                Slider(
-                    value = state.pitch,
-                    onValueChange = onPitch,
-                    valueRange = AudioPolicy.MIN_PITCH..AudioPolicy.MAX_PITCH,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Playback pitch"
-                        stateDescription = "${"%.2f".format(state.pitch)} times"
-                    },
-                )
-                TextButton(onClick = onPitchReset) { Text("Reset pitch") }
-
-                SectionTitle("Playback mode")
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Play as audio")
-                        Text("Disables the video track while keeping the same playback session and position.", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Switch(checked = state.audioOnlyMode, onCheckedChange = onAudioOnly)
-                }
-
-                SectionTitle("When leaving player")
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    BackgroundPlaybackMode.entries.forEach { mode ->
-                        TextButton(onClick = { onBackgroundMode(mode) }) {
-                            val label = when (mode) {
-                                BackgroundPlaybackMode.PAUSE -> "Pause"
-                                BackgroundPlaybackMode.CONTINUE_AUDIO -> "Continue audio"
-                                BackgroundPlaybackMode.PIP_WHEN_POSSIBLE -> "PiP when possible"
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        EqualizerPreset.entries.filter { it != EqualizerPreset.CUSTOM }.forEach { preset ->
+                            TextButton(onClick = { onPreset(preset) }) {
+                                Text((if (state.equalizerPreset == preset) "✓ " else "") + preset.name.lowercase().replaceFirstChar { it.uppercase() })
                             }
-                            Text((if (state.backgroundMode == mode) "✓ " else "") + label)
                         }
                     }
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Disable video in background")
-                        Text("Keeps the same MediaSession timeline and restores video on return. PiP remains video.", style = MaterialTheme.typography.bodySmall)
+                    EQ_FREQUENCIES_HZ.forEachIndexed { index, frequency ->
+                        val value = state.equalizerBandsDb.getOrElse(index) { 0f }
+                        Column(Modifier.fillMaxWidth()) {
+                            Text("${frequencyLabel(frequency)}  ${signedDb(value)}")
+                            Slider(
+                                value = value,
+                                onValueChange = { onBand(index, it) },
+                                valueRange = AudioPolicy.MIN_EQ_DB..AudioPolicy.MAX_EQ_DB,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "$frequency hertz equalizer"
+                                    stateDescription = "${signedDb(value)} decibels"
+                                },
+                            )
+                        }
                     }
-                    Switch(checked = state.disableVideoInBackground, onCheckedChange = onDisableVideoBackground)
-                }
 
-                SectionTitle("Audio output")
-                Text(state.currentRoute.label)
-                Text("Route compensation: ${signedMs(state.routeCompensationMs)}")
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    listOf(-250L, -100L, -50L, 50L, 100L, 250L).forEach { delta ->
-                        TextButton(onClick = { onRouteCompensationDelta(delta) }) { Text(if (delta > 0) "+$delta" else "$delta") }
+                    SectionTitle("Gain")
+                    AudioSlider("Preamp", state.preampDb, AudioPolicy.MIN_PREAMP_DB..AudioPolicy.MAX_PREAMP_DB, onPreamp)
+                    AudioSlider("Digital boost", state.boostDb, AudioPolicy.MIN_BOOST_DB..AudioPolicy.MAX_BOOST_DB, onBoost)
+                    val dspStatus = when {
+                        !state.dspPipelineInstalled -> "DSP unavailable — playback service audio pipeline is not active"
+                        state.dspAvailable -> "DSP active"
+                        else -> state.dspBypassReason ?: "DSP bypassed for this output format"
                     }
-                    TextButton(onClick = onRouteCompensationReset) { Text("Reset route") }
+                    Text(dspStatus, style = MaterialTheme.typography.bodySmall, color = if (state.dspPipelineInstalled && state.dspAvailable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
+
+                    SectionTitle("Audio synchronization")
+                    Text("Media: ${signedMs(state.audioDelayMs)}")
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        listOf(-500L, -250L, -100L, -50L, -10L, 10L, 50L, 100L, 250L, 500L).forEach { delta ->
+                            TextButton(onClick = { onDelayDelta(delta) }) { Text(if (delta > 0) "+$delta" else "$delta") }
+                        }
+                        TextButton(onClick = onDelayReset) { Text("Reset") }
+                    }
+                    Text("Positive delay = audio plays later. Negative delay = audio plays earlier.", style = MaterialTheme.typography.bodySmall)
+
+                    val stereoControlsAvailable = state.stereoChannelControlsAvailable
+                    SectionTitle("Channel / balance — stereo only")
+                    Text(
+                        when (val count = state.selectedChannelCount) {
+                            2 -> "Selected track is 2.0 stereo. Channel mode and left/right balance are active."
+                            null -> "Channel mode and left/right balance stay disabled until the selected track is confirmed as 2.0 stereo."
+                            else -> "Selected track is ${channelLabel(count)}. Multichannel layout is preserved; stereo-only channel mode and balance are not applied."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        AudioChannelMode.entries.forEach { mode ->
+                            TextButton(
+                                onClick = { onChannel(mode) },
+                                enabled = stereoControlsAvailable,
+                            ) {
+                                Text((if (state.channelMode == mode) "✓ " else "") + mode.name.lowercase().replaceFirstChar { it.uppercase() })
+                            }
+                        }
+                    }
+                    Text(balanceLabel(state.balance))
+                    Slider(
+                        value = state.balance,
+                        onValueChange = onBalance,
+                        enabled = stereoControlsAvailable,
+                        valueRange = -1f..1f,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Left right audio balance, stereo tracks only"
+                            stateDescription = if (stereoControlsAvailable) balanceLabel(state.balance) else "Unavailable for non-stereo track"
+                        },
+                    )
+
+                    SectionTitle("Pitch")
+                    Text("${"%.2f".format(state.pitch)}×")
+                    Slider(
+                        value = state.pitch,
+                        onValueChange = onPitch,
+                        valueRange = AudioPolicy.MIN_PITCH..AudioPolicy.MAX_PITCH,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Playback pitch"
+                            stateDescription = "${"%.2f".format(state.pitch)} times"
+                        },
+                    )
+                    TextButton(onClick = onPitchReset) { Text("Reset pitch") }
+
+                    SectionTitle("Playback mode")
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Play as audio")
+                            Text("Disables the video track while keeping the same playback session and position.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = state.audioOnlyMode, onCheckedChange = onAudioOnly)
+                    }
+
+                    SectionTitle("When leaving player")
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        BackgroundPlaybackMode.entries.forEach { mode ->
+                            TextButton(onClick = { onBackgroundMode(mode) }) {
+                                val label = when (mode) {
+                                    BackgroundPlaybackMode.PAUSE -> "Pause"
+                                    BackgroundPlaybackMode.CONTINUE_AUDIO -> "Continue audio"
+                                    BackgroundPlaybackMode.PIP_WHEN_POSSIBLE -> "PiP when possible"
+                                }
+                                Text((if (state.backgroundMode == mode) "✓ " else "") + label)
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Disable video in background")
+                            Text("Keeps the same MediaSession timeline and restores video on return. PiP remains video.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = state.disableVideoInBackground, onCheckedChange = onDisableVideoBackground)
+                    }
+
+                    SectionTitle("Audio output")
+                    Text(state.currentRoute.label)
+                    Text("Route compensation: ${signedMs(state.routeCompensationMs)}")
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        listOf(-250L, -100L, -50L, 50L, 100L, 250L).forEach { delta ->
+                            TextButton(onClick = { onRouteCompensationDelta(delta) }) { Text(if (delta > 0) "+$delta" else "$delta") }
+                        }
+                        TextButton(onClick = onRouteCompensationReset) { Text("Reset route") }
+                    }
+                    Text("Effective sync: ${signedMs(state.audioDelayMs)} media + ${signedMs(state.routeCompensationMs)} route = ${signedMs(state.effectiveAudioDelayMs)}", style = MaterialTheme.typography.bodySmall)
+                    Text("Route profiles are separate from per-video sync. Use Android's media output control to switch connected outputs.", style = MaterialTheme.typography.bodySmall)
                 }
-                Text("Effective sync: ${signedMs(state.audioDelayMs)} media + ${signedMs(state.routeCompensationMs)} route = ${signedMs(state.effectiveAudioDelayMs)}", style = MaterialTheme.typography.bodySmall)
-                Text("Route profiles are separate from per-video sync. Use Android's media output control to switch connected outputs.", style = MaterialTheme.typography.bodySmall)
             }
         },
     )
