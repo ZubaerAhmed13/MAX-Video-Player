@@ -10,6 +10,7 @@ com.zubaer.maxvideoplayer.core.database.Step9DatabaseMigrationTest
 com.zubaer.maxvideoplayer.feature.settings.Step9SettingsPrivacyInstrumentedTest
 com.zubaer.maxvideoplayer.feature.sleeptimer.Step9SleepTimerInstrumentedTest
 com.zubaer.maxvideoplayer.feature.privatevault.Step9PrivateSurfaceInstrumentedTest
+com.zubaer.maxvideoplayer.feature.settings.Step9AccessibilityInstrumentedTest
 "
 
 for test_class in $TEST_CLASSES; do
