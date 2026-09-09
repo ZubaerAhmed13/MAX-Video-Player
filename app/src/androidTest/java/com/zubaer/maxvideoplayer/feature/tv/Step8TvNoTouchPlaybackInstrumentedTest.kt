@@ -173,6 +173,13 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             }
         }
 
+        fun pressFocused(tag: String, key: Key) {
+            compose.onNodeWithTag(tag).assertIsFocused().performKeyInput {
+                keyDown(key)
+                keyUp(key)
+            }
+        }
+
         compose.waitForIdle()
         compose.onNodeWithTag("tv_destination_library").assertIsFocused().performKeyInput {
             keyDown(Key.Enter)
@@ -194,7 +201,7 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         // The certified fixture is deliberately only two seconds long. Keep it repeating while
         // transport keys are exercised so emulator scheduling cannot turn a valid PLAY assertion
         // into an ENDED race between polls. Normalise the service-owned player as test setup; all
-        // behavior asserted below is still driven exclusively by real remote/media key events.
+        // behavior asserted below is still driven exclusively by remote/media key events.
         instrumentation.runOnMainSync {
             playbackConnection.setRepeatMode(RepeatMode.ONE)
             playbackConnection.pause()
@@ -205,35 +212,10 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             !state.isPlaying && state.currentPositionMs <= 500L && state.error == null
         }
 
-        // Explicit MEDIA_PLAY / MEDIA_PAUSE proof. Repeat-one keeps isPlaying stable long enough
-        // to sample even on a loaded API-35 emulator; the command still travels through the real
-        // MediaSession/service-owned player rather than a fake test player.
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY)
-        compose.waitUntil(5_000L) { playbackConnection.state.value.isPlaying }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PAUSE)
-        compose.waitUntil(5_000L) { !playbackConnection.state.value.isPlaying }
-
-        // Rewind and fast-forward are sent as real media keys while paused. On this short fixture
-        // the 10-second policy clamps to media boundaries; exact 10-second arithmetic is separately
-        // unit-certified by TvPlayerInputController.
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
-        compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs >= 1_500L }
-        val afterForward = playbackConnection.state.value.currentPositionMs
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_REWIND)
-        compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs <= 500L }
-        val afterRewind = playbackConnection.state.value.currentPositionMs
-        assertTrue("TV rewind must move the authoritative MediaSession position", afterRewind < afterForward)
-
-        // PLAY_PAUSE must also toggle the same authoritative service-owned player. With repeat-one
-        // enabled it cannot vanish into an end-of-media race before the assertion observes it.
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-        compose.waitUntil(5_000L) { playbackConnection.state.value.isPlaying }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PAUSE)
-        compose.waitUntil(5_000L) { !playbackConnection.state.value.isPlaying }
-
-        // Certify the required TV policy rather than assuming stale focus: Back hides the visible
-        // controls, the root regains focus, and D-pad Up restores the shortcut strip with the first
-        // action (Subtitles) focused for deterministic remote navigation.
+        // Hide controls first so the player root owns focus exactly as it does during normal
+        // full-screen TV viewing. Compose key injection then routes the hardware key through the
+        // focused hierarchy and PlayerScreen.onPreviewKeyEvent instead of relying on Android's
+        // system MediaSession dispatch to rediscover this isolated test Activity.
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("tv_player_shortcuts").fetchSemanticsNode() }.isFailure
@@ -241,7 +223,44 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("player_root").assertIsFocused() }.isSuccess
         }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
+
+        // MEDIA_PLAY is injected at the focused root. The production handler shows controls, so
+        // Subtitles becomes the focused child; subsequent global transport keys are injected there
+        // and intercepted by the same root preview handler on their downward pass.
+        pressFocused("player_root", Key.MediaPlay)
+        compose.waitUntil(5_000L) { playbackConnection.state.value.isPlaying }
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("tv_subtitle_button").assertIsFocused() }.isSuccess
+        }
+        pressFocused("tv_subtitle_button", Key.MediaPause)
+        compose.waitUntil(5_000L) { !playbackConnection.state.value.isPlaying }
+
+        // Rewind/fast-forward remain real media-key events while paused. On this short fixture the
+        // 10-second policy clamps to boundaries; exact 10-second arithmetic is separately covered
+        // by TvPlayerInputController unit tests.
+        pressFocused("tv_subtitle_button", Key.MediaFastForward)
+        compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs >= 1_500L }
+        val afterForward = playbackConnection.state.value.currentPositionMs
+        pressFocused("tv_subtitle_button", Key.MediaRewind)
+        compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs <= 500L }
+        val afterRewind = playbackConnection.state.value.currentPositionMs
+        assertTrue("TV rewind must move the authoritative MediaSession position", afterRewind < afterForward)
+
+        pressFocused("tv_subtitle_button", Key.MediaPlayPause)
+        compose.waitUntil(5_000L) { playbackConnection.state.value.isPlaying }
+        pressFocused("tv_subtitle_button", Key.MediaPause)
+        compose.waitUntil(5_000L) { !playbackConnection.state.value.isPlaying }
+
+        // Certify the required TV policy explicitly: Back hides visible controls, the root regains
+        // focus, and D-pad Up restores the shortcut strip with Subtitles focused.
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("tv_player_shortcuts").fetchSemanticsNode() }.isFailure
+        }
+        compose.waitUntil(5_000L) {
+            runCatching { compose.onNodeWithTag("player_root").assertIsFocused() }.isSuccess
+        }
+        pressFocused("player_root", Key.DirectionUp)
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("tv_subtitle_button").assertIsFocused() }.isSuccess
         }
