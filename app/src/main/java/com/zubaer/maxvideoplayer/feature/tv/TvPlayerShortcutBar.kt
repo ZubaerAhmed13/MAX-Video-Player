@@ -39,13 +39,15 @@ fun TvPlayerShortcutBar(
     modifier: Modifier = Modifier,
 ) {
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        // The generic player overlay and this TV-only row are introduced by the same controls
-        // transition. Claim focus across the settling frames so a later AnimatedVisibility/layout
-        // pass cannot steal the D-pad destination back from the TV shortcut row.
-        repeat(3) {
+    LaunchedEffect(firstFocus) {
+        // Controls can become visible while the generic overlay is still completing its first
+        // layout/animation pass. A one-shot request (or a fixed handful of unconditional
+        // requests) is vulnerable to that timing on slower TV/emulator frames. Retry only until
+        // the focus system accepts the request; once accepted we stop immediately so subsequent
+        // user D-pad navigation is never pulled back to Subtitles.
+        repeat(30) {
             withFrameNanos { }
-            firstFocus.requestFocus()
+            if (firstFocus.requestFocus()) return@LaunchedEffect
         }
     }
 
