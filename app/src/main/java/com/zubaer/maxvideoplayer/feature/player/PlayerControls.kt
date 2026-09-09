@@ -49,6 +49,7 @@ fun PlayerControlsOverlay(
     coordinator: PlayerCoordinatorState,
     playback: PlaybackUiState,
     fallbackTitle: String,
+    localVideoProcessingAvailable: Boolean = true,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
@@ -110,6 +111,7 @@ fun PlayerControlsOverlay(
                 PlayerBottomBar(
                     coordinator = coordinator,
                     playback = playback,
+                    localVideoProcessingAvailable = localVideoProcessingAvailable,
                     onPlayPause = onPlayPause,
                     onPrevious = onPrevious,
                     onNext = onNext,
@@ -165,6 +167,7 @@ fun PlayerControlsOverlay(
 private fun PlayerBottomBar(
     coordinator: PlayerCoordinatorState,
     playback: PlaybackUiState,
+    localVideoProcessingAvailable: Boolean,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -255,6 +258,14 @@ private fun PlayerBottomBar(
                 modifier = Modifier.testTag("next_button").semantics { contentDescription = "Next video" },
             ) { Text("Next") }
         }
+        if (!localVideoProcessingAvailable) {
+            Text(
+                "Cast receiver controls decoding and video presentation. Phone decoder, zoom, aspect and rotation settings are kept for local playback.",
+                color = Color.White.copy(alpha = 0.82f),
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.testTag("cast_video_processing_unavailable"),
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
@@ -271,10 +282,11 @@ private fun PlayerBottomBar(
             }
             TextButton(
                 onClick = { onOpenMenu(PlayerMenu.DECODER) },
+                enabled = localVideoProcessingAvailable,
                 modifier = Modifier
                     .testTag("decoder_button")
-                    .semantics { contentDescription = "Decoder selection and diagnostics" },
-            ) { Text("Decoder") }
+                    .semantics { contentDescription = if (localVideoProcessingAvailable) "Decoder selection and diagnostics" else "Decoder controlled by Cast receiver" },
+            ) { Text(if (localVideoProcessingAvailable) "Decoder" else "Decoder (Cast)") }
             TextButton(
                 onClick = onSubtitles,
                 modifier = Modifier.testTag("subtitle_button").semantics { contentDescription = "Subtitles and closed captions" },
@@ -282,8 +294,16 @@ private fun PlayerBottomBar(
                 val selected = playback.subtitles.tracks.firstOrNull { it.selected }
                 Text(if (!playback.subtitles.enabled) "CC Off" else selected?.language?.uppercase()?.let { "CC $it" } ?: "CC")
             }
-            TextButton(onClick = { onOpenMenu(PlayerMenu.DISPLAY) }, modifier = Modifier.testTag("display_button")) { Text("Display") }
-            TextButton(onClick = onRotate, modifier = Modifier.testTag("rotation_button")) { Text("Rotate") }
+            TextButton(
+                onClick = { onOpenMenu(PlayerMenu.DISPLAY) },
+                enabled = localVideoProcessingAvailable,
+                modifier = Modifier.testTag("display_button"),
+            ) { Text(if (localVideoProcessingAvailable) "Display" else "Display (Cast)") }
+            TextButton(
+                onClick = onRotate,
+                enabled = localVideoProcessingAvailable,
+                modifier = Modifier.testTag("rotation_button"),
+            ) { Text(if (localVideoProcessingAvailable) "Rotate" else "Rotate (Cast)") }
             TextButton(onClick = { onOpenMenu(PlayerMenu.ORIENTATION) }, modifier = Modifier.testTag("orientation_button")) { Text("Orient") }
             TextButton(onClick = onLock, modifier = Modifier.testTag("lock_button")) { Text("Lock") }
             TextButton(onClick = onPip, modifier = Modifier.testTag("pip_button")) { Text("PiP") }
