@@ -42,6 +42,7 @@ import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerViewModel
 import com.zubaer.maxvideoplayer.feature.tv.TvDestination
 import com.zubaer.maxvideoplayer.feature.tv.TvHomeScreen
+import com.zubaer.maxvideoplayer.feature.tv.TvLibraryScreen
 import com.zubaer.maxvideoplayer.ui.MaxTheme
 import kotlinx.coroutines.launch
 
@@ -164,6 +165,15 @@ fun MaxApp(
                         navigationViewModel.selectQueue(queue, 0)
                     },
                 )
+                isTv -> TvLibraryScreen(
+                    state = libraryState,
+                    playbackRequest = libraryViewModel::playbackRequest,
+                    onPlay = { request ->
+                        lastTvDestination = TvDestination.LIBRARY
+                        navigationViewModel.selectQueue(request.queue, request.startIndex)
+                    },
+                    onBack = { showTvHome = true },
+                )
                 else -> Box(Modifier.fillMaxSize()) {
                     LibraryScreen(
                         state = libraryState,
@@ -225,7 +235,6 @@ fun MaxApp(
                         modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (isTv) Button(onClick = { showTvHome = true }) { Text("TV Home") }
                         Button(onClick = { showCloud = true }) { Text("Cloud") }
                         Button(onClick = { removableTreePicker.launch(null) }) {
                             val mounted = removableVolumes.count { it.mounted }
