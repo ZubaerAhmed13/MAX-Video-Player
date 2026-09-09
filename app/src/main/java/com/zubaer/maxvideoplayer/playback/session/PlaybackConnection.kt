@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
 import androidx.media3.common.C
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -15,6 +16,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.ExternalSubtitleInfo
+import com.zubaer.maxvideoplayer.core.model.PlaybackTarget
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import com.zubaer.maxvideoplayer.core.model.RepeatMode
 import com.zubaer.maxvideoplayer.core.model.SubtitlePlaybackState
@@ -93,6 +95,11 @@ class PlaybackConnection(
                     override fun onEvents(player: Player, events: Player.Events) {
                         if (controller !== mediaController) return
                         publish(player)
+                    }
+
+                    override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
+                        if (controller !== mediaController) return
+                        publish(mediaController)
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
@@ -448,6 +455,11 @@ class PlaybackConnection(
                 else -> RepeatMode.OFF
             },
             shuffleEnabled = player.shuffleModeEnabled,
+            playbackTarget = if (player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
+                PlaybackTarget.CAST_DEVICE
+            } else {
+                PlaybackTarget.LOCAL_DEVICE
+            },
             subtitles = subtitleState,
             network = networkDiagnosticsMonitor.state.value,
             videoTracks = buildVideoTracks(player),
