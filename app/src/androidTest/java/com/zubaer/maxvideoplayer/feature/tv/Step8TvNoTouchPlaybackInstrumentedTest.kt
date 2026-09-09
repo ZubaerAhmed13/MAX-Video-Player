@@ -4,7 +4,6 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.util.Base64
 import android.view.KeyEvent
-import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -12,7 +11,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsFocused
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -47,7 +46,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class Step8TvNoTouchPlaybackInstrumentedTest {
     @get:Rule
-    val compose = createAndroidComposeRule<ComponentActivity>()
+    val compose = createComposeRule()
 
     private var connection: PlaybackConnection? = null
     private var fixture: File? = null
@@ -64,12 +63,13 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
     @Test
     fun remoteOnly_home_library_play_seek_pause_panels_back_toLibrary() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val app = instrumentation.targetContext.applicationContext as MaxVideoPlayerApplication
+        val targetContext = instrumentation.targetContext
+        val app = targetContext.applicationContext as MaxVideoPlayerApplication
         val container = app.container
         container.playerPreferences.setTutorialSeen(true)
         container.playerPreferences.setAutoHideMillis(8_000L)
 
-        val file = writeTvFixture(instrumentation.targetContext.cacheDir)
+        val file = writeTvFixture(targetContext.cacheDir)
         fixture = file
         val media = AppMedia(
             stableId = "step8-tv-no-touch-${System.nanoTime()}",
@@ -85,17 +85,17 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         )
 
         val playbackConnection = PlaybackConnection(
-            compose.activity,
+            targetContext,
             container.subtitleRepository,
             container.networkDiagnosticsMonitor,
         )
         connection = playbackConnection
         val stage = mutableStateOf(Stage.HOME)
 
-        val tvConfiguration = Configuration(compose.activity.resources.configuration).apply {
+        val tvConfiguration = Configuration(targetContext.resources.configuration).apply {
             uiMode = (uiMode and Configuration.UI_MODE_TYPE_MASK.inv()) or Configuration.UI_MODE_TYPE_TELEVISION
         }
-        val tvContext = compose.activity.createConfigurationContext(tvConfiguration)
+        val tvContext = targetContext.createConfigurationContext(tvConfiguration)
 
         compose.setContent {
             when (stage.value) {
