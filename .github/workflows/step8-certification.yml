@@ -73,7 +73,7 @@ jobs:
           else
             echo "/dev/kvm is not available on this runner; emulator runner will use its supported fallback."
           fi
-      - name: Certify cloud USB TV and external-display production paths on API 35
+      - name: Certify cloud Cast USB TV and external-display production paths on API 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -82,7 +82,7 @@ jobs:
           disable-animations: true
           script: >-
             gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
-            -Pandroid.testInstrumentationRunnerArguments.class=com.zubaer.maxvideoplayer.feature.cloud.Step8CloudProviderIntegrationTest,com.zubaer.maxvideoplayer.feature.usb.Step8UsbVirtualProviderTest,com.zubaer.maxvideoplayer.feature.tv.Step8TvFocusInstrumentedTest,com.zubaer.maxvideoplayer.feature.output.Step8ExternalDisplayInstrumentedTest,com.zubaer.maxvideoplayer.core.database.Step8DatabaseMigrationTest
+            -Pandroid.testInstrumentationRunnerArguments.class=com.zubaer.maxvideoplayer.feature.cloud.Step8CloudProviderIntegrationTest,com.zubaer.maxvideoplayer.feature.cast.Step8CastRemoteUiInstrumentedTest,com.zubaer.maxvideoplayer.feature.usb.Step8UsbVirtualProviderTest,com.zubaer.maxvideoplayer.feature.tv.Step8TvFocusInstrumentedTest,com.zubaer.maxvideoplayer.feature.tv.Step8TvNoTouchPlaybackInstrumentedTest,com.zubaer.maxvideoplayer.feature.output.Step8ExternalDisplayInstrumentedTest,com.zubaer.maxvideoplayer.core.database.Step8DatabaseMigrationTest
       - name: Upload Step 8 emulator reports
         if: always()
         uses: actions/upload-artifact@v4
