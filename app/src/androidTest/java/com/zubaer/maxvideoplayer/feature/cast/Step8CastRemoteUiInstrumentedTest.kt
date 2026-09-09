@@ -1,7 +1,6 @@
 package com.zubaer.maxvideoplayer.feature.cast
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -58,7 +57,7 @@ class Step8CastRemoteUiInstrumentedTest {
         }
         compose.waitForIdle()
 
-        compose.onNodeWithTag("cast_video_processing_unavailable").assertExists()
+        compose.onNodeWithTag("cast_video_processing_unavailable").assertTextContains("Cast")
         compose.onNodeWithTag("decoder_button").assertIsNotEnabled().assertTextContains("Cast")
         compose.onNodeWithTag("display_button").assertIsNotEnabled().assertTextContains("Cast")
         compose.onNodeWithTag("rotation_button").assertIsNotEnabled().assertTextContains("Cast")
@@ -107,7 +106,8 @@ class Step8CastRemoteUiInstrumentedTest {
         }
         compose.waitForIdle()
 
-        compose.onNodeWithTag("cast_audio_processing_unavailable").assertExists()
+        compose.onNodeWithTag("cast_audio_processing_unavailable")
+            .assertTextContains("Available when playing on this device")
     }
 
     @Test
@@ -127,8 +127,8 @@ class Step8CastRemoteUiInstrumentedTest {
         compose.waitForIdle()
 
         compose.onNodeWithTag("tv_decoder_button").assertIsNotEnabled().assertTextContains("Cast")
-        compose.onNodeWithTag("tv_audio_button").assertExists()
-        compose.onNodeWithTag("tv_queue_button").assertExists()
-        compose.onNodeWithTag("tv_cast_processing_notice").assertExists()
+        compose.onNodeWithTag("tv_audio_button").assertTextContains("Audio")
+        compose.onNodeWithTag("tv_queue_button").assertTextContains("Queue")
+        compose.onNodeWithTag("tv_cast_processing_notice").assertTextContains("phone-only")
     }
 }
