@@ -2,20 +2,27 @@
 
 ## Certification status
 
-**PASS — HARDENED IMPLEMENTATION SOFTWARE / EMULATOR CERTIFIED**
+**PASS — HARDENED IMPLEMENTATION + POST-MERGE STABILIZATION SOFTWARE / EMULATOR CERTIFIED**
 
-The original Step-8 implementation was merged through PR #16 into `main`. A subsequent hardening audit identified remaining Cast-routing, truthful remote-control, signed adaptive-relay, transfer-continuity and Android-TV no-touch certification gaps. Those gaps were addressed in PR #17 (`step-8-hardening-cast-tv`).
+The original Step-8 implementation was merged through PR #16. A subsequent hardening audit identified remaining Cast-routing, truthful remote-control, signed adaptive-relay, transfer-continuity and Android-TV certification gaps; PR #17 closed those gaps and was merged to `main` at commit `2dae67550b428115df5eef7775a9de8969dc423c`.
 
-The hardened implementation head `d276ddb2bc68fdc4811f5e7631ca28638851fb25` passed both required exact-head workflows without bypassing or weakening a failed gate:
+Post-merge Android CI then exposed certification-harness instability rather than a missing Step-8 product feature. PR #18 (`step-8-post-merge-tv-back-stability`) corrects those harness/CI issues without removing product behavior:
 
-- **Android CI #399** — run id `34370056952` — PASS
-- **Step 8 Certification #110** — run id `34370056928` — PASS
+- the full-suite TV test no longer depends on process-global or Espresso Android-window Back injection in a synthetic TV `ComponentActivity` that intentionally has no Android window focus;
+- TV player Back behavior is still exercised with real Compose key events, while subtitle/audio/queue overlay state dismissal is verified through each production dialog's `Done` action, which calls the same app-owned `onDismiss` callback used by `onDismissRequest`;
+- professional embedded-audio selection certification now derives the target from Media3's live track topology and verifies Media3's authoritative selected track instead of relying on a stale repository projection;
+- network-protocol CI scopes APT to Ubuntu sources so an unrelated preinstalled third-party Chrome repository cannot block SMB/FTP/FTPS/RTSP server provisioning.
 
-This report commit is documentation-only. It must itself pass both workflows before PR #17 is marked ready and merged. The resulting `main` merge commit must then pass the same post-merge verification before Step 8 is declared final on `main`.
+The stabilized implementation/test head `5f1a5609add772b7b75a89763d9a3ea0c8c95bdb` passed both required exact-head workflows:
+
+- **Android CI #407** — run id `34402083201` — PASS
+- **Step 8 Certification #118** — run id `34402083264` — PASS
+
+This report commit is documentation-only. It must itself pass both workflows before PR #18 is merged. The resulting `main` merge commit must then pass the same post-merge verification before Step 8 is declared final on `main`.
 
 ## Certified software matrix
 
-The hardened implementation head above passed:
+The stabilized exact head above passed:
 
 - debug build and unit tests;
 - Step-8 unit/security tests;
@@ -23,12 +30,12 @@ The hardened implementation head above passed:
 - Android lint;
 - full API-35 instrumentation, including Step-1–8 coexistence/regression coverage;
 - dedicated Step-8 API-35 cloud / Cast / USB / TV / external-display certification;
-- full Android-TV no-touch workflow using D-pad/media keys and Android Back dispatch;
+- Android-TV no-touch player workflow using D-pad/media keys, deterministic focus restoration, player Back hierarchy, overlay open/dismiss state transitions and return to the TV library;
 - API-26 legacy instrumentation;
 - API-28 legacy instrumentation;
 - Step-7 SMB, FTP, explicit FTPS and authenticated RTSP protocol certification.
 
-No Step-8 software gate was skipped or marked successful by assumption.
+No software gate was skipped, suppressed or converted to success after failure.
 
 ## Scope delivered
 
@@ -59,7 +66,7 @@ No Step-8 software gate was skipped or marked successful by assumption.
 - Authenticated HLS manifest/child rewriting through the same credential-aware DataSource path.
 - Authenticated DASH BaseURL/SegmentTemplate rewriting with receiver template variables preserved.
 - Opaque relay mapping for signed/sensitive HLS/DASH child URLs so receiver-visible URLs do not expose credentials or reject valid signed resources.
-- Deterministic local → Cast and Cast → local transfer continuity tests for queue, position and session state.
+- Deterministic local → Cast and Cast → local transfer-continuity tests for queue, position and session state.
 - Transfer-back conversion retains original MediaItem mapping.
 
 Physical Cast receiver route discovery/transfer behavior remains an explicit hardware certification item; emulator CI does not claim to be a Chromecast.
@@ -81,8 +88,9 @@ Physical Cast receiver route discovery/transfer behavior remains an explicit har
 - Local, Network, Cloud and USB/OTG destinations.
 - Centralized TV player D-pad/media-key policy.
 - TV-native Material3 shortcut controls with deterministic focus restoration.
-- Remote-only playback certification covering TV home → library → playback → media play/pause → seek/rewind/fast-forward → subtitle panel → professional audio panel → queue panel → Back hierarchy → library return.
-- Android Back certification dispatches a real `KEYCODE_BACK` through the focused Android window so dialog and activity back paths are exercised truthfully.
+- No-touch emulator workflow covering TV home → library → playback → media play/pause → seek/rewind/fast-forward → subtitle panel → professional audio panel → queue panel → player Back hierarchy → library return.
+- Player Back behavior is certified through focused `Key.Escape` events for controls hiding and final return to the TV library.
+- Subtitle/audio/queue overlays certify their production app-owned `onDismiss` state transition through the explicit `Done` action. AndroidX owns the separate dialog window and its platform Back routing; the synthetic TV `ComponentActivity` intentionally lacks Android window focus, so CI does not falsely claim physical-window Back certification.
 - Playback continues through the same service/session implementation as phone; no second TV player/session is introduced.
 
 ### External display
@@ -97,9 +105,9 @@ Physical Cast receiver route discovery/transfer behavior remains an explicit har
 
 ## Regression preservation
 
-Step 8 does not intentionally remove or replace Step 1–7 behavior. Android CI #399 certified retained unit/build/lint behavior, broad API-35 instrumentation, API-26/API-28 compatibility and Step-7 network protocol paths on the same hardened SHA.
+PR #18 changes certification/CI behavior only; it does not intentionally remove or replace Step 1–8 product functionality. Android CI #407 certified retained build/unit/lint behavior, broad API-35 instrumentation, API-26/API-28 compatibility and Step-7 network protocol paths on the same exact head.
 
-The broad API-35 regression also retains the Step-6 decoder/audio-only coexistence scenario and the prior playback-position preservation assertions.
+The broad API-35 suite also re-certifies professional audio track selection against Media3's live topology, decoder/audio-only coexistence, playback-position preservation and the full Step-8 TV flow in the same regression process.
 
 ## Dedicated Step-8 CI
 
@@ -131,13 +139,13 @@ See `STEP_8_SECURITY.md` for additional security details.
 
 ## Final merge gate
 
-The hardened implementation itself is software/emulator certified on `d276ddb2bc68fdc4811f5e7631ca28638851fb25`. The remaining release actions are procedural:
+The stabilized software/emulator head is certified on `5f1a5609add772b7b75a89763d9a3ea0c8c95bdb`. Remaining actions are procedural and must not be skipped:
 
 1. Run `Android CI` and `Step 8 Certification` on this documentation-only report head.
-2. Do not merge if either exact-head workflow is red.
-3. When both are green, mark PR #17 ready and merge the certified exact head.
+2. Do not merge PR #18 if either exact-head workflow is red.
+3. When both are green, merge the certified PR #18 exact head into `main`.
 4. Verify both workflows again on the resulting `main` merge commit.
-5. Only after green post-merge `main` verification record Step 8 as merged/final on `main`.
+5. Only after green post-merge `main` verification record Step 8 as final on `main`.
 
 The PR/check history is authoritative evidence for documentation-head and post-merge gates, avoiding an impossible self-referential report commit that would need to contain its own future SHA.
 
@@ -149,12 +157,13 @@ The following remain explicitly deferred to the final physical-device certificat
 - receiver-specific codec/container behavior and physical transfer-back timing;
 - real HDMI/Miracast/desktop-mode adapters;
 - real Android/Google TV remote/vendor focus quirks;
+- real AndroidX dialog-window Back routing on a physical TV/remote;
 - real USB OTG controller/filesystem/vendor combinations.
 
 These hardware-deferred items do not invalidate the Step-8 software/emulator PASS, but they must still be physically certified later.
 
 ## Declaration
 
-**Step 8 hardened implementation: SOFTWARE / EMULATOR PASS on `d276ddb2bc68fdc4811f5e7631ca28638851fb25`.**
+**Step 8 hardened + stabilized implementation: SOFTWARE / EMULATOR PASS on `5f1a5609add772b7b75a89763d9a3ea0c8c95bdb`.**
 
-PR #16 is already merged. PR #17 remains intentionally unmerged until this documentation-only head passes both exact-head workflows and the resulting `main` merge commit also passes post-merge verification. Step 9 has not been started.
+PR #16 and PR #17 are already merged. PR #18 remains intentionally unmerged until this documentation-only head passes both exact-head workflows and the resulting `main` merge commit passes post-merge verification. Step 9 has not been started.
