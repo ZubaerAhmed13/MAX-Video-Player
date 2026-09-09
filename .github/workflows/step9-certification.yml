@@ -1,0 +1,97 @@
+name: Step 9 Certification
+
+on:
+  push:
+    branches: [ step-9-private-security-settings-accessibility, main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  step9-security-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install compile SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Debug build and unit/security tests
+        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest --stacktrace
+      - name: Release compilation
+        run: gradle --no-daemon :app:assembleRelease --stacktrace
+      - name: Lint
+        run: gradle --no-daemon :app:lintDebug --stacktrace
+      - name: Upload Step 9 unit and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step9-unit-security-attempt-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/test-results/testDebugUnitTest/**
+            app/build/reports/lint-results-debug.*
+
+  step9-emulator-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install compile SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "/dev/kvm is not available; emulator runner will use its supported fallback."
+          fi
+      - name: Full connected suite and strict Step 9 production-path certification on API 35
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            sh .github/scripts/step9-certify-instrumentation.sh
+      - name: Upload Step 9 emulator reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step9-emulator-certification-attempt-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            app/build/reports/step9-instrumentation/**
+            app/build/reports/androidTests/connected/**
+            app/build/outputs/androidTest-results/connected/**
