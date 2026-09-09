@@ -34,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.feature.privatevault.auth.PrivateVaultAuthenticator
 import com.zubaer.maxvideoplayer.feature.privatevault.auth.VaultAuthResult
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +52,9 @@ fun SettingsScreen(
 ) {
     val settings by repository.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val subtitleRepository = remember(context) {
+        (context.applicationContext as? MaxVideoPlayerApplication)?.container?.subtitleRepository
+    }
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
     var importReady by remember { mutableStateOf<SettingsImportResult.Ready?>(null) }
@@ -227,9 +231,13 @@ fun SettingsScreen(
         item {
             SettingSwitch(
                 title = "Use system caption style",
-                detail = "Makes Android caption preferences available to the subtitle presentation policy without removing MAX custom styles.",
+                detail = "Applies Android's current caption colors, edge style and font scale while preserving your MAX custom subtitle style for restoration.",
                 checked = settings.useSystemCaptionStyle,
-                onChecked = repository::setUseSystemCaptionStyle,
+                onChecked = { enabled ->
+                    val applied = subtitleRepository?.let { SystemCaptionStyleBridge.apply(context, it, enabled) } ?: !enabled
+                    if (applied) repository.setUseSystemCaptionStyle(enabled)
+                    else message = "Android system caption style is unavailable on this device."
+                },
             )
         }
 
@@ -267,6 +275,9 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     val ok = repository.applyImport(ready)
+                    if (ok) {
+                        subtitleRepository?.let { SystemCaptionStyleBridge.apply(context, it, ready.settings.useSystemCaptionStyle) }
+                    }
                     importReady = null
                     message = if (ok) "Settings imported" else "Settings import could not be committed; previous settings were kept"
                 }) { Text("Import") }
@@ -281,7 +292,12 @@ fun SettingsScreen(
             title = { Text("Reset non-sensitive settings?") },
             text = { Text("Private media, credentials, accounts, history and playlists will not be erased.") },
             confirmButton = {
-                TextButton(onClick = { confirmReset = false; repository.resetAllNonSensitive(); message = "Non-sensitive settings reset" }) { Text("Reset") }
+                TextButton(onClick = {
+                    confirmReset = false
+                    repository.resetAllNonSensitive()
+                    subtitleRepository?.let { SystemCaptionStyleBridge.apply(context, it, false) }
+                    message = "Non-sensitive settings reset"
+                }) { Text("Reset") }
             },
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
         )
