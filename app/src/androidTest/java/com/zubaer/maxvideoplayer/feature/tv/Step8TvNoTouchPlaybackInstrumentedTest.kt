@@ -6,22 +6,22 @@ import android.util.Base64
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.input.key.Key
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
-import com.zubaer.maxvideoplayer.feature.audio.ProfessionalAudioPlayerHost
 import com.zubaer.maxvideoplayer.feature.audio.AudioPlaybackController
+import com.zubaer.maxvideoplayer.feature.audio.ProfessionalAudioPlayerHost
 import com.zubaer.maxvideoplayer.feature.library.LibraryPlaybackRequest
 import com.zubaer.maxvideoplayer.feature.library.LibraryUiState
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
@@ -119,7 +119,10 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
                     )
                 }
 
-                Stage.PLAYER -> CompositionLocalProvider(LocalContext provides tvContext) {
+                Stage.PLAYER -> CompositionLocalProvider(
+                    LocalContext provides tvContext,
+                    LocalConfiguration provides tvConfiguration,
+                ) {
                     MaxTheme {
                         val playerViewModel = remember(media.stableId) {
                             PlayerViewModel(
@@ -155,7 +158,6 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             }
         }
 
-        // TV Home -> Library using only remote Enter.
         compose.waitForIdle()
         compose.onNodeWithTag("tv_destination_library").assertIsFocused().performKeyInput {
             keyDown(Key.Enter)
@@ -163,20 +165,17 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         }
         compose.waitUntil(5_000L) { stage.value == Stage.LIBRARY }
 
-        // The first playable library item is the deterministic TV focus target.
         compose.onNodeWithTag("tv_media_${media.stableId}").assertIsFocused().performKeyInput {
             keyDown(Key.Enter)
             keyUp(Key.Enter)
         }
         compose.waitUntil(5_000L) { stage.value == Stage.PLAYER }
 
-        // Real PlaybackService/MediaSession/MediaController path must become ready.
         compose.waitUntil(15_000L) {
             val state = playbackConnection.state.value
             state.connected && state.mediaId == media.stableId && state.durationMs >= 10_000L && state.error == null
         }
 
-        // Pause quickly so the 15-second fixture stays deterministic while we certify seeking.
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PAUSE)
         compose.waitUntil(5_000L) { !playbackConnection.state.value.isPlaying }
         val beforeForward = playbackConnection.state.value.currentPositionMs
@@ -191,7 +190,6 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_REWIND)
         compose.waitUntil(5_000L) { playbackConnection.state.value.currentPositionMs < afterForward }
 
-        // Play must be real, not just a UI toggle: verify the service position advances, then pause.
         val beforePlay = playbackConnection.state.value.currentPositionMs
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY)
         compose.waitUntil(5_000L) { playbackConnection.state.value.isPlaying }
@@ -199,7 +197,6 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PAUSE)
         compose.waitUntil(5_000L) { !playbackConnection.state.value.isPlaying }
 
-        // Production TV shortcut row: Subtitles -> Back -> Audio -> Back -> Queue -> Back.
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("tv_subtitle_button").fetchSemanticsNode() }.isSuccess
         }
@@ -231,7 +228,6 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             runCatching { compose.onNodeWithTag("professional_audio_panel").fetchSemanticsNode() }.isFailure
         }
 
-        // Audio -> Decoder -> Queue. Decoder is reachable locally; Queue remains the selected action.
         compose.onNodeWithTag("tv_audio_button").performKeyInput {
             keyDown(Key.DirectionRight)
             keyUp(Key.DirectionRight)
@@ -250,7 +246,6 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             runCatching { compose.onNodeWithTag("player_queue_dialog").fetchSemanticsNode() }.isFailure
         }
 
-        // Back hierarchy on TV: first hides controls, second exits player back to TV Library.
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("tv_player_shortcuts").fetchSemanticsNode() }.isFailure
@@ -267,7 +262,6 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
     }
 
     companion object {
-        // 15 s, 160x90, 2 fps, H.264 baseline, no audio. Small but long enough for ±10 s seeks.
         private const val TV_MP4_BASE64 = "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"
     }
 }
