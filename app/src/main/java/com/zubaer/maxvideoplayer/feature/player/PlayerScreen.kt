@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.testTag
@@ -91,13 +92,13 @@ fun PlayerScreen(
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
     val subtitleStyle by subtitleRepository.style.collectAsStateWithLifecycle()
     val currentMedia = viewModel.mediaForPlaybackId(playback.mediaId)
+    val configuration = LocalConfiguration.current
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val accessibilityManager = remember(context) { context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager }
-    val isTelevision = remember(context) {
-        (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
-    }
+    val isTelevision =
+        (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
     val localVideoProcessingAvailable = playback.playbackTarget != PlaybackTarget.CAST_DEVICE
     val tvFocusRequester = remember { FocusRequester() }
     var subtitleDialogVisible by remember { mutableStateOf(false) }
