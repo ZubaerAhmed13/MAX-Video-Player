@@ -4,9 +4,9 @@ import android.content.Context
 import android.view.KeyEvent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
@@ -20,6 +20,7 @@ import com.zubaer.maxvideoplayer.feature.tv.TvPlayerAction
 import com.zubaer.maxvideoplayer.feature.tv.TvPlayerInputController
 import com.zubaer.maxvideoplayer.ui.MaxTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -64,7 +65,13 @@ class Step9AccessibilityInstrumentedTest {
         compose.setContent { MaxTheme { AppLockScreen(controller) } }
 
         compose.onNodeWithText("MAX Video Player locked").assertIsDisplayed()
-        compose.onNodeWithText("TOP_SECRET_PRIVATE_MOVIE_839247.mp4").assertDoesNotExist()
+        assertTrue(
+            "Locked accessibility tree leaked private sentinel metadata",
+            compose.onAllNodesWithText(
+                "TOP_SECRET_PRIVATE_MOVIE_839247.mp4",
+                useUnmergedTree = true,
+            ).fetchSemanticsNodes().isEmpty(),
+        )
     }
 
     @Test
