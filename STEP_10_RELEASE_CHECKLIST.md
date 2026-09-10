@@ -11,9 +11,11 @@ This checklist deliberately separates software evidence from physical evidence.
 - [x] Clean debug/release/AAB build, JVM/unit, lint, full API-35 instrumentation, strict instrumentation and package/static audit gates defined.
 - [x] Safe reusable physical-device evidence scripts added under `tools/step10/`.
 - [x] Current dependency/security review completed; SMBJ's transitive Bouncy Castle provider is pinned from requested `1.79` to fixed `1.84`, with release-runtime resolution checked in Step-10 CI.
-- [ ] Exact final Step-10 PR/head workflow all green after the security pin.
-- [ ] Final retained Android CI + Step 8 + Step 9 + Step 10 all green on the exact merge candidate.
-- [ ] Final APK/AAB SHA-256 recorded from the exact merge candidate.
+- [x] Exact final Step-10 PR/head workflow green on the certified PR head.
+- [x] Retained Android CI + Step 8 + Step 9 + Step 10 all green on the same certified PR head.
+- [x] Final APK/AAB SHA-256 recorded in the Step-10 release evidence and PR certification record for the certified PR head.
+
+The three final software items are evidence-bound: if the PR head changes for any reason, they revert to pending until the exact new head is rebuilt and all retained workflows and artifact hashes are revalidated.
 
 ## Physical release gates
 
