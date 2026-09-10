@@ -33,7 +33,7 @@ class MaxDatabaseMigrationTest {
         }
 
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_1_2, MaxDatabase.MIGRATION_2_3, MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7)
+            .addMigrations(MaxDatabase.MIGRATION_1_2, MaxDatabase.MIGRATION_2_3, MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7, MaxDatabase.MIGRATION_7_8)
             .allowMainThreadQueries()
             .build()
         try {
@@ -71,7 +71,7 @@ class MaxDatabaseMigrationTest {
         }
 
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_2_3, MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7)
+            .addMigrations(MaxDatabase.MIGRATION_2_3, MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7, MaxDatabase.MIGRATION_7_8)
             .allowMainThreadQueries()
             .build()
         try {
@@ -142,7 +142,7 @@ class MaxDatabaseMigrationTest {
         }
 
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7)
+            .addMigrations(MaxDatabase.MIGRATION_3_4, MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7, MaxDatabase.MIGRATION_7_8)
             .allowMainThreadQueries()
             .build()
         try {
@@ -199,7 +199,7 @@ class MaxDatabaseMigrationTest {
         }
 
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7)
+            .addMigrations(MaxDatabase.MIGRATION_4_5, MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7, MaxDatabase.MIGRATION_7_8)
             .allowMainThreadQueries()
             .build()
         try {
@@ -248,7 +248,7 @@ class MaxDatabaseMigrationTest {
             db.version = 5
         }
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7)
+            .addMigrations(MaxDatabase.MIGRATION_5_6, MaxDatabase.MIGRATION_6_7, MaxDatabase.MIGRATION_7_8)
             .allowMainThreadQueries()
             .build()
         try {
