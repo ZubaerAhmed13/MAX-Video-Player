@@ -190,6 +190,9 @@ class Media3PlaybackEngine(
             exoPlayer.removeListener(decoderFailureListener)
             exoPlayer.release()
         }
+        // Analytics callbacks have been detached, so no old codec instance can release after this
+        // point. Clear the per-instance accounting before the next service creates a new engine.
+        decoderRepository.resetActiveDecoderInstances()
         decoderRepository.markVideoDecoderInactive("Playback released")
         audioRepository.setDspPipelineInstalled(false)
     }
