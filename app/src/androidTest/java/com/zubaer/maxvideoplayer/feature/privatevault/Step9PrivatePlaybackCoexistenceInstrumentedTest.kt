@@ -116,10 +116,13 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
                     connection.disconnect()
                 }
             }
-            runCatching { scenario?.close() }
+            // Stop the service while the Activity is still foregrounded so the vault session remains
+            // unlocked long enough to delete the indexed test item through the production repository.
             context.stopService(Intent(context, PlaybackService::class.java))
             instrumentation.waitForIdleSync()
             vaultId?.let { id -> runCatching { runBlocking { repository.delete(id) } } }
+            runCatching { scenario?.close() }
+            instrumentation.waitForIdleSync()
             session.lock()
             PrivateVaultCrypto.zero(master)
             fixture.delete()
