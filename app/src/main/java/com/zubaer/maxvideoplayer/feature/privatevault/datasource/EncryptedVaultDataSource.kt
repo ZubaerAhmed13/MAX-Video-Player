@@ -102,9 +102,9 @@ class EncryptedVaultDataSource(
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
-        if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
         val raf = randomAccessFile ?: throw IOException("Private media source is closed")
         val container = openContainer ?: throw IOException("Private media source is closed")
+        if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
         val count = minOf(length.toLong(), bytesRemaining).toInt()
         val read = PrivateVaultContainerFormat.readPlainRange(raf, container, position, buffer, offset, count)
         if (read <= 0) return C.RESULT_END_OF_INPUT
