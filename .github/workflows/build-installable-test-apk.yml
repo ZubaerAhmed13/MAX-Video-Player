@@ -1,0 +1,47 @@
+name: Build Installable Test APK
+
+on:
+  push:
+    branches: [ step-10-installable-apk ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify app source base
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^)" = "2d7eafafec6b1fd80124340c4b43b65c423b5efe"
+          echo "App source is certified Step-10 head; this commit only adds the APK export workflow."
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Build standard Gradle debug APK
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+      - name: Verify APK exists and hash it
+        shell: bash
+        run: |
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app/build/outputs/apk/debug/app-debug.sha256
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAX-Video-Player-Step10-Installable-Debug
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.sha256
