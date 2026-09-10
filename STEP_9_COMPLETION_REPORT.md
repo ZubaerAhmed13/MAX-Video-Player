@@ -15,7 +15,7 @@ This report is intentionally truthful while PR #22 is still open. It is updated 
 - Final Step-9 Certification run ID: **PENDING**
 - Final retained Step-8 Certification run ID: **PENDING**
 
-The earlier head `a23136a040998050812c32ddbd7faf8420a33271` was deliberately **not** accepted: its Step-9 run `34415942077`, Step-8 run `34415942093`, and Android CI run `34415942092` were red. Investigation found one legitimate biometric permission lint error and two instrumentation-source compile errors. Those causes were patched rather than waived. The Step-9 workflow was also hardened so PR certification explicitly checks out and verifies the literal PR head instead of accepting only GitHub's synthetic PR merge ref.
+The earlier head `a23136a040998050812c32ddbd7faf8420a33271` was deliberately **not** accepted: its Step-9 run `34415942077`, Step-8 run `34415942093`, and Android CI run `34415942092` were red. Investigation found one legitimate biometric permission lint error and two instrumentation-source compile errors. Those causes were patched rather than waived. The Step-9 workflow was also hardened so PR certification explicitly checks out and verifies the literal PR head instead of accepting only GitHub's synthetic PR merge ref. The retained Android CI and Step-8 workflows were subsequently given the same literal-head checkout assertion without removing any earlier lane.
 
 ## Step-9 deliverables
 
@@ -38,6 +38,8 @@ Optional whole-app App Lock is separate from mandatory vault lock and supports i
 ### Import, copy and move
 
 Vault imports stream into opaque `.partial` containers. Copy preserves the original. Move performs encrypted write, production-path decrypt/hash verification and commit before requesting source deletion. If source deletion fails, the result explicitly reports that an encrypted copy was created while the original remains. Partial/orphan cleanup prevents incomplete imports from appearing as valid private items.
+
+Long-running import now observes coroutine cancellation during production source reads and verification chunks. Cancellation is propagated as `CancellationException` rather than being converted to a misleading normal failure result, and an in-progress partial is deleted. The dedicated transaction suite exercises copy success, move success, failed source deletion semantics, storage preflight rejection, source read failure, vault write failure, database commit failure/rollback, cancellation during streaming, and abandoned partial/orphan recovery. A process killed by the OS cannot execute a Kotlin cleanup handler, so restart recovery remains the authority for abandoned on-disk partial/orphan cleanup.
 
 ### Production playback integration
 
@@ -94,13 +96,16 @@ JVM/unit coverage includes:
 API-35 Step-9 instrumentation explicitly includes:
 
 - `PrivateVaultIntegrationTest`;
+- `Step9PrivatePlaybackCoexistenceInstrumentedTest`;
+- `Step9VaultAuthInstrumentedTest`;
+- `Step9VaultImportInstrumentedTest`;
 - `Step9DatabaseMigrationTest`;
 - `Step9SettingsPrivacyInstrumentedTest`;
 - `Step9SleepTimerInstrumentedTest`;
 - `Step9PrivateSurfaceInstrumentedTest`;
-- `Step9AccessibilityInstrumentedTest`;
-- `Step9VaultAuthInstrumentedTest`;
-- `Step9PrivatePlaybackCoexistenceInstrumentedTest`.
+- `Step9AccessibilityInstrumentedTest`.
+
+`Step9VaultImportInstrumentedTest` covers production repository copy/move behavior, denied source deletion truthfulness, insufficient-storage preflight with sparse logical source geometry, injected/OS-level read/write failure behavior where feasible, database commit rollback, cooperative cancellation cleanup, and startup partial/orphan recovery.
 
 `.github/scripts/step9-certify-instrumentation.sh` runs every required class by exact name and rejects failure, missing success and zero-test execution.
 
@@ -111,7 +116,7 @@ API-35 Step-9 instrumentation explicitly includes:
 - `step9-security-unit`: exact-checkout assertion; debug build; full JVM unit suite; release compile; lint;
 - `step9-emulator-certification`: exact-checkout assertion; complete API-35 `connectedDebugAndroidTest`; then strict named-class Step-9 instrumentation.
 
-The retained Android CI/Step-8 workflows are not deleted or weakened. They continue to provide API-26/API-28 thumbnail coverage, API-35 full instrumentation, Step-7 real protocol-server certification, Step-8 cloud/Cast/TV/output certification and Step-6 decoder/coexistence regressions.
+The retained Android CI/Step-8 workflows are not deleted or weakened. Their jobs now also explicitly check out and assert the literal PR head before execution. They continue to provide API-26/API-28 thumbnail coverage, API-35 full instrumentation, Step-7 real protocol-server certification, Step-8 cloud/Cast/TV/output certification and Step-6 decoder/coexistence regressions.
 
 ## Dependencies
 
@@ -119,7 +124,7 @@ Step 9 adds no third-party runtime cryptography dependency and no second playbac
 
 ## Changed-file groups
 
-PR #22 currently changes Step-9 CI/script files; Android manifest/backup rules; app composition/container/activity; Room/model integration; audio role accessibility; Cast resolver; library file-action isolation; source routing; the complete `feature/privatevault` domain/auth/crypto/data-source/persistence/presentation/repository/storage stack; settings/redaction/caption bridge; sleep timer UI/controller; playback engine/service integration; theme accessibility; and Step-9 JVM/instrumentation tests.
+PR #22 changes Step-9 CI/script files; retained CI checkout hardening; Android manifest/backup rules; app composition/container/activity; Room/model integration; audio role accessibility; Cast resolver; library file-action isolation; source routing; the complete `feature.privatevault` domain/auth/crypto/data-source/persistence/presentation/repository/storage stack; settings/redaction/caption bridge; sleep timer UI/controller; playback engine/service integration; theme accessibility; the four canonical project documents; the three required Step-9 documents; and Step-9 JVM/instrumentation tests.
 
 The canonical changed-file list is the PR's GitHub file list. No earlier Step-1â€“8 test file was deleted to obtain Step-9 green status.
 
@@ -131,7 +136,8 @@ The canonical changed-file list is the PR's GitHub file list. No earlier Step-1â
 4. Settings redaction tests now check secret values rather than incorrectly requiring sensitive field names themselves to disappear.
 5. PIN change was hardened from commit-then-verify to verify-before-atomic-commit, preventing a failed replacement from intentionally destroying the last valid credential envelope.
 6. The main manifest now declares the permission required by platform biometric use instead of suppressing `MissingPermission` lint.
-7. Step-9 CI now verifies the literal PR head checkout; a synthetic merge-ref green run alone is not considered exact-head certification.
+7. Step-9, Android CI and retained Step-8 CI now verify the literal PR head checkout; a synthetic merge-ref green run alone is not considered exact-head certification.
+8. Vault import was hardened for cooperative coroutine cancellation so cancellation is not swallowed and partially encrypted work is cleaned rather than reported as successful.
 
 ## No-sacrifice confirmation
 
