@@ -9,10 +9,12 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.MainActivity
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.core.model.AppMedia
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.feature.privatevault.crypto.PrivateVaultContainerFormat
 import com.zubaer.maxvideoplayer.feature.privatevault.crypto.PrivateVaultCrypto
 import com.zubaer.maxvideoplayer.playback.session.PlaybackService
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -43,6 +45,13 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
         val connection = container.playbackConnection
         val session = container.privateVaultSession
         val storage = container.privateVaultStorage
+
+        // The complete instrumentation suite intentionally exercises strict Hardware/Software
+        // decoder policies before this test. Reset this independent coexistence case to the normal
+        // Auto policy so its H.264 assertion certifies the private source path rather than inheriting
+        // a backend restriction from another test's process-global preferences.
+        container.decoderRepository.resetDecoderPreferences()
+        assertEquals(DecoderMode.AUTO, container.decoderRepository.requestedMode())
 
         val fixture = File(context.cacheDir, "step9_private_multi_audio.mp4").also { target ->
             testContext.assets.open("step5_multi_audio.mp4").use { input -> target.outputStream().use(input::copyTo) }
@@ -97,7 +106,7 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
                 }
             })
             assertTrue("Private playback reported an error: ${connection.state.value.error}", connection.state.value.error == null)
-            assertTrue("Normal decoder pipeline did not expose the H.264 video track", onMain(instrumentation) {
+            assertTrue("Normal decoder pipeline did not expose a supported H.264 video track", onMain(instrumentation) {
                 connection.playerOrNull()?.currentTracks?.groups?.any { group ->
                     group.type == C.TRACK_TYPE_VIDEO && (0 until group.length).any { group.isTrackSupported(it) }
                 } == true
