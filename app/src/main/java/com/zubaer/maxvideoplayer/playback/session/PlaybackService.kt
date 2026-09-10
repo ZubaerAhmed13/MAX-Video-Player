@@ -2,9 +2,12 @@ package com.zubaer.maxvideoplayer.playback.session
 
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.RemoteCastPlayer
+import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -50,6 +53,10 @@ class PlaybackService : MediaSessionService() {
             observeTransferContinuity(player)
         }
 
+        override fun onTracksChanged(tracks: Tracks) {
+            applySelectedExternalAudioTrack()
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val player = authoritativePlayerOrNull() ?: return
             (application as MaxVideoPlayerApplication).container.networkDiagnosticsMonitor.onPlayerState(player)
@@ -85,6 +92,7 @@ class PlaybackService : MediaSessionService() {
             if (deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 if (::castRelayManager.isInitialized) castRelayManager.stopSession()
                 if (::castMediaItemConverter.isInitialized) castMediaItemConverter.clearOriginalMappings()
+                applySelectedExternalAudioTrack()
             }
         }
 
@@ -140,7 +148,7 @@ class PlaybackService : MediaSessionService() {
                 if (
                     ::castPlayer.isInitialized &&
                     castPlayer.deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE &&
-                    androidx.media3.common.C.TRACK_TYPE_VIDEO !in engine.player.trackSelectionParameters.disabledTrackTypes
+                    C.TRACK_TYPE_VIDEO !in engine.player.trackSelectionParameters.disabledTrackTypes
                 ) {
                     engine.reconfigureVideoDecoder(container.decoderRepository.requestedMode())
                 }
@@ -191,6 +199,48 @@ class PlaybackService : MediaSessionService() {
                 delay(5_000L)
                 persistCurrent()
             }
+        }
+    }
+
+    /**
+     * External audio is merged by the service-owned Media3PlaybackEngine, so the authoritative
+     * TrackGroup identity exists here rather than in the MediaController proxy. Apply the explicit
+     * external override directly to the local ExoPlayer as soon as the merged topology is exposed.
+     * This keeps one player owner responsible for both source construction and TrackGroup selection.
+     */
+    private fun applySelectedExternalAudioTrack() {
+        if (!::engine.isInitialized || !::castPlayer.isInitialized) return
+        if (castPlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) return
+
+        val player = engine.player
+        val mediaId = player.currentMediaItem?.mediaId ?: return
+        val repository = (application as MaxVideoPlayerApplication).container.audioRepository
+        repository.selectedExternalFor(mediaId) ?: return
+        if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS) ||
+            !player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
+        ) return
+
+        player.currentTracks.groups.forEach { group ->
+            if (group.type != C.TRACK_TYPE_AUDIO || !isExternalAudioGroup(group)) return@forEach
+            for (index in 0 until group.length) {
+                if (!group.isTrackSupported(index)) continue
+                if (group.isTrackSelected(index)) return
+                val current = player.trackSelectionParameters
+                val desired = current.buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+                    .build()
+                if (desired != current) player.trackSelectionParameters = desired
+                return
+            }
+        }
+    }
+
+    private fun isExternalAudioGroup(group: Tracks.Group): Boolean {
+        if (group.mediaTrackGroup.id.startsWith("1:")) return true
+        return (0 until group.length).any { index ->
+            group.getTrackFormat(index).id?.startsWith("1:") == true
         }
     }
 
