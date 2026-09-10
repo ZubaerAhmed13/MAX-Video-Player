@@ -7,6 +7,8 @@ OUT="app/build/reports/step10-instrumentation"
 mkdir -p "$OUT"
 
 classes=(
+  com.zubaer.maxvideoplayer.MainActivityTest
+  com.zubaer.maxvideoplayer.feature.player.PlayerControlsInstrumentedTest
   com.zubaer.maxvideoplayer.playback.Step6DecoderIntegrationTest
   com.zubaer.maxvideoplayer.playback.Step6CoexistenceIntegrationTest
   com.zubaer.maxvideoplayer.feature.cast.Step8CastRemoteUiInstrumentedTest
