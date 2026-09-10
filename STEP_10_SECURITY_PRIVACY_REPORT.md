@@ -2,19 +2,22 @@
 
 ## Source/configuration review
 
-Reviewed at the Step-9-complete baseline before Step-10 changes:
-
 - `AndroidManifest.xml` requests media/network/foreground-service/notification/biometric permissions; it does not request camera, microphone or location.
-- `backup_rules.xml` excludes private-vault authentication, private-vault biometric state, network credential vault and cloud token vault preferences.
-- `data_extraction_rules.xml` excludes the same sensitive preference stores from cloud backup and device transfer.
-- `network_security_config.xml` retains the Android system trust store. Cleartext remains enabled because HTTP/FTP are explicit supported user features and must continue to be warned about rather than silently treated as secure.
-- Step-10 static audit fails on obvious trust-all/disabled-certificate patterns, destructive Room migration fallback, production private-key material, release debuggable/testOnly flags, and obvious hard-coded credential assignments in `app/src/main`.
-- Step-10 package audit verifies package identity, hashes APK/AAB artifacts, rejects debuggable/testOnly release APKs, records permissions, and rejects private-key/sentinel-secret material in release artifacts.
+- `backup_rules.xml` and `data_extraction_rules.xml` exclude private-vault authentication/biometric state, network credential vault and cloud token vault preferences.
+- `network_security_config.xml` retains Android system trust anchors. Cleartext remains available only because HTTP/FTP are explicit product features; TLS verification is not disabled.
+- Step-10 static audit rejects obvious trust-all/disabled-certificate patterns, destructive Room fallback, production private-key material, release debuggable/testOnly flags and obvious hard-coded credential assignments in production source.
+- Step-10 package audit records APK/AAB SHA-256 and package/permission metadata and rejects debuggable/testOnly or private-key/sentinel-secret material in release artifacts.
+
+## Dependency vulnerability review — Bouncy Castle via SMBJ
+
+A current dependency review identified that SMBJ `0.14.0` brings runtime `org.bouncycastle:bcprov-jdk18on:1.79`. Public 2026 advisories affect that BC line: CVE-2025-14813 concerns the GOST CTR implementation and CVE-2026-0636 concerns `LDAPStoreHelper`. MAX source does not directly import or invoke Bouncy Castle/GOST/LDAP APIs, so those specific paths are not established MAX execution paths. However, Step 10 removes the affected packaged version by directly pinning `bcprov-jdk18on` to vendor-fixed `1.84`.
+
+Acceptance condition: clean build plus retained Step-7 SMB/network/protocol regression must pass with the resolved 1.84 provider. This report deliberately does not claim “0 vulnerabilities”; it records the signal, affected transitive package, code-path assessment, mitigation and required regression.
 
 ## Physical privacy validation
 
-The following require real device execution and remain `NOT VERIFIED`: hardware/system screenshots, screen recording, recents/task preview, lock-screen notification privacy, Bluetooth/wearable metadata exposure, biometric cancellation/enrollment changes/Keystore invalidation behavior, and OEM-specific `FLAG_SECURE` behavior.
+Hardware/system screenshots, screen recording, recents/task preview, lock-screen notification privacy, Bluetooth/wearable metadata exposure, biometric cancellation/enrollment changes/Keystore invalidation and OEM-specific `FLAG_SECURE` behavior remain `NOT VERIFIED` until real devices execute them.
 
 ## Production signing
 
-`PRODUCTION SIGNING/PUBLISHING NOT PERFORMED` unless and until authorized credentials are supplied through a secure deployment path. No keystore/password/signing secret is to be committed.
+`PRODUCTION SIGNING/PUBLISHING NOT PERFORMED`. No keystore, signing password or production secret is committed.

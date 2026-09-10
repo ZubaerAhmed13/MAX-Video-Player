@@ -43,6 +43,16 @@ jobs:
         run: |
           gradle --no-daemon clean --stacktrace
           gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleRelease :app:bundleRelease --stacktrace
+      - name: Verify Bouncy Castle security resolution
+        shell: bash
+        run: |
+          mkdir -p app/build/reports/step10
+          gradle --no-daemon :app:dependencyInsight --dependency bcprov-jdk18on --configuration releaseRuntimeClasspath | tee app/build/reports/step10/bcprov-dependency-insight.txt
+          grep -q 'org.bouncycastle:bcprov-jdk18on:1.84' app/build/reports/step10/bcprov-dependency-insight.txt
+          if grep -Eq 'org\.bouncycastle:bcprov-jdk18on:1\.79([^0-9]|$).*(selected|resolved)' app/build/reports/step10/bcprov-dependency-insight.txt; then
+            echo 'Vulnerable bcprov 1.79 remained selected in releaseRuntimeClasspath.' >&2
+            exit 1
+          fi
       - name: Step 10 static release audit
         run: bash tools/step10/static_release_audit.sh
       - name: Record release artifact hashes
