@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollToIndex
@@ -18,27 +19,42 @@ import org.junit.runner.RunWith
 class MainActivityTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
-    @Test fun libraryAndOpenFileControlRender() {
-        rule.onNodeWithTag("open_file_button").assertIsDisplayed()
-        rule.onNodeWithTag("library_search_input").assertIsDisplayed()
-        // Step 2 has a substantially taller professional library. Preserve the Step-1
-        // network-entry control without coupling the regression test to above-the-fold placement.
-        rule.onNodeWithTag("network_url_input").assertExists()
+    @Test
+    fun releaseLibraryChromeRendersWithoutPermanentSearchOrLegacyTopStrip() {
+        rule.onNodeWithTag("library_search_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_view_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_more_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_section_row").assertIsDisplayed()
+        rule.onNodeWithTag("section_folders").assertExists()
+        rule.onNodeWithTag("section_private").assertExists()
+        rule.onNodeWithTag("section_network").assertExists()
+        rule.onNodeWithTag("section_cloud").assertExists()
+        rule.onNodeWithTag("section_usb").assertExists()
+        rule.onNodeWithTag("library_search_input").assertDoesNotExist()
+        rule.onNodeWithTag("network_url_input").assertDoesNotExist()
     }
 
-    @Test fun primarySectionsNavigateWithoutDependingOnSeededMedia() {
-        selectSection(index = 1, tag = "section_folders")
+    @Test
+    fun primarySourcesAndOverflowSectionsNavigateWithoutSeededMedia() {
+        selectSource(index = 0, tag = "section_folders")
         rule.onNodeWithTag("folder_list").assertIsDisplayed()
 
-        selectSection(index = 4, tag = "section_favourites")
-        rule.onNodeWithTag("library_search_input").assertIsDisplayed()
+        selectSource(index = 6, tag = "section_playlists")
+        rule.onNodeWithTag("playlist_list").assertIsDisplayed()
 
-        selectSection(index = 6, tag = "section_history")
-        rule.onNodeWithTag("library_search_input").assertIsDisplayed()
+        openOverflowSection("Continue watching")
+        rule.onNodeWithText("Continue watching").assertExists()
+
+        openOverflowSection("Favourites")
+        rule.onNodeWithText("Favourites").assertExists()
+
+        openOverflowSection("History")
+        rule.onNodeWithText("History").assertExists()
     }
 
-    @Test fun playlistCreateFlowUsesPersistentProfessionalSurface() {
-        selectSection(index = 5, tag = "section_playlists")
+    @Test
+    fun playlistCreateFlowUsesPersistentProfessionalSurface() {
+        selectSource(index = 6, tag = "section_playlists")
         rule.onNodeWithTag("playlist_list").assertIsDisplayed()
         rule.onNodeWithTag("new_playlist_input").performTextInput("Instrumentation Playlist")
         rule.onNodeWithTag("create_playlist_button").performClick()
@@ -46,9 +62,14 @@ class MainActivityTest {
         rule.onNodeWithTag("playlist_list").assertIsDisplayed()
     }
 
-    @Test fun searchSupportsImeClearAndBackNavigation() {
+    @Test
+    fun searchIsProgressivelyDisclosedAndBackRestoresCompactAppBar() {
+        rule.onNodeWithTag("library_search_input").assertDoesNotExist()
+        rule.onNodeWithTag("library_search_button").assertIsDisplayed().performClick()
+        rule.waitForIdle()
+
         val search = rule.onNodeWithTag("library_search_input")
-        search.performTextInput("definitely missing")
+        search.assertIsDisplayed().performTextInput("definitely missing")
         search.performImeAction()
         rule.waitForIdle()
         rule.onNodeWithTag("clear_search_button").assertIsDisplayed().performClick()
@@ -60,21 +81,39 @@ class MainActivityTest {
         rule.onNodeWithTag("clear_search_button").assertIsDisplayed()
         rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         rule.waitForIdle()
-        rule.onAllNodes(hasTestTag("clear_search_button")).assertCountEquals(0)
-        rule.onNodeWithTag("library_search_input").assertIsDisplayed()
+        rule.onNodeWithTag("library_search_input").assertDoesNotExist()
+        rule.onNodeWithTag("library_search_button").assertIsDisplayed()
     }
 
-    @Test fun activityRecreationDoesNotCrashFoundationUi() {
+    @Test
+    fun networkUrlEntryLivesInOverflowInsteadOfPermanentLibraryChrome() {
+        rule.onNodeWithTag("network_url_input").assertDoesNotExist()
+        rule.onNodeWithTag("library_more_button").performClick()
+        rule.onNodeWithText("Open network URL").assertIsDisplayed().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("network_url_input").assertIsDisplayed()
+        rule.onNodeWithText("Cancel").performClick()
+    }
+
+    @Test
+    fun activityRecreationKeepsReleaseLibraryChromeUsable() {
         rule.activityRule.scenario.recreate()
         rule.waitForIdle()
-        rule.onNodeWithTag("open_file_button").assertIsDisplayed()
-        rule.onNodeWithTag("library_search_input").assertIsDisplayed()
+        rule.onNodeWithTag("library_search_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_more_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_section_row").assertIsDisplayed()
     }
 
-    private fun selectSection(index: Int, tag: String) {
+    private fun selectSource(index: Int, tag: String) {
         rule.onNodeWithTag("library_section_row").performScrollToIndex(index)
         rule.waitForIdle()
         rule.onNodeWithTag(tag).assertIsDisplayed().performClick()
+        rule.waitForIdle()
+    }
+
+    private fun openOverflowSection(label: String) {
+        rule.onNodeWithTag("library_more_button").assertIsDisplayed().performClick()
+        rule.onNodeWithText(label).assertIsDisplayed().performClick()
         rule.waitForIdle()
     }
 }
