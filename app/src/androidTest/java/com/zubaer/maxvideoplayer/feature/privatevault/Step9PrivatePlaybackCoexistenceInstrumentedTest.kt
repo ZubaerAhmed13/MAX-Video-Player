@@ -2,7 +2,6 @@ package com.zubaer.maxvideoplayer.feature.privatevault
 
 import android.content.Intent
 import android.media.MediaExtractor
-import android.net.Uri
 import androidx.media3.common.C
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -27,6 +26,10 @@ import java.util.UUID
  * Production-path coexistence certification using the existing redistribution-safe Step-5 MP4.
  * The fixture is encrypted by the real vault writer and then loaded through PlaybackConnection ->
  * PlaybackService -> Media3 -> EncryptedVaultDataSource. No second player is created for Step 9.
+ *
+ * This test writes its already-complete encrypted fixture directly to the final opaque container
+ * name. Import transaction behavior is certified separately by Step9VaultImportInstrumentedTest;
+ * using a `.partial` here would intentionally race the app's abandoned-transaction recovery.
  */
 @RunWith(AndroidJUnit4::class)
 class Step9PrivatePlaybackCoexistenceInstrumentedTest {
@@ -48,16 +51,17 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
 
         val vaultId = UUID.randomUUID()
         val master = PrivateVaultCrypto.randomKey()
-        val partial = storage.partialFile(vaultId.toString())
+        val encryptedFixture = storage.containerFile(vaultId.toString())
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
             session.setConfigured(true)
             session.unlock(master)
+            storage.delete(vaultId.toString())
             FileInputStream(fixture).use { input ->
                 PrivateVaultContainerFormat.write(
                     input = input,
                     sourceLength = fixture.length(),
-                    destination = partial,
+                    destination = encryptedFixture,
                     vaultId = vaultId,
                     metadata = PrivateMediaMetadata(
                         originalDisplayName = "TOP_SECRET_PRIVATE_MOVIE_839247.mp4",
@@ -70,7 +74,7 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
                     masterSecret = master,
                 )
             }
-            storage.commitPartial(vaultId.toString())
+            assertTrue("Encrypted playback fixture was not created", encryptedFixture.isFile)
             val media = AppMedia(
                 stableId = "maxvault://$vaultId",
                 uri = "maxvault://$vaultId",
@@ -124,7 +128,6 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
             context.stopService(Intent(context, PlaybackService::class.java))
             session.lock()
             storage.delete(vaultId.toString())
-            partial.delete()
             PrivateVaultCrypto.zero(master)
             fixture.delete()
         }
