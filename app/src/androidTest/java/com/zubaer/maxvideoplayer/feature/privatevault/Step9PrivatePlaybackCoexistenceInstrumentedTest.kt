@@ -10,7 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.MainActivity
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.core.model.DecoderMode
-import com.zubaer.maxvideoplayer.feature.privatevault.crypto.PrivateVaultCrypto
+import com.zubaer.maxvideoplayer.feature.privatevault.auth.VaultAuthResult
 import com.zubaer.maxvideoplayer.playback.session.PlaybackService
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -27,9 +27,10 @@ import java.io.File
  * PlaybackConnection -> PlaybackService -> Media3 -> EncryptedVaultDataSource. No second player is
  * created for Step 9.
  *
- * A completed private container is valid only after its opaque Room index row is committed. Writing
- * an unindexed `.maxvault` file would correctly make it an orphan eligible for recovery cleanup and
- * would not represent a production-created vault item.
+ * The vault itself is created through PrivateVaultAuthenticator before import. This deliberately
+ * exercises the persisted authenticated master-key envelope that MainActivity/AppLockController
+ * later observes instead of manually injecting an in-memory key that could be invalidated when the
+ * authenticator is lazily initialized.
  */
 @RunWith(AndroidJUnit4::class)
 class Step9PrivatePlaybackCoexistenceInstrumentedTest {
@@ -42,12 +43,14 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
         val container = app.container
         val connection = container.playbackConnection
         val session = container.privateVaultSession
+        val authenticator = container.privateVaultAuthenticator
         val repository = container.privateVaultRepository
         val storage = container.privateVaultStorage
 
-        // Other certification classes intentionally exercise strict decoder policies. This
-        // independent private-source coexistence case starts from the normal production Auto policy.
+        // Other certification classes intentionally exercise strict decoder/app-lock policies. This
+        // independent private-source coexistence case starts from normal production defaults.
         container.decoderRepository.resetDecoderPreferences()
+        container.settingsRepository.setAppLockEnabled(false)
         assertEquals(DecoderMode.AUTO, container.decoderRepository.requestedMode())
 
         val fixture = File(context.cacheDir, "step9_private_multi_audio.mp4").also { target ->
@@ -55,12 +58,17 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
         }
         certifyFixtureContainsAvcAndAudio(fixture)
 
-        val master = PrivateVaultCrypto.randomKey()
         var vaultId: String? = null
         var scenario: ActivityScenario<MainActivity>? = null
         try {
-            session.setConfigured(true)
-            session.unlock(master)
+            // The strict named-class certification runs after the complete connected suite on the
+            // same installed test app. Clear only the ephemeral test credential envelope, then create
+            // a fresh production-valid envelope through the real authenticator so later lazy app-lock
+            // access cannot overwrite a manually injected session secret.
+            authenticator.clearAuthenticationAfterVaultErase()
+            val created = authenticator.createVault("947261".toCharArray())
+            assertTrue("Could not create authenticated certification vault: $created", created is VaultAuthResult.Success)
+            assertTrue("Authenticated certification vault did not unlock", session.state.value == PrivateVaultState.UNLOCKED)
 
             val imported = runBlocking {
                 repository.import(Uri.fromFile(fixture), PrivateImportMode.COPY)
@@ -78,6 +86,7 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
 
             scenario = ActivityScenario.launch(MainActivity::class.java)
             instrumentation.waitForIdleSync()
+            assertTrue("Activity launch unexpectedly relocked the authenticated vault", session.state.value == PrivateVaultState.UNLOCKED)
             instrumentation.runOnMainSync { connection.connect() }
             assertTrue("MediaController did not connect", await(10_000L) { connection.state.value.connected })
             instrumentation.runOnMainSync { connection.load(media, 0L, true) }
@@ -117,14 +126,13 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
                 }
             }
             // Stop the service while the Activity is still foregrounded so the vault session remains
-            // unlocked long enough to delete the indexed test item through the production repository.
+            // unlocked long enough to delete this indexed fixture through the production repository.
             context.stopService(Intent(context, PlaybackService::class.java))
             instrumentation.waitForIdleSync()
             vaultId?.let { id -> runCatching { runBlocking { repository.delete(id) } } }
+            authenticator.clearAuthenticationAfterVaultErase()
             runCatching { scenario?.close() }
             instrumentation.waitForIdleSync()
-            session.lock()
-            PrivateVaultCrypto.zero(master)
             fixture.delete()
         }
     }
