@@ -118,7 +118,6 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
         } finally {
             instrumentation.runOnMainSync {
                 connection.pause()
-                connection.clearQueue()
                 connection.disconnect()
             }
             scenario.close()
