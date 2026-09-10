@@ -67,8 +67,34 @@ class PlayerControlsInstrumentedTest {
         composeRule.onNodeWithTag("subtitle_button").assertExists()
         composeRule.onNodeWithTag("decoder_button").assertExists()
         composeRule.onNodeWithTag("more_button").assertExists()
-        composeRule.onNodeWithTag("extended_tool_rail").assertExists()
+        composeRule.onNodeWithTag("tools_toggle_button").assertExists()
+        composeRule.onNodeWithTag("extended_tool_rail").assertDoesNotExist()
         assertTrue(playClicked)
+    }
+
+    @Test
+    fun extendedToolRailUsesProgressiveDisclosure() {
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerControlsOverlay(
+                    coordinator = PlayerCoordinatorState(controlsVisible = true),
+                    playback = PlaybackUiState(durationMs = 60_000L),
+                    fallbackTitle = "Tools",
+                    onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                    onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                    onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                    onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("extended_tool_rail").assertDoesNotExist()
+        composeRule.onNodeWithTag("tools_toggle_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("extended_tool_rail").assertExists()
+        composeRule.onNodeWithTag("tools_toggle_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("extended_tool_rail").assertDoesNotExist()
     }
 
     @Test

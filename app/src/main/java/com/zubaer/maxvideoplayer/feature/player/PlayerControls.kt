@@ -274,6 +274,7 @@ private fun PlayerBottomBar(
 ) {
     var scrubbing by remember { mutableStateOf(false) }
     var scrubFraction by remember { mutableFloatStateOf(0f) }
+    var extendedToolsVisible by remember(playback.mediaId) { mutableStateOf(false) }
     val duration = playback.durationMs.coerceAtLeast(0L)
     val fraction = if (duration > 0L) {
         (playback.currentPositionMs.toDouble() / duration.toDouble()).toFloat().coerceIn(0f, 1f)
@@ -370,18 +371,34 @@ private fun PlayerBottomBar(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("extended_tool_rail"),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            ExtendedTool("Speed", "${formatSpeed(playback.playbackSpeed)}×", { onOpenMenu(PlayerMenu.SPEED) })
-            ExtendedTool("Subtitle", if (playback.subtitles.enabled) "On" else "Off", onSubtitles)
-            ExtendedTool("Decoder", decoderCompactLabel(coordinator.decoder.requestedMode), { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
-            ExtendedTool("Aspect", coordinator.resizeMode.name.lowercase().replaceFirstChar { it.uppercase() }, { onOpenMenu(PlayerMenu.DISPLAY) }, enabled = localVideoProcessingAvailable)
-            ExtendedTool("Rotate", "90°", onRotate, enabled = localVideoProcessingAvailable)
-            ExtendedTool("Orientation", coordinator.orientationMode.name.lowercase().replace('_', ' '), { onOpenMenu(PlayerMenu.ORIENTATION) })
-            ExtendedTool("PiP", "Window", onPip)
-            ExtendedTool("Fullscreen", if (coordinator.fullscreen) "Exit" else "Enter", onFullscreen)
+            TextButton(
+                onClick = { extendedToolsVisible = !extendedToolsVisible },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaxDesignTokens.PlayerText),
+                modifier = Modifier.sizeIn(minHeight = 48.dp).testTag("tools_toggle_button"),
+            ) {
+                Text(if (extendedToolsVisible) "Hide tools" else "Tools")
+            }
+        }
+
+        AnimatedVisibility(visible = extendedToolsVisible) {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("extended_tool_rail"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                ExtendedTool("Speed", "${formatSpeed(playback.playbackSpeed)}×", { onOpenMenu(PlayerMenu.SPEED) })
+                ExtendedTool("Subtitle", if (playback.subtitles.enabled) "On" else "Off", onSubtitles)
+                ExtendedTool("Decoder", decoderCompactLabel(coordinator.decoder.requestedMode), { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
+                ExtendedTool("Aspect", coordinator.resizeMode.name.lowercase().replaceFirstChar { it.uppercase() }, { onOpenMenu(PlayerMenu.DISPLAY) }, enabled = localVideoProcessingAvailable)
+                ExtendedTool("Rotate", "90°", onRotate, enabled = localVideoProcessingAvailable)
+                ExtendedTool("Orientation", coordinator.orientationMode.name.lowercase().replace('_', ' '), { onOpenMenu(PlayerMenu.ORIENTATION) })
+                ExtendedTool("PiP", "Window", onPip)
+                ExtendedTool("Fullscreen", if (coordinator.fullscreen) "Exit" else "Enter", onFullscreen)
+            }
         }
     }
 }
