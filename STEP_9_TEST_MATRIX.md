@@ -15,9 +15,17 @@ Until the exact documentation-complete PR head and exact post-merge `main` head 
 | Playback | PARTIAL | Redistribution-safe H.264/AAC fixture encrypted by production writer and loaded through existing service/player |
 | Seeking | PARTIAL | Start/non-zero/chunk-boundary/cross-chunk/final-byte/DataSpec tests; Media3 source is seekable by range |
 | Large logical offsets | PARTIAL | Synthetic `Long` geometry around 2 GiB and 3.2+ GiB without multi-GB allocation |
-| Copy to Vault | PARTIAL | Repository transaction path implemented; software/emulator certification pending final head |
-| Move to Vault | PARTIAL | Encrypt → verify → commit → source-delete ordering implemented |
-| Failed source deletion semantics | PARTIAL | Result explicitly reports encrypted copy created/original remains; no false full-move status |
+| Copy to Vault | PARTIAL | Production repository copy transaction + original-retained assertion |
+| Move to Vault | PARTIAL | Production repository encrypt → verify → commit → source-delete transaction |
+| Failed source deletion semantics | PARTIAL | Dedicated transaction test requires encrypted-copy/original-remains result |
+| Storage-full preflight | PARTIAL | Sparse logical source larger than available vault filesystem space rejected before DB/container commit |
+| Cancel during encryption | PARTIAL | Cooperative coroutine cancellation observed while `.partial` exists; cancellation propagates and partial/index remain clean |
+| Source read failure | PARTIAL | Unreadable source path must fail without valid container/index |
+| Vault write failure | PARTIAL | Unwritable vault destination must fail without deleting original or creating valid item |
+| Verification mismatch/corruption | PARTIAL | Production decrypt/hash verification plus wrong-master/tamper/chunk-corruption tests; fresh-import mismatch injection not fabricated |
+| Partial-file cleanup | PARTIAL | Cancellation cleanup + abandoned `.partial` recovery |
+| Database write failure | PARTIAL | Fake DAO commit failure requires completed encrypted artifact rollback and original preservation |
+| Post-commit/startup recovery | PARTIAL | Orphan encrypted container removed; indexed containers preserved |
 | Corruption detection | PARTIAL | Wrong master/AAD/tamper/chunk swap/truncation/corrupt requested chunk fail closed |
 | PIN / passphrase | PARTIAL | Creation/unlock/wrong credential, minimum policy and no-plaintext-PIN assertions |
 | Biometric abstraction | PARTIAL | Keystore wrapper/fallback code is guarded; physical prompt/OEM behavior deferred |
@@ -38,7 +46,7 @@ Until the exact documentation-complete PR head and exact post-merge `main` head 
 | System caption integration | PARTIAL | Android `CaptioningManager` bridge round-trip/restoration instrumentation |
 | Audio-description metadata | PARTIAL | Media3 descriptive-role policy labels only `ROLE_FLAG_DESCRIBES_VIDEO`; JVM test |
 | API compatibility | PARTIAL | minSdk 23 code guards + retained API-26/API-28 lanes; final exact-head results pending |
-| Step 1–8 regressions | PARTIAL | Existing Android CI, Step-7 protocol, Step-8 certification and decoder regression lanes retained; final exact-head results pending |
+| Step 1–8 regressions | PARTIAL | Android CI, Step-7 protocol, Step-8 certification and decoder regression lanes retained and exact-head checkout hardened; final results pending |
 | Physical-device certification | NOT VERIFIED — DEFERRED TO STEP 10 | No physical claims in Step 9 |
 
 ## Mandatory crypto/format coverage
@@ -49,22 +57,25 @@ The private metadata leak fixture uses the sentinel `TOP_SECRET_PRIVATE_MOVIE_83
 
 ## `EncryptedVaultDataSource` coverage
 
-Instrumentation exercises:
-
-- position 0;
-- position inside the first chunk;
-- exact chunk boundary;
-- cross-chunk read;
-- final byte;
-- EOF and read after EOF;
-- bounded `DataSpec.length`;
-- `C.LENGTH_UNSET`;
-- read position beyond EOF;
-- closed source behavior;
-- locked session rejection before item resolution;
-- corrupted requested chunk failure.
+Instrumentation exercises position 0, position inside the first chunk, exact chunk boundary, cross-chunk read, final byte, EOF/read-after-EOF, bounded `DataSpec.length`, `C.LENGTH_UNSET`, position beyond EOF, closed source behavior, locked-session rejection before item resolution, and corrupted requested-chunk failure.
 
 2 GiB and 3.2+ GiB address arithmetic is tested synthetically because Step 9 explicitly must not allocate multiple gigabytes in CI merely to demonstrate arithmetic correctness.
+
+## Import transaction coverage
+
+`Step9VaultImportInstrumentedTest` exercises the real `PrivateVaultRepository`/container/storage transaction path for:
+
+- copy success with original retained;
+- move success with original deleted only after encrypted verification/commit;
+- failed source deletion, which must return `EncryptedCopyCreatedOriginalRemains` and leave the original present;
+- insufficient-storage preflight using sparse logical file geometry, with no DB/container creation;
+- unreadable source failure;
+- unwritable vault destination failure;
+- database `upsert` failure after encrypted-file commit, requiring encrypted artifact rollback and source preservation;
+- cooperative cancellation after an in-progress `.partial` has been observed, requiring propagated `CancellationException`, no private DB row, no completed container and no new partial;
+- startup recovery of abandoned partial and orphan encrypted containers while indexed containers remain untouched.
+
+The actual OS-kill point cannot run a Kotlin cleanup handler; `recoverAbandonedTransactions()` is therefore the restart authority and is tested against abandoned `.partial`/orphan state. Real low-storage exhaustion during sustained physical writes remains Step 10.
 
 ## Authentication coverage
 
@@ -78,7 +89,7 @@ Biometric Android Keystore integration remains software-reviewed/guarded in Step
 
 ## Sleep timer coverage
 
-The deterministic timer tests use an injected monotonic clock and exercise duration, remaining time, expiry/pause, cancel, replacement, fade progression, fade cancellation and player-volume restoration. PlaybackService owns the production controller, so Activity recreation does not create the timer/player authority.
+The deterministic timer tests use an injected monotonic clock and exercise duration, remaining time, expiry/pause, cancel, replacement, fade progression, fade cancellation and player-volume restoration. `PlaybackService` owns the production controller, so Activity recreation does not create the timer/player authority.
 
 ## Accessibility coverage
 
@@ -95,15 +106,16 @@ The Step-9 accessibility instrumentation exercises 2.0× font scale on a scrolla
 Required explicit Step-9 classes are:
 
 1. `PrivateVaultIntegrationTest`
-2. `Step9DatabaseMigrationTest`
-3. `Step9SettingsPrivacyInstrumentedTest`
-4. `Step9SleepTimerInstrumentedTest`
-5. `Step9PrivateSurfaceInstrumentedTest`
-6. `Step9AccessibilityInstrumentedTest`
-7. `Step9VaultAuthInstrumentedTest`
-8. `Step9PrivatePlaybackCoexistenceInstrumentedTest`
+2. `Step9PrivatePlaybackCoexistenceInstrumentedTest`
+3. `Step9VaultAuthInstrumentedTest`
+4. `Step9VaultImportInstrumentedTest`
+5. `Step9DatabaseMigrationTest`
+6. `Step9SettingsPrivacyInstrumentedTest`
+7. `Step9SleepTimerInstrumentedTest`
+8. `Step9PrivateSurfaceInstrumentedTest`
+9. `Step9AccessibilityInstrumentedTest`
 
-The workflow checks out `${{ github.event.pull_request.head.sha }}` for pull requests (or `${{ github.sha }}` otherwise) and asserts that `git rev-parse HEAD` equals that value before certification. A green synthetic PR merge ref alone is therefore not accepted by this Step-9 gate.
+The Step-9, retained Android CI and retained Step-8 workflows check out `${{ github.event.pull_request.head.sha }}` for pull requests (or `${{ github.sha }}` otherwise) and assert that `git rev-parse HEAD` equals that value before certification. A green synthetic PR merge ref alone is therefore not accepted as the final exact-head proof.
 
 ## Retained regression gates
 
@@ -126,6 +138,6 @@ All of the following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
 
 ## Current overall status
 
-Final exact-head certification and post-merge `main` certification are intentionally still required before changing this document's software rows and the completion report to final PASS.
+Final exact-head certification and post-merge `main` certification are intentionally still required before changing the software rows and completion report to final PASS.
 
 **STEP 9 TEST MATRIX: PARTIAL — FINAL EXACT-HEAD CERTIFICATION PENDING**
