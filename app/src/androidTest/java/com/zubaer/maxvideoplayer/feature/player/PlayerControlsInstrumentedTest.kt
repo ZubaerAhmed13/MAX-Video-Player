@@ -8,6 +8,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -58,11 +59,37 @@ class PlayerControlsInstrumentedTest {
         composeRule.onNodeWithTag("next_button").assertExists()
         composeRule.onNodeWithTag("speed_button").assertExists()
         composeRule.onNodeWithTag("display_button").assertExists()
+        composeRule.onNodeWithTag("rotation_button").assertExists()
         composeRule.onNodeWithTag("orientation_button").assertExists()
         composeRule.onNodeWithTag("lock_button").assertExists()
         composeRule.onNodeWithTag("pip_button").assertExists()
         composeRule.onNodeWithTag("fullscreen_button").assertExists()
+        composeRule.onNodeWithTag("subtitle_button").assertExists()
+        composeRule.onNodeWithTag("decoder_button").assertExists()
+        composeRule.onNodeWithTag("more_button").assertExists()
+        composeRule.onNodeWithTag("extended_tool_rail").assertExists()
         assertTrue(playClicked)
+    }
+
+    @Test
+    fun moreButtonRoutesToSingleSettingsPanel() {
+        var requestedMenu = PlayerMenu.NONE
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerControlsOverlay(
+                    coordinator = PlayerCoordinatorState(controlsVisible = true),
+                    playback = PlaybackUiState(durationMs = 60_000L),
+                    fallbackTitle = "More",
+                    onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                    onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                    onInteractionStart = {}, onInteractionEnd = {},
+                    onOpenMenu = { requestedMenu = it },
+                    onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("more_button").assertExists().performClick()
+        composeRule.runOnIdle { assertEquals(PlayerMenu.SETTINGS, requestedMenu) }
     }
 
     @Test
