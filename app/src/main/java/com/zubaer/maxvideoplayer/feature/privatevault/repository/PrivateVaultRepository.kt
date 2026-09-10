@@ -20,10 +20,14 @@ import com.zubaer.maxvideoplayer.feature.privatevault.crypto.PrivateVaultCrypto
 import com.zubaer.maxvideoplayer.feature.privatevault.persistence.PrivateMediaDao
 import com.zubaer.maxvideoplayer.feature.privatevault.persistence.PrivateMediaEntity
 import com.zubaer.maxvideoplayer.feature.privatevault.storage.PrivateVaultStorage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import java.io.FilterInputStream
 import java.io.InputStream
 import java.io.RandomAccessFile
 import java.security.MessageDigest
@@ -68,6 +72,7 @@ class PrivateVaultRepository(
         val master = runCatching { session.masterSecretCopy() }.getOrElse {
             return@withContext PrivateImportResult.Failure("Private Vault locked before the import started.")
         }
+        val importJob = currentCoroutineContext()[Job]
         try {
             partial.delete()
             val metadata = PrivateMediaMetadata(
@@ -75,23 +80,27 @@ class PrivateVaultRepository(
                 title = source.displayName.substringBeforeLast('.', source.displayName),
                 mimeType = source.mimeType,
             )
-            val write = openSource(uri).use { input ->
-                PrivateVaultContainerFormat.write(
-                    input = input,
-                    sourceLength = source.sizeBytes,
-                    destination = partial,
-                    vaultId = vaultUuid,
-                    metadata = metadata,
-                    masterSecret = master,
-                )
+            val write = openSource(uri).use { rawInput ->
+                cancellableSource(rawInput, importJob).use { input ->
+                    PrivateVaultContainerFormat.write(
+                        input = input,
+                        sourceLength = source.sizeBytes,
+                        destination = partial,
+                        vaultId = vaultUuid,
+                        metadata = metadata,
+                        masterSecret = master,
+                    )
+                }
             }
+            ensureImportActive(importJob)
             if (write.plaintextLength != source.sizeBytes) {
                 partial.delete()
                 return@withContext PrivateImportResult.Failure("Source changed during Private Vault import.")
             }
 
             if (mode == PrivateImportMode.MOVE) {
-                val verifiedDigest = digestDecrypted(partial, vaultUuid, master)
+                ensureImportActive(importJob)
+                val verifiedDigest = digestDecrypted(partial, vaultUuid, master, importJob)
                 val verified = try {
                     PrivateVaultCrypto.constantTimeEquals(write.plaintextSha256, verifiedDigest)
                 } finally {
@@ -103,6 +112,7 @@ class PrivateVaultRepository(
                 }
             }
 
+            ensureImportActive(importJob)
             val committed = storage.commitPartial(vaultId)
             val now = System.currentTimeMillis()
             val entity = PrivateMediaEntity(
@@ -116,12 +126,17 @@ class PrivateVaultRepository(
                 status = PrivateMediaStatus.AVAILABLE.name,
             )
             try {
+                ensureImportActive(importJob)
                 dao.upsert(entity)
+            } catch (cancelled: CancellationException) {
+                committed.delete()
+                throw cancelled
             } catch (error: Throwable) {
                 committed.delete()
                 return@withContext PrivateImportResult.Failure("Private Vault index could not be committed; no completed item was created.")
             }
 
+            ensureImportActive(importJob)
             val item = PrivateVaultItem(
                 vaultId,
                 metadata,
@@ -140,6 +155,9 @@ class PrivateVaultRepository(
                     "Encrypted copy created, but the original file still exists.",
                 )
             }
+        } catch (cancelled: CancellationException) {
+            partial.delete()
+            throw cancelled
         } catch (error: Throwable) {
             partial.delete()
             PrivateImportResult.Failure(error.message ?: "Private Vault import failed safely.")
@@ -253,13 +271,14 @@ class PrivateVaultRepository(
         }
     }
 
-    private fun digestDecrypted(file: File, vaultId: UUID, master: ByteArray): ByteArray {
+    private fun digestDecrypted(file: File, vaultId: UUID, master: ByteArray, importJob: Job? = null): ByteArray {
         val digest = MessageDigest.getInstance("SHA-256")
         RandomAccessFile(file, "r").use { raf ->
             PrivateVaultContainerFormat.open(file, vaultId, master).use { open ->
                 val buffer = ByteArray(VERIFY_BUFFER_BYTES)
                 var position = 0L
                 while (position < open.header.plaintextLength) {
+                    ensureImportActive(importJob)
                     val count = minOf(buffer.size.toLong(), open.header.plaintextLength - position).toInt()
                     val read = PrivateVaultContainerFormat.readPlainRange(raf, open, position, buffer, 0, count)
                     if (read <= 0) throw java.io.EOFException("Verification reached EOF early")
@@ -267,9 +286,31 @@ class PrivateVaultRepository(
                     buffer.fill(0, 0, read)
                     position = Math.addExact(position, read.toLong())
                 }
+                buffer.fill(0)
             }
         }
         return digest.digest()
+    }
+
+    private fun cancellableSource(input: InputStream, importJob: Job?): InputStream = object : FilterInputStream(input) {
+        override fun read(): Int {
+            ensureImportActive(importJob)
+            return super.read()
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            ensureImportActive(importJob)
+            return super.read(buffer, offset, length)
+        }
+
+        override fun skip(byteCount: Long): Long {
+            ensureImportActive(importJob)
+            return super.skip(byteCount)
+        }
+    }
+
+    private fun ensureImportActive(importJob: Job?) {
+        if (importJob != null && !importJob.isActive) throw CancellationException("Private Vault import cancelled")
     }
 
     private fun openSource(uri: Uri): InputStream = when (uri.scheme?.lowercase()) {
