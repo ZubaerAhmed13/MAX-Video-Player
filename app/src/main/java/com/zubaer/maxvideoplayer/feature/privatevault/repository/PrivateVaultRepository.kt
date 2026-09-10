@@ -24,6 +24,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
@@ -41,6 +43,7 @@ class PrivateVaultRepository(
 ) {
     private val appContext = context.applicationContext
     private val resolver: ContentResolver = appContext.contentResolver
+    private val commitRecoveryMutex = Mutex()
 
     suspend fun import(uri: Uri, mode: PrivateImportMode): PrivateImportResult = withContext(Dispatchers.IO) {
         if (session.state.value != com.zubaer.maxvideoplayer.feature.privatevault.PrivateVaultState.UNLOCKED) {
@@ -113,26 +116,39 @@ class PrivateVaultRepository(
             }
 
             ensureImportActive(importJob)
-            val committed = storage.commitPartial(vaultId)
-            val now = System.currentTimeMillis()
-            val entity = PrivateMediaEntity(
-                vaultId = vaultId,
-                containerLocation = committed.name,
-                encryptedSizeBytes = committed.length(),
-                originalSizeBytes = source.sizeBytes,
-                createdAtMs = now,
-                importedAtMs = now,
-                formatVersion = PRIVATE_VAULT_FORMAT_VERSION,
-                status = PrivateMediaStatus.AVAILABLE.name,
-            )
-            try {
-                ensureImportActive(importJob)
-                dao.upsert(entity)
+            val commit = try {
+                commitRecoveryMutex.withLock {
+                    // Recovery uses the same mutex. The final-file rename and opaque Room row are
+                    // therefore one repository transaction from recovery's point of view: it can
+                    // never classify a just-committed import as an abandoned orphan.
+                    ensureImportActive(importJob)
+                    val committed = storage.commitPartial(vaultId)
+                    val now = System.currentTimeMillis()
+                    val entity = PrivateMediaEntity(
+                        vaultId = vaultId,
+                        containerLocation = committed.name,
+                        encryptedSizeBytes = committed.length(),
+                        originalSizeBytes = source.sizeBytes,
+                        createdAtMs = now,
+                        importedAtMs = now,
+                        formatVersion = PRIVATE_VAULT_FORMAT_VERSION,
+                        status = PrivateMediaStatus.AVAILABLE.name,
+                    )
+                    try {
+                        ensureImportActive(importJob)
+                        dao.upsert(entity)
+                    } catch (cancelled: CancellationException) {
+                        committed.delete()
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        committed.delete()
+                        throw VaultIndexCommitException(error)
+                    }
+                    CommittedImport(committed, now)
+                }
             } catch (cancelled: CancellationException) {
-                committed.delete()
                 throw cancelled
-            } catch (error: Throwable) {
-                committed.delete()
+            } catch (_: VaultIndexCommitException) {
                 return@withContext PrivateImportResult.Failure("Private Vault index could not be committed; no completed item was created.")
             }
 
@@ -141,8 +157,8 @@ class PrivateVaultRepository(
                 vaultId,
                 metadata,
                 source.sizeBytes,
-                committed.length(),
-                now,
+                commit.file.length(),
+                commit.importedAtMs,
                 PrivateMediaStatus.AVAILABLE,
             )
             if (mode == PrivateImportMode.COPY) {
@@ -264,10 +280,12 @@ class PrivateVaultRepository(
     }
 
     suspend fun recoverAbandonedTransactions() = withContext(Dispatchers.IO) {
-        storage.cleanupPartials()
-        val indexed = dao.all().mapTo(mutableSetOf()) { it.vaultId }
-        storage.opaqueContainerIds().filterNot(indexed::contains).forEach { orphan ->
-            runCatching { storage.containerFile(orphan).delete() }
+        commitRecoveryMutex.withLock {
+            storage.cleanupPartials()
+            val indexed = dao.all().mapTo(mutableSetOf()) { it.vaultId }
+            storage.opaqueContainerIds().filterNot(indexed::contains).forEach { orphan ->
+                runCatching { storage.containerFile(orphan).delete() }
+            }
         }
     }
 
@@ -353,6 +371,8 @@ class PrivateVaultRepository(
     }
 
     private data class SourceInfo(val displayName: String, val mimeType: String?, val sizeBytes: Long)
+    private data class CommittedImport(val file: File, val importedAtMs: Long)
+    private class VaultIndexCommitException(cause: Throwable) : Exception(cause)
 
     private companion object {
         const val STORAGE_RESERVE_BYTES = 512L * 1024L
