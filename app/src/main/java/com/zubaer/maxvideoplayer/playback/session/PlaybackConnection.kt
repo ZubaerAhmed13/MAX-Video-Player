@@ -151,9 +151,6 @@ class PlaybackConnection(
 
     fun load(media: AppMedia, startPositionMs: Long = 0L, playWhenReady: Boolean = true) {
         knownMediaById[media.stableId] = media
-        // A Player error belongs to the source that produced it. Explicitly loading a new source
-        // starts a new attempt, so do not expose a stale error from the previous media while the
-        // asynchronous MediaSession transition is still being published.
         _state.value = _state.value.copy(error = null)
         withController { player ->
             clearPendingSeek()
@@ -217,7 +214,7 @@ class PlaybackConnection(
         if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem()
     }
 
-    fun setPlaybackSpeed(speed: Float) = withController { it.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
+    fun setPlaybackSpeed(speed: Float) = withController { it.setPlaybackSpeed(speed.coerceIn(0.25f, 4f)) }
 
     fun setRepeatMode(mode: RepeatMode) = withController {
         it.repeatMode = when (mode) {
@@ -599,6 +596,42 @@ class PlaybackConnection(
             .build()
         recoverableSubtitleError = null
         publish(player)
+    }
+
+    private fun buildVideoTracks(player: Player): List<VideoTrackInfo> {
+        if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS)) return emptyList()
+        return buildList {
+            player.currentTracks.groups.forEachIndexed { groupIndex, group ->
+                if (group.type != C.TRACK_TYPE_VIDEO) return@forEachIndexed
+                for (trackIndex in 0 until group.length) {
+                    val format = group.getTrackFormat(trackIndex)
+                    add(
+                        VideoTrackInfo(
+                            key = trackKey(groupIndex, trackIndex),
+                            width = format.width.takeIf { it > 0 },
+                            height = format.height.takeIf { it > 0 },
+                            bitrate = format.bitrate.takeIf { it > 0 },
+                            codec = format.codecs ?: format.sampleMimeType,
+                            selected = group.isTrackSelected(trackIndex),
+                            supported = group.isTrackSupported(trackIndex),
+                        ),
+                    )
+                }
+            }
+        }.distinctBy { listOf(it.width, it.height, it.bitrate, it.codec) }
+            .sortedWith(compareByDescending<VideoTrackInfo> { it.height ?: 0 }.thenByDescending { it.bitrate ?: 0 })
+    }
+
+    private fun applyAutoPolicy(player: Player) {
+        if (!player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return
+        val languages = subtitleRepository.subtitlePreferences.value.preferredLanguages
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setPreferredTextLanguages(*languages.toTypedArray())
+            .setSelectUndeterminedTextLanguage(true)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .build()
     }
 
     private fun rebuildCurrentMediaSource(player: MediaController) {
