@@ -69,9 +69,9 @@ Copy semantics leave the original source untouched. Move semantics are deliberat
 4. request deletion of the original;
 5. if source deletion fails, report `Encrypted copy created — original remains` rather than claiming a successful move.
 
-Database/commit failure removes the just-created vault artifact where possible. Startup recovery removes incomplete partials/orphans rather than presenting them as valid private media.
+Database/commit failure removes the just-created vault artifact where possible. Import reads and verification loops also check the owning coroutine job so user/process cancellation is cooperatively observed during bounded work. Cancellation is rethrown rather than converted into a misleading `Success`/ordinary failure result, and an in-progress `.partial` is removed. A hard OS process kill cannot execute a coroutine cleanup handler; after restart, `recoverAbandonedTransactions()` deletes abandoned partial files and unindexed orphan encrypted containers so they cannot masquerade as valid private items.
 
-Real storage-exhaustion and process-kill behavior on physical storage is **NOT VERIFIED — DEFERRED TO STEP 10**; automated tests cover bounded failure/recovery contracts and no-valid-looking-partial policy where feasible.
+Automated transaction tests exercise copy, move, failed source deletion, insufficient-storage preflight, source read failure, vault write failure, database commit failure/rollback, cancellation while a real partial exists, and startup partial/orphan recovery. Real storage exhaustion during sustained physical writes and actual process-kill timing remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
 ## Private playback privacy
 
