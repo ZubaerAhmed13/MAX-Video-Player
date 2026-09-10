@@ -1,20 +1,29 @@
 package com.zubaer.maxvideoplayer.feature.subtitle
 
+import android.content.res.Configuration
 import android.graphics.Color
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,20 +34,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
+import com.zubaer.maxvideoplayer.ui.MaxDesignTokens
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
- * Professional subtitle control surface backed by the application's single service-owned playback
- * connection and subtitle repository. File probing is asynchronous and URI/reference based.
+ * Release-hardened subtitle surface. All pre-existing subtitle behavior remains wired to the single
+ * application repository and service-owned playback connection; only the presentation changes from
+ * a generic modal to the Step-10 translucent right-side panel hierarchy.
  */
 @Composable
 fun SubtitleDialog(
@@ -60,6 +75,7 @@ fun SubtitleDialog(
     onResetStyle: () -> Unit,
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val application = context.applicationContext as? MaxVideoPlayerApplication
     val repository = application?.container?.subtitleRepository
     val connection = application?.container?.playbackConnection
@@ -73,6 +89,9 @@ fun SubtitleDialog(
     var localError by remember { mutableStateOf<String?>(null) }
     var networkSubtitleUrl by remember { mutableStateOf("") }
     var showNetworkSubtitle by remember { mutableStateOf(false) }
+    var showStyle by remember { mutableStateOf(false) }
+    var showDiscovery by remember { mutableStateOf(false) }
+    var showExternal by remember { mutableStateOf(false) }
 
     val externalPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && repository != null && connection != null) {
@@ -91,7 +110,6 @@ fun SubtitleDialog(
                 }
             }
         } else if (uri != null) {
-            // Compatibility fallback for isolated previews/tests that do not run under the app container.
             onLoadExternal()
         }
     }
@@ -113,17 +131,48 @@ fun SubtitleDialog(
         }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.testTag("subtitle_dialog"),
-        title = { Text("Subtitles & captions") },
-        text = {
+    val panelFraction = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 0.42f else 0.94f
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ComposeColor.Black.copy(alpha = 0.12f))
+            .testTag("subtitle_dialog"),
+    ) {
+        Surface(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxWidth(panelFraction)
+                .fillMaxHeight()
+                .safeDrawingPadding(),
+            color = MaxDesignTokens.PlayerOverlay,
+            contentColor = ComposeColor.White,
+            tonalElevation = 0.dp,
+        ) {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Show subtitles")
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Subtitle",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = onDismiss,
+                        colors = releaseTextButtonColors(),
+                    ) { Text("Close") }
+                }
+
+                HorizontalDivider(color = ComposeColor.White.copy(alpha = 0.18f))
+
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Show subtitles", modifier = Modifier.weight(1f))
                     Switch(
                         checked = playback.subtitles.enabled,
                         onCheckedChange = onEnabled,
@@ -131,38 +180,54 @@ fun SubtitleDialog(
                     )
                 }
 
-                Text("Track")
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                Text("Tracks", fontWeight = FontWeight.SemiBold)
+                TextButton(
+                    onClick = { onEnabled(false) },
+                    modifier = Modifier.fillMaxWidth().testTag("subtitle_off"),
+                    colors = releaseTextButtonColors(),
                 ) {
-                    TextButton(onClick = { onEnabled(false) }, modifier = Modifier.testTag("subtitle_off")) {
-                        Text(if (!playback.subtitles.enabled) "✓ Off" else "Off")
-                    }
-                    TextButton(onClick = onAuto, modifier = Modifier.testTag("subtitle_auto")) { Text("Auto") }
-                    playback.subtitles.tracks.forEach { track ->
-                        TextButton(
-                            onClick = { onTrack(track.key) },
-                            enabled = track.supported,
-                            modifier = Modifier.testTag("subtitle_track_${track.key}"),
-                        ) {
-                            val language = track.language?.uppercase(Locale.ROOT)?.let { " · $it" }.orEmpty()
-                            val source = if (track.external) " · external" else ""
-                            val selected = if (track.selected && playback.subtitles.enabled) "✓ " else ""
-                            Text("$selected${track.label}$language$source")
+                    Text(if (!playback.subtitles.enabled) "◉ Off" else "○ Off", modifier = Modifier.fillMaxWidth())
+                }
+                TextButton(
+                    onClick = onAuto,
+                    modifier = Modifier.fillMaxWidth().testTag("subtitle_auto"),
+                    colors = releaseTextButtonColors(),
+                ) {
+                    Text("Auto", modifier = Modifier.fillMaxWidth())
+                }
+
+                playback.subtitles.tracks.forEach { track ->
+                    val language = track.language?.let { SubtitleMatcher.humanLanguageName(it) }
+                    val source = if (track.external) "External" else "Embedded"
+                    TextButton(
+                        onClick = { onTrack(track.key) },
+                        enabled = track.supported,
+                        modifier = Modifier.fillMaxWidth().testTag("subtitle_track_${track.key}"),
+                        colors = releaseTextButtonColors(),
+                    ) {
+                        Column(Modifier.fillMaxWidth()) {
+                            Text((if (track.selected && playback.subtitles.enabled) "◉ " else "○ ") + track.label)
+                            Text(
+                                listOfNotNull(language, source).joinToString(" · "),
+                                color = MaxDesignTokens.PlayerTextSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }
                 if (playback.subtitles.tracks.isEmpty()) {
-                    Text("No embedded or currently available external subtitle track is exposed by this media.")
+                    Text(
+                        "No embedded or currently available external subtitle track is exposed by this media.",
+                        color = MaxDesignTokens.PlayerTextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
 
-                playback.subtitles.recoverableError?.let { Text("Subtitle recovery: $it") }
-                localError?.let { Text(it) }
+                playback.subtitles.recoverableError?.let { Text("Subtitle recovery: $it", color = ComposeColor(0xFFFFC7C7)) }
+                localError?.let { Text(it, color = ComposeColor(0xFFFFC7C7)) }
 
-                HorizontalDivider()
-                Text("External subtitles")
-                Button(
+                HorizontalDivider(color = ComposeColor.White.copy(alpha = 0.18f))
+                TextButton(
                     onClick = {
                         if (repository != null && connection != null) {
                             externalPicker.launch(SubtitleFormatPolicy.supportedPickerMimeTypes())
@@ -170,9 +235,15 @@ fun SubtitleDialog(
                             onLoadExternal()
                         }
                     },
-                    modifier = Modifier.testTag("load_external_subtitle"),
-                ) { Text("Open subtitle file") }
-                TextButton(onClick = { showNetworkSubtitle = !showNetworkSubtitle }) { Text("Open subtitle from URL") }
+                    modifier = Modifier.fillMaxWidth().testTag("load_external_subtitle"),
+                    colors = releaseTextButtonColors(),
+                ) { Text("Open subtitle", modifier = Modifier.fillMaxWidth()) }
+
+                TextButton(
+                    onClick = { showNetworkSubtitle = !showNetworkSubtitle },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = releaseTextButtonColors(),
+                ) { Text("Online / network subtitle", modifier = Modifier.fillMaxWidth()) }
                 if (showNetworkSubtitle) {
                     OutlinedTextField(
                         value = networkSubtitleUrl,
@@ -196,197 +267,225 @@ fun SubtitleDialog(
                         enabled = networkSubtitleUrl.isNotBlank(),
                     ) { Text("Attach URL") }
                 }
-                Text("SRT, WebVTT, SSA/ASS and TTML/DFXP are side-loaded by URI reference. The video is never copied or re-encoded.")
 
-                playback.subtitles.externalAssociations.forEach { external ->
-                    val selected = external.id == playback.subtitles.selectedExternalAssociationId
-                    val language = external.language?.let { SubtitleMatcher.humanLanguageName(it) } ?: "Unknown language"
-                    Text(
-                        buildString {
-                            if (selected) append("✓ ")
-                            append(external.label)
-                            append(" · $language · ${external.format} · ${external.availability}")
-                        },
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        TextButton(
-                            onClick = { connection?.selectExternalSubtitleAssociation(external.id) },
-                            enabled = external.availability == SubtitleAvailability.AVAILABLE.name,
-                        ) { Text("Select") }
-                        if (external.availability != SubtitleAvailability.AVAILABLE.name) {
-                            TextButton(onClick = {
-                                relinkAssociationId = external.id
-                                relinkPicker.launch(SubtitleFormatPolicy.supportedPickerMimeTypes())
-                            }) { Text("Relink") }
-                        }
-                        TextButton(onClick = { connection?.removeExternalSubtitle(external.id) }) { Text("Remove") }
-                    }
-
-                    if (selected) {
-                        Text("Text encoding: ${external.encoding.replace('_', '-')}")
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                            SubtitleEncoding.entries.forEach { encoding ->
-                                TextButton(onClick = { connection?.setExternalSubtitleEncoding(external.id, encoding) }) {
-                                    Text(if (external.encoding == encoding.name) "✓ ${encodingLabel(encoding)}" else encodingLabel(encoding))
+                TextButton(
+                    onClick = { showExternal = !showExternal },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = releaseTextButtonColors(),
+                ) { Text(if (showExternal) "Hide external subtitle details" else "External subtitle details", modifier = Modifier.fillMaxWidth()) }
+                if (showExternal) {
+                    playback.subtitles.externalAssociations.forEach { external ->
+                        val selected = external.id == playback.subtitles.selectedExternalAssociationId
+                        val language = external.language?.let { SubtitleMatcher.humanLanguageName(it) } ?: "Unknown language"
+                        Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                            Text((if (selected) "◉ " else "○ ") + external.label)
+                            Text(
+                                "$language · ${external.format} · ${external.availability}",
+                                color = MaxDesignTokens.PlayerTextSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                                TextButton(
+                                    onClick = { connection?.selectExternalSubtitleAssociation(external.id) },
+                                    enabled = external.availability == SubtitleAvailability.AVAILABLE.name,
+                                    colors = releaseTextButtonColors(),
+                                ) { Text("Select") }
+                                if (external.availability != SubtitleAvailability.AVAILABLE.name) {
+                                    TextButton(
+                                        onClick = {
+                                            relinkAssociationId = external.id
+                                            relinkPicker.launch(SubtitleFormatPolicy.supportedPickerMimeTypes())
+                                        },
+                                        colors = releaseTextButtonColors(),
+                                    ) { Text("Relink") }
+                                }
+                                TextButton(
+                                    onClick = { connection?.removeExternalSubtitle(external.id) },
+                                    colors = releaseTextButtonColors(),
+                                ) { Text("Remove") }
+                            }
+                            if (selected) {
+                                Text("Encoding: ${external.encoding.replace('_', '-')}", style = MaterialTheme.typography.bodySmall)
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                                    SubtitleEncoding.entries.forEach { encoding ->
+                                        TextButton(
+                                            onClick = { connection?.setExternalSubtitleEncoding(external.id, encoding) },
+                                            colors = releaseTextButtonColors(),
+                                        ) {
+                                            Text(if (external.encoding == encoding.name) "✓ ${encodingLabel(encoding)}" else encodingLabel(encoding))
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                }
-
-                if (playback.subtitles.externalAssociations.isNotEmpty()) {
-                    TextButton(onClick = onRemoveExternal, modifier = Modifier.testTag("remove_external_subtitle")) {
-                        Text("Remove all external subtitles")
+                    if (playback.subtitles.externalAssociations.isNotEmpty()) {
+                        TextButton(
+                            onClick = onRemoveExternal,
+                            modifier = Modifier.testTag("remove_external_subtitle"),
+                            colors = releaseTextButtonColors(),
+                        ) { Text("Remove all external subtitles") }
                     }
                 }
 
-                HorizontalDivider()
-                Text("Subtitle synchronization")
-                Text("Current delay: ${formatDelay(playback.subtitles.delayMs)}")
+                HorizontalDivider(color = ComposeColor.White.copy(alpha = 0.18f))
+                Text("Synchronization", fontWeight = FontWeight.SemiBold)
+                Text("Current delay: ${formatDelay(playback.subtitles.delayMs)}", color = MaxDesignTokens.PlayerTextSecondary)
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     listOf(-500L, -100L, -50L, 50L, 100L, 500L).forEach { delta ->
-                        TextButton(onClick = { connection?.adjustSubtitleDelay(delta) }) {
+                        TextButton(onClick = { connection?.adjustSubtitleDelay(delta) }, colors = releaseTextButtonColors()) {
                             Text(if (delta > 0) "+${delta}ms" else "${delta}ms")
                         }
                     }
-                    TextButton(onClick = { connection?.resetSubtitleDelay() }, modifier = Modifier.testTag("subtitle_delay_reset")) {
-                        Text("Reset")
-                    }
+                    TextButton(
+                        onClick = { connection?.resetSubtitleDelay() },
+                        modifier = Modifier.testTag("subtitle_delay_reset"),
+                        colors = releaseTextButtonColors(),
+                    ) { Text("Reset") }
                 }
-                Text("Positive values show cues later; negative values show them earlier. Delay is stored per media/selected external association.")
 
-                HorizontalDivider()
-                Text("Discovery & language")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Auto-load matching sidecar", modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = preferences.autoLoadMatching,
-                        onCheckedChange = { repository?.setAutoLoadMatching(it) },
-                        modifier = Modifier.testTag("subtitle_autoload"),
+                HorizontalDivider(color = ComposeColor.White.copy(alpha = 0.18f))
+                TextButton(
+                    onClick = { showStyle = !showStyle },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = releaseTextButtonColors(),
+                ) { Text(if (showStyle) "Hide subtitle style" else "Style", modifier = Modifier.fillMaxWidth()) }
+                if (showStyle) {
+                    Text("Live preview: English · বাংলা · العربية · 日本語")
+                    Text("Text size: ${(textScale * 100f).toInt()}%")
+                    Slider(
+                        value = textScale,
+                        onValueChange = {
+                            textScale = it
+                            onTextScale(it)
+                        },
+                        valueRange = 0.5f..2f,
+                        modifier = Modifier.testTag("subtitle_text_size"),
                     )
-                }
-                Text("Preferred languages (selection order is priority)")
-                Text(
-                    preferences.preferredLanguages
-                        .mapIndexed { index, code -> "${index + 1}. ${SubtitleMatcher.humanLanguageName(code)}" }
-                        .joinToString("  ")
-                        .ifBlank { "No preference" },
-                )
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    COMMON_LANGUAGES.forEach { (code, label) ->
-                        val active = code in preferences.preferredLanguages
-                        TextButton(onClick = {
-                            val next = if (active) {
-                                preferences.preferredLanguages.filterNot { it == code }
-                            } else {
-                                preferences.preferredLanguages + code
+                    Text("Vertical/bottom margin: ${(bottomPadding * 100f).toInt()}%")
+                    Slider(
+                        value = bottomPadding,
+                        onValueChange = {
+                            bottomPadding = it
+                            onBottomPadding(it)
+                        },
+                        valueRange = 0f..0.35f,
+                        modifier = Modifier.testTag("subtitle_bottom_margin"),
+                    )
+                    Text("Text colour")
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        listOf(
+                            Color.WHITE to "White",
+                            Color.YELLOW to "Yellow",
+                            Color.CYAN to "Cyan",
+                            Color.GREEN to "Green",
+                        ).forEach { (color, label) ->
+                            TextButton(onClick = { onForegroundColor(color) }, colors = releaseTextButtonColors()) {
+                                Text(if (style.foregroundColor == color) "✓ $label" else label)
                             }
-                            repository?.setPreferredLanguages(next)
-                        }) { Text(if (active) "✓ $label" else label) }
+                        }
                     }
+                    Text("Background")
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        listOf(
+                            Color.TRANSPARENT to "Transparent",
+                            0x66000000 to "Semi",
+                            0x99000000.toInt() to "Dark",
+                            Color.BLACK to "Solid",
+                        ).forEach { (color, label) ->
+                            TextButton(onClick = { onBackgroundColor(color) }, colors = releaseTextButtonColors()) {
+                                Text(if (style.backgroundColor == color) "✓ $label" else label)
+                            }
+                        }
+                    }
+                    Text("Edge")
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        SubtitleEdgeStyle.entries.forEach { edge ->
+                            TextButton(onClick = { onEdgeStyle(edge) }, colors = releaseTextButtonColors()) {
+                                val label = edge.name.lowercase(Locale.ROOT).replace('_', ' ')
+                                Text(if (style.edgeStyle == edge) "✓ $label" else label)
+                            }
+                        }
+                    }
+                    Text("Edge colour")
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        listOf(Color.BLACK to "Black", Color.WHITE to "White").forEach { (color, label) ->
+                            TextButton(onClick = { repository?.setEdgeColor(color) }, colors = releaseTextButtonColors()) {
+                                Text(if (style.edgeColor == color) "✓ $label" else label)
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Use embedded cue styling", modifier = Modifier.weight(1f))
+                        Switch(checked = style.applyEmbeddedStyles, onCheckedChange = onApplyEmbeddedStyles)
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Use embedded cue font sizes", modifier = Modifier.weight(1f))
+                        Switch(checked = style.applyEmbeddedFontSizes, onCheckedChange = onApplyEmbeddedFontSizes)
+                    }
+                    TextButton(onClick = onResetStyle, colors = releaseTextButtonColors()) { Text("Reset subtitle appearance") }
                 }
 
-                Text("Default external encoding")
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    SubtitleEncoding.entries.forEach { encoding ->
-                        TextButton(onClick = { repository?.setDefaultEncoding(encoding) }) {
-                            Text(if (preferences.defaultEncoding == encoding) "✓ ${encodingLabel(encoding)}" else encodingLabel(encoding))
+                TextButton(
+                    onClick = { showDiscovery = !showDiscovery },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = releaseTextButtonColors(),
+                ) { Text(if (showDiscovery) "Hide language & encoding" else "Language & encoding", modifier = Modifier.fillMaxWidth()) }
+                if (showDiscovery) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Auto-load matching sidecar", modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = preferences.autoLoadMatching,
+                            onCheckedChange = { repository?.setAutoLoadMatching(it) },
+                            modifier = Modifier.testTag("subtitle_autoload"),
+                        )
+                    }
+                    Text("Preferred languages")
+                    Text(
+                        preferences.preferredLanguages
+                            .mapIndexed { index, code -> "${index + 1}. ${SubtitleMatcher.humanLanguageName(code)}" }
+                            .joinToString("  ")
+                            .ifBlank { "No preference" },
+                        color = MaxDesignTokens.PlayerTextSecondary,
+                    )
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        COMMON_LANGUAGES.forEach { (code, label) ->
+                            val active = code in preferences.preferredLanguages
+                            TextButton(
+                                onClick = {
+                                    val next = if (active) preferences.preferredLanguages.filterNot { it == code }
+                                    else preferences.preferredLanguages + code
+                                    repository?.setPreferredLanguages(next)
+                                },
+                                colors = releaseTextButtonColors(),
+                            ) { Text(if (active) "✓ $label" else label) }
+                        }
+                    }
+                    Text("Default external encoding")
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        SubtitleEncoding.entries.forEach { encoding ->
+                            TextButton(
+                                onClick = { repository?.setDefaultEncoding(encoding) },
+                                colors = releaseTextButtonColors(),
+                            ) {
+                                Text(if (preferences.defaultEncoding == encoding) "✓ ${encodingLabel(encoding)}" else encodingLabel(encoding))
+                            }
                         }
                     }
                 }
-
-                HorizontalDivider()
-                Text("Appearance")
-                Text("Live preview: English · বাংলা · العربية · 日本語")
-                Text("Text size: ${(textScale * 100f).toInt()}%")
-                Slider(
-                    value = textScale,
-                    onValueChange = {
-                        textScale = it
-                        onTextScale(it)
-                    },
-                    valueRange = 0.5f..2f,
-                    modifier = Modifier.testTag("subtitle_text_size"),
-                )
-
-                Text("Vertical/bottom margin: ${(bottomPadding * 100f).toInt()}%")
-                Slider(
-                    value = bottomPadding,
-                    onValueChange = {
-                        bottomPadding = it
-                        onBottomPadding(it)
-                    },
-                    valueRange = 0f..0.35f,
-                    modifier = Modifier.testTag("subtitle_bottom_margin"),
-                )
-
-                Text("Text colour")
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    listOf(
-                        Color.WHITE to "White",
-                        Color.YELLOW to "Yellow",
-                        Color.CYAN to "Cyan",
-                        Color.GREEN to "Green",
-                    ).forEach { (color, label) ->
-                        TextButton(onClick = { onForegroundColor(color) }) {
-                            Text(if (style.foregroundColor == color) "✓ $label" else label)
-                        }
-                    }
-                }
-
-                Text("Background")
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    listOf(
-                        Color.TRANSPARENT to "Transparent",
-                        0x66000000 to "Semi",
-                        0x99000000.toInt() to "Dark",
-                        Color.BLACK to "Solid",
-                    ).forEach { (color, label) ->
-                        TextButton(onClick = { onBackgroundColor(color) }) {
-                            Text(if (style.backgroundColor == color) "✓ $label" else label)
-                        }
-                    }
-                }
-
-                Text("Edge")
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    SubtitleEdgeStyle.entries.forEach { edge ->
-                        TextButton(onClick = { onEdgeStyle(edge) }) {
-                            val label = edge.name.lowercase(Locale.ROOT).replace('_', ' ')
-                            Text(if (style.edgeStyle == edge) "✓ $label" else label)
-                        }
-                    }
-                }
-                Text("Edge colour")
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    listOf(Color.BLACK to "Black", Color.WHITE to "White").forEach { (color, label) ->
-                        TextButton(onClick = { repository?.setEdgeColor(color) }) {
-                            Text(if (style.edgeColor == color) "✓ $label" else label)
-                        }
-                    }
-                }
-
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Use embedded cue styling", modifier = Modifier.weight(1f))
-                    Switch(checked = style.applyEmbeddedStyles, onCheckedChange = onApplyEmbeddedStyles)
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Use embedded cue font sizes", modifier = Modifier.weight(1f))
-                    Switch(checked = style.applyEmbeddedFontSizes, onCheckedChange = onApplyEmbeddedFontSizes)
-                }
-
-                TextButton(onClick = onResetStyle) { Text("Reset subtitle appearance") }
             }
-        },
-        confirmButton = { Button(onClick = onDismiss) { Text("Done") } },
-    )
+        }
+    }
 }
+
+@Composable
+private fun releaseTextButtonColors() = ButtonDefaults.textButtonColors(
+    contentColor = ComposeColor.White,
+    disabledContentColor = ComposeColor.White.copy(alpha = 0.35f),
+)
 
 private fun formatDelay(delayMs: Long): String {
     if (delayMs == 0L) return "0.00s"
