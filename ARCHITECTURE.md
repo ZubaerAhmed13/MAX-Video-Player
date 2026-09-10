@@ -1,326 +1,351 @@
-# MAX Video Player — Architecture through Step 7
+# MAX Video Player — Architecture through Step 9
 
 ## Clean-room boundary
 
-MAX Video Player is an original native Android implementation. MX Player Pro is used only as a behavioral/workflow/feature-depth reference. No proprietary code, decompiled logic, decoder binaries, DSP algorithms, EQ presets, assets, branding, package names, certificates or credentials are reused.
+MAX Video Player is an original native Android implementation. Other commercial media players are used only as behavioral/workflow references. No proprietary source/decompiled code, decoder/DSP implementations, protected assets, branding, package names, certificates, credentials or private APIs are reused.
 
-## Authoritative playback ownership
+# Authoritative playback ownership
 
-Playback remains service-owned:
+Step 9 preserves the single service-owned playback graph established by the earlier steps:
 
 ```text
-Compose UI
-    ↓
-Network UI / PlayerViewModel / AudioPlaybackController / PlaybackConnection
-    ↓
-NetworkRepository / protocol client / NetworkDataSourceRouter (for remote media)
-    ↓
-MediaController
-    ↓
+Compose UI / PlayerViewModel / feature controllers
+        ↓
+PlaybackConnection (MediaController client)
+        ↓
 PlaybackService : MediaSessionService
-    ↓
+        ↓
 MediaSession
-    ↓
+        ↓
 Media3PlaybackEngine
-    ↓
+        ↓
 ExoPlayer
-    ↓
-ProfessionalRenderersFactory
-    ├─ video → ProfessionalMediaCodecSelector → Android/Media3 decoder
-    └─ audio → DefaultAudioSink + MaxAudioProcessor
-    ↓
-Android video/audio output
-```
-
-Steps 1–7 preserve this ownership. Step 7 does not create a protocol-specific player, Activity-owned player, second ExoPlayer or download-before-playback engine. Local/network video, embedded/external audio and Step-4 subtitles remain on the one authoritative Media3 timeline.
-
-## Logical layers through Step 7
-
-- `core.model` — stable media/domain/playback state and decoder mode catalog
-- `core.database` — Room entities/DAOs/migrations through version 6
-- `core.media` — MediaStore, SAF, metadata and URI availability
-- `core.device` — runtime device and decoder capability inventory
-- `playback.engine` — service-owned Media3 engine, source composition, video-decoder renderer policy and custom audio sink
-- `playback.session` — service/session/controller ownership, queues and decoder-switch commands
-- `feature.library` — library/index/queue/thumbnail/file actions
-- `feature.player` — player UI, gestures, decoder controls/diagnostics, display/orientation/PiP
-- `feature.subtitle` — Step-4 subtitle engine
-- `feature.audio` — Step-5 audio tracks, external audio, DSP, sync, routing and professional controls
-- `feature.decoder` — Step-6 classification, policy, persistence, runtime diagnostics and Media3 codec selection
-- `feature.network` — Step-7 protocol domain, saved sources, secure credentials, browser, request registry, random-access DataSources and diagnostics
-- `ui` — application theme
-
-# Step-7 professional network architecture
-
-## Source resolution and playback
-
-```text
-Open stream / saved location / network browser / remote history
-  ↓
-NetworkRepository
-  ├─ HttpProtocolClient
-  ├─ WebDavProtocolClient
-  ├─ SmbProtocolClient
-  └─ FtpProtocolClient
-  ↓
-NetworkRequestRegistry (process-only access context)
-  ↓
-NetworkDataSourceRouter
-  ├─ HTTP/HTTPS/WebDAV/HLS/DASH → Media3 OkHttpDataSource
-  ├─ SMB → SmbDataSource → SMBJ random read
-  ├─ FTP/FTPS → FtpDataSource → Commons Net REST stream
-  ├─ RTSP → Media3 RTSP MediaSource → RTP-over-RTSP/TCP
-  └─ local/content/file → existing DefaultDataSource
-  ↓
+        ↓
 ProfessionalMediaSourceFactory
-  ↓
-PlaybackService → MediaSession → Media3PlaybackEngine → ExoPlayer
+        ├─ local/content/file
+        ├─ Step-7 network sources via NetworkDataSourceRouter
+        ├─ Step-8 cloud/cast-related source composition
+        └─ Step-9 maxvault:// via EncryptedVaultDataSource
+        ↓
+ProfessionalRenderersFactory
+        ├─ video → decoder policy / Android MediaCodec
+        └─ audio → DefaultAudioSink + MaxAudioProcessor
 ```
 
-`ProfessionalMediaSourceFactory` remains the only production source-composition boundary. External audio is merged there, external subtitles remain on the primary MediaItem, and the Step-5 audio sink plus Step-6 renderers/decoder selector remain installed.
-
-## Network domain
-
-`NetworkProtocol`, `NetworkLocation`, `NetworkEntry`, `NetworkPlaybackRequest`, `NetworkFailure` and `NetworkDiagnostics` keep protocol configuration separate from playback state. `NetworkProtocolClient` provides connection test, list, stat and playback-URI behavior for browsable protocols. `NetworkRepository` coordinates saved locations, credentials, request registration, direct streams, history restoration and bounded M3U queues.
-
-## HTTP and adaptive transport
-
-One OkHttp client supplies progressive HTTP/HTTPS, WebDAV GETs, HLS and DASH requests. `RegistryHeaderInterceptor` re-resolves access context for every request so credentials apply only to the registered scheme/origin/directory. Media3 handles HTTP ranges, HLS/DASH manifests, adaptive tracks and RTSP media sources; RTSP explicitly selects interleaved RTP/TCP for NAT and TCP-only server compatibility. The application quality UI reads actual Media3 track groups and applies/removes `TrackSelectionOverride`.
-
-## Random-access SMB and FTP
-
-`SmbDataSource` opens a remote file and reads at a `Long` byte position in calls capped at 1 MiB. Reconnect reopens the same file and continues at that position. SMBJ is restricted to SMB2/3 dialects with signing enabled.
-
-`FtpDataSource` opens a binary transfer with `restartOffset` at the current `Long` position. Reconnect checks that the server-reported size did not change and restarts from the current position. Both sources cap reconnect at three attempts with bounded backoff and never materialize the full file.
-
-## Saved locations and secure credentials
-
-Room v6 adds `network_locations`; it stores protocol, host, port, root, non-secret preferences, username hint and an opaque credential reference. `CredentialVault` stores the actual secret as AES/GCM ciphertext under an Android Keystore key. Delete/forget operations remove a vault record only after its final reference is gone.
-
-Direct/saved remote media retains a stable source/path or canonical URL identity independent of signed query-token refresh. Playback history persists only a sanitized canonical URI, never the credential-bearing request context.
-
-## Browser and bounded parsing
-
-SMB, WebDAV and FTP/FTPS lists run on `Dispatchers.IO`. Entries carry source ID plus root-relative path and are sorted folders-first. WebDAV PROPFIND XML is limited to 4 MiB, parsed without DTD/entity expansion, and every resolved href must remain on the saved origin below the root. M3U reads are limited to 2 MiB and 1,000 non-recursive entries. Network subtitle reads are capped at 16 MiB.
-
-## Diagnostics and recovery
-
-`NetworkDiagnosticsMonitor` observes connectivity and the authoritative Media3 player. It reports protocol, host, sanitized URI, connection/phase, transport, metering, seekability, buffer, estimated bandwidth, response status and bounded retry events. Player UI phases distinguish initial loading, buffering, reconnecting, paused and failed. Error mapping covers network loss, DNS/timeout/TLS/auth, common HTTP statuses, unsupported ranges and server rejection.
-
-## Network security boundary
-
-Credentials are forbidden in URL userinfo. TLS uses the Android system trust store and normal hostname verification; no trust-all code exists. WebDAV is HTTPS-only. HTTP/FTP cleartext paths show explicit warnings. Authorization never follows to an unrelated origin. See `STEP_7_PROTOCOL_SECURITY.md` for protocol-specific policy and limitations.
-
-## Room v6 migration
-
-`MIGRATION_5_6` creates the network-location table without changing or dropping prior data. Migration instrumentation starts from v5, preserves Steps 1–6 rows and then exercises the new table. Destructive fallback is not configured.
-
-# Step-6 professional decoder architecture
-
-## Mode policy
-
-The four user-visible modes are materially different routing policies:
-
-### Auto
-
-- discovers available video decoders through Media3 / Android
-- prefers hardware candidates
-- permits deliberate fallback across remaining compatible candidates, including software
-- records actual initialized decoder/backend instead of changing only a label
-
-### Hardware
-
-- exposes only the preferred hardware-accelerated candidate
-- no software candidate is visible
-- no second hardware candidate is visible, so strict mode does not silently fall back
-- failure is surfaced truthfully
-
-### Enhanced Hardware
-
-- exposes the ordered hardware-only candidate set
-- Media3 initialization fallback can move to another hardware codec
-- software candidates remain excluded
-
-### Software
-
-- exposes software-only platform `MediaCodec` candidates
-- hardware candidates remain excluded
-- no FFmpeg/native video decoder is bundled in Step 6
-- when no software backend exists for the format, the product reports it rather than silently using hardware
-
-## Classification policy
-
-API-29+ platform/Media3 hardware/software/vendor flags are authoritative. Older API fallback is intentionally conservative: only known software codec-name families are classified as software; ambiguous vendor names remain `UNKNOWN` rather than being guessed as hardware.
-
-## Format compatibility
-
-`MediaCodecSelector` defines the backend-visible candidate pool. Media3's `MediaCodecVideoRenderer` then performs format-aware ordering using decoder `isFormatSupported`, which accounts for MIME/profile/level and video size/rate before codec initialization.
-
-The separate device inventory records Android-exposed per-MIME capability evidence:
-
-- hardware/software/unknown classification
-- vendor flag where exposed
-- adaptive playback
-- secure playback
-- tunneled playback
-- low-latency capability where exposed
-- profile/level pairs
-- color formats
-- 720p / 1080p / 1440p / 2160p size/rate probes at 30/60 fps
-
-The inventory is device-specific and is never treated as universal Android codec support.
-
-## Runtime decoder switching
-
-`PlaybackService` collects decoder-mode requests from `DecoderRepository`. Switching happens inside `Media3PlaybackEngine` and reuses the same ExoPlayer.
-
-Before re-prepare the engine snapshots:
-
-- media queue
-- current media index
-- current position
-- play/pause intent
-- repeat mode
-- shuffle state
-- playback parameters, including Step-3 speed and Step-5 pitch
-- track-selection parameters, preserving audio/subtitle/video selection
-
-The engine stops and re-prepares the same media items at the same index/position, restores those values and leaves the Step-5 audio sink/DSP installed.
-
-## Decoder failure and fallback
-
-Actual decoder initialization/release and playback errors are observed from Media3. A failed candidate is recorded and blacklisted for the current session. A retry occurs only when another candidate remains under the active policy. Fallback history is bounded, preventing an unbounded retry loop.
-
-Hardware has only one visible candidate. Enhanced Hardware can retry only hardware. Software can retry only software. Auto can intentionally cross backend classes.
-
-## Requested vs effective diagnostics
-
-Decoder state deliberately separates requested policy from actual decoder state. Diagnostics include:
-
-- requested mode
-- effective mode/backend
-- actual initialized decoder name
-- hardware/software/vendor/secure flags where known
-- input MIME and codec string
-- resolution and frame rate where known
-- initialization duration
-- dropped frames
-- switching state
-- structured last failure
-- bounded fallback history/count
-
-The UI therefore cannot claim Software or Hardware merely because the user tapped that label.
-
-## Device decoder capability cache
-
-`DeviceCapabilityProvider.collectDecoderProfile()` produces an immutable codec inventory. `PlayerViewModel` loads it on `Dispatchers.Default`, not during Compose recomposition or the Step-5 realtime audio callback. The Decoder dialog exposes an advanced per-codec panel and an explicit off-main-thread manual refresh.
-
-## Room v5 decoder persistence — preserved through v6
-
-Step 6 advances Room from v4 to v5.
-
-New table:
-
-- `decoder_media_state` — stable media ID to optional per-media decoder-mode override plus update time
-
-`MIGRATION_4_5` is explicit. `fallbackToDestructiveMigration()` is not used. Migration instrumentation preserves Step-1 history, multi-GB-safe values, Step-2 favourites/playlists/library state, Step-4 subtitle rows and Step-5 audio associations/state.
-
-Global decoder settings remain lightweight preferences:
-
-- default decoder mode
-- remember decoder per video
-- show decoder diagnostics
-
-## DRM / secure-decoder boundary
-
-Secure requirements are passed into Media3 codec discovery. Step 6 does not bypass DRM, downgrade secure-decoder requirements or invoke private OEM codec APIs.
-
-## Color / HDR / resolution boundary
-
-Decoder selection does not intentionally transcode, resize, recolor or alter HDR metadata. Video output stays in the Media3/Android decoder/render path. Capability inventory reports only exposed metadata. Physical HDR/10-bit/color-fidelity certification remains Step 10.
-
-## Large-media policy
-
-Step 6 remains URI/reference based. It does not:
-
-- copy whole source videos into app storage
-- read whole media into RAM
-- transcode before playback
-- add a 3 GB ceiling
-- add a 1080p ceiling
-- decode entire files ahead of playback
-
-Decoder switching reuses MediaItems/URIs and the same playback service.
-
-# Step-5 professional audio architecture — preserved
-
-`Media3PlaybackEngine` still installs project-owned `MaxAudioProcessor` in `DefaultAudioSink`. The deterministic PCM chain remains:
+Private media does not create an Activity-owned player, a second ExoPlayer, a synchronized shadow player or a decrypt-before-playback engine. Embedded audio/subtitle tracks and decoder policy remain on the same Media3 timeline.
+
+# Logical layers through Step 9
+
+- `core.model` — stable media/domain/playback state, source types and decoder mode catalog.
+- `core.database` — Room entities/DAOs and explicit migrations through schema v8.
+- `core.media` — MediaStore, SAF, metadata and URI availability.
+- `core.device` — runtime device/decoder capability inventory.
+- `playback.engine` — Media3 engine, renderer/decoder policy, source composition and custom audio sink.
+- `playback.session` — PlaybackService, MediaSession, controller connection, queue and service-owned sleep timer.
+- `feature.library` — public library/index/queue/thumbnail/file actions; private media is excluded from ordinary mutation routes.
+- `feature.player` — player controls, gestures, display/orientation/PiP, decoder UI and diagnostics.
+- `feature.subtitle` — embedded/external subtitles, styling/timing plus Step-9 Android system-caption bridge.
+- `feature.audio` — tracks, external audio, DSP/sync/routing plus Step-9 descriptive-audio labeling.
+- `feature.decoder` — Step-6 decoder classification/policy/persistence/runtime diagnostics.
+- `feature.network` — Step-7 HTTP/HLS/DASH/RTSP/SMB/FTP/FTPS/WebDAV sources, credential vault and diagnostics.
+- Step-8 cloud/Cast/USB/TV/output layers — preserved and narrowed only for private-content restrictions.
+- `feature.privatevault` — Step-9 vault domain, crypto, auth, storage, Room index, repository, DataSource and UI.
+- `feature.settings` — Step-9 typed non-sensitive settings/import/export/redaction/caption bridge.
+- `feature.sleeptimer` — Step-9 service-owned monotonic timer state/controller/UI.
+- `ui` — application theme, high-contrast mode and scoped Reduce Motion policy.
+
+# Step-9 Private Vault architecture
+
+## Identity and storage
+
+Public app/library identity for a private item is an opaque `maxvault://<UUID>` URI. The backing encrypted file uses an opaque UUID filename below `noBackupFilesDir/private_vault`; a `.nomedia` marker reduces accidental media indexing.
+
+The Room v8 `private_media` index deliberately does not hold original title, display name or source path. It retains only the opaque identity/container location, source/encrypted lengths, import/update timestamps, format version and availability/status data needed to operate the vault.
+
+## Versioned encrypted container
+
+The current format is `MAXVLT01` / format version 1:
 
 ```text
-Decoded PCM
-   ↓
-Stereo channel mode / balance
-   ↓
-10-band peaking EQ
-   ↓
-Preamp + digital boost
-   ↓
-Soft limiter / numerical protection
-   ↓
-Per-media + route audio delay
-   ↓
-Media3 AudioSink
+Fixed public header
+  - magic/version
+  - chunk size
+  - plaintext length (Long)
+  - opaque vault UUID
+  - random chunk nonce prefix
+  - encrypted-region lengths/nonces
+        ↓
+AES-GCM encrypted sensitive metadata
+        ↓
+AES-GCM wrapped random per-file content key
+        ↓
+Authenticated encrypted media chunks
+  chunk 0
+  chunk 1
+  ...
 ```
 
-The realtime audio callback performs no Room, codec inventory, storage, network, Compose or coroutine work. Immutable DSP parameter snapshots are published outside the callback. Step 6 changes only video decoder routing and preserves audio tracks, external audio, EQ, channel controls, pitch, sync, audio-only/background behavior, audio focus and route handling.
+The public header exposes only format/geometry needed to find authenticated regions. Original filename/title/MIME/details are stored inside authenticated encrypted metadata.
 
-# Step-4 subtitle coexistence — preserved
+Each media file receives a random 256-bit content key. The media payload uses 1 MiB plaintext chunks so the player can authenticate/decrypt only the chunks intersecting the requested byte range. The per-file random nonce prefix plus chunk index forms the GCM nonce; chunk-specific AAD binds the ciphertext to its logical location.
 
-Embedded/external subtitles, SRT/WebVTT/SSA/ASS/TTML parsing, encoding handling, sidecar discovery, appearance, per-media delay and Room persistence remain on the existing media-source/parser path. Decoder switching restores track-selection parameters instead of replacing subtitle architecture.
+All source size, encrypted size, plaintext length, requested position, media offset and chunk geometry use `Long`. Bounded memory buffers use `Int`. Checked add/multiply/ceil-division helpers reject overflow.
 
-# Step-3 player experience — preserved
+## Master secret and credential envelope
 
-Controls/auto-hide, seeking, double-tap, brightness, Android media-volume gesture, zoom/pan, aspect/resize/rotation/orientation/fullscreen, lock, 0.25×–4× speed, previous/next/repeat/shuffle, PiP and accessibility remain on the same player/session.
+`PrivateVaultSession` owns the in-memory vault master secret and publishes the authoritative state:
 
-# Step-2 library — preserved
+`UNCONFIGURED → LOCKED → UNLOCKING → UNLOCKED`, with `ERROR` for invalid state/configuration.
 
-Videos/folders/Continue Watching/Recent/History/Favourites/Playlists, search/sort/filter, MediaStore/SAF, Room index/cache, relink, rename/delete and bounded thumbnails remain unchanged by decoder routing.
+The credential itself is never stored. A six-or-more-digit PIN or eight-or-more-character passphrase is combined with a random salt using PBKDF2-HMAC-SHA256 (310,000 production iterations) to derive a 256-bit wrapping key. That key AES-GCM wraps the random vault master secret.
 
-# Step-1 foundations — preserved
+On a credential change:
 
-Service-owned playback, MediaSession background foundation, resume/history, URI-based media, long-safe values and device capability foundation remain authoritative.
+```text
+authenticate current credential
+        ↓
+copy current master secret in-process
+        ↓
+derive replacement wrapping key with fresh salt
+        ↓
+create replacement AES-GCM envelope in memory
+        ↓
+decrypt/authenticate replacement and constant-time compare master
+        ↓
+atomically commit replacement preference values
+```
+
+The media content keys remain wrapped by the same vault master secret, so changing the PIN does not require rewriting every private video.
+
+Wrong credentials cause authenticated decryption failure and a bounded monotonic retry delay. They do not mutate media or wipe the vault.
+
+## Optional biometric wrapper
+
+`PrivateVaultBiometricKeyManager` uses an Android Keystore AES/GCM key requiring user authentication on supported Android versions. It provides a second wrapper around the same vault master secret. The credential envelope remains independently valid, so biometric invalidation/unavailability falls back to PIN/passphrase instead of destroying the vault.
+
+# Vault transaction architecture
+
+## Copy to Private
+
+```text
+SAF/file input stream
+        ↓ bounded streaming
+opaque .partial container
+        ↓ authenticated close/verification
+opaque .maxvault container
+        ↓
+Room private_media row
+```
+
+The original remains untouched.
+
+## Move to Private
+
+```text
+source
+  ↓ encrypt
+.partial
+  ↓ production decrypt/hash verification
+verified encrypted container
+  ↓ commit encrypted file + Room row
+  ↓ request source deletion
+      ├─ success → moved
+      └─ failure → encrypted copy exists + ORIGINAL REMAINS
+```
+
+The app never reports a complete move when source deletion failed. Commit/database failures attempt to remove the newly created encrypted artifact. Startup cleanup removes incomplete partial/orphan state rather than surfacing it as a valid private item.
+
+# Random-access playback
+
+`EncryptedVaultDataSource` is a normal Media3 `DataSource` implementation selected by the existing `NetworkDataSourceRouter` for the `maxvault` scheme. Opening the source first requires an unlocked `PrivateVaultSession`, then resolves the opaque vault item, opens/authenticates the container and maps Media3 `DataSpec.position/length` to bounded authenticated chunk reads.
+
+No plaintext movie file is materialized. Seeking to a new byte range decrypts only affected chunk(s). Corruption in a requested chunk is converted into a controlled authentication/source failure rather than returning unauthenticated bytes.
+
+The production path remains:
+
+```text
+MediaSession timeline
+        ↓
+Media3PlaybackEngine
+        ↓
+ProfessionalMediaSourceFactory
+        ↓
+NetworkDataSourceRouter
+        ↓ maxvault://
+EncryptedVaultDataSource
+        ↓
+versioned authenticated container reader
+```
+
+# Lock lifecycle and privacy clearing
+
+`PrivateVaultSession` is authoritative; other components do not infer lock state from navigation.
+
+On vault lock:
+
+- in-memory master-key material is zeroed on a best-effort basis;
+- new private DataSource opens are rejected before opaque item resolution;
+- private playback is paused/cleared by `PlaybackService`;
+- MediaSession/notification-facing private metadata is removed/generic;
+- the UI no longer composes the private-media list underneath a lock screen;
+- cached private display state is discarded with the private screen/session lifecycle.
+
+App Lock is separate from vault lock. `AppLockController` records background elapsed time and applies immediate/30-second/one-minute/five-minute policy using `SystemClock.elapsedRealtime` rather than wall time.
+
+# Private output restrictions
+
+Private restrictions are media-specific, not global:
+
+- `CastSourceResolver` rejects `maxvault://` before direct/relay classification.
+- `MaxApp` blocks private playback when a Cast target is active rather than relaying decrypted bytes.
+- private playback returns an active external `Presentation` to the phone.
+- private PiP entry is blocked.
+- `FLAG_SECURE` is applied when a protected private surface/playback is visible and removed again when no protected surface is active.
+- ordinary public Cast, PiP and external display remain on their Step-8 path.
+
+`PrivateVaultRepository.toAppMedia()` itself emits generic `Private media` metadata so privacy does not rely solely on one navigation caller. Private history likewise uses generic title/opaque identity.
+
+# Room v8 migration
+
+Step 9 advances Room v7 → v8 with explicit `MIGRATION_7_8` creating `private_media`. No destructive migration fallback is configured. Migration instrumentation begins from the prior schema, inserts representative earlier data, applies the migration and verifies both preservation and the new private table/schema.
+
+# Step-9 settings architecture
+
+`SettingsRepository` is a typed SharedPreferences facade for non-sensitive global Step-9 settings. It does not own vault keys, cloud tokens or network credentials.
+
+Settings state includes:
+
+- App Lock enabled/timeout;
+- biometric convenience-unlock preference;
+- private-screen capture protection;
+- Reduce Motion;
+- contrast mode;
+- system-caption style preference;
+- sleep fade duration.
+
+`SettingsJsonCodec` serializes only supported non-sensitive settings. Import is capped at 256 KiB, parsed into a `Ready` object before application, and has explicit malformed/unsupported-version/unknown-field behavior. `resetAllNonSensitive` changes only this settings store.
+
+`SecurityRedactor` centralizes masking for credential-bearing headers/cookies, password/token-like fields, URL user-info and signed query values.
+
+# Sleep Timer architecture
+
+`SleepTimerRepository` exposes app-process state while `SleepTimerController` is attached and owned by `PlaybackService` alongside the authoritative player.
+
+Modes:
+
+- duration;
+- end of current media;
+- end of queue.
+
+Duration deadlines use monotonic `elapsedRealtime`. Optional fade writes only `Player.volume` while the timer is inside the configured fade window; cancel/replace restores the prior player volume. Expiry restores volume, pauses playback and clears timer state. Android system media volume is not changed.
+
+Because Activity/Compose does not own the timer or player, Activity recreation does not create a second timing/playback authority.
+
+# Accessibility architecture
+
+## Large text and input
+
+Step-9 Settings, lock/vault and sleep-timer surfaces are scrollable where content may exceed the viewport and new critical actions use approximately 48 dp minimum targets. Automated Compose coverage uses a 2.0× font scale on representative settings content.
+
+Keyboard/D-pad playback actions continue through the Step-8 `TvPlayerInputController`, preserving one semantic action path for remote/keyboard and touch-triggered playback operations.
+
+## Screen-reader privacy
+
+The full-screen App Lock branch replaces normal application content. The locked accessibility tree can expose generic lock text but does not leave a private list composed underneath. Tests query the unmerged tree for sentinel private metadata.
+
+## System captions
+
+The Step-4 subtitle repository/render path remains authoritative. `SystemCaptionStyleBridge` is additive:
+
+```text
+MAX custom subtitle style
+        ↓ user enables system style
+snapshot MAX style
+        ↓
+Android CaptioningManager user style/font scale
+        ↓ map only supported fields
+SubtitleStyleState
+        ↓
+existing Media3 SubtitleView
+```
+
+Disabling the option restores the snapshotted MAX style. Unsupported Android caption properties are not fabricated.
+
+## Audio description
+
+Audio tracks remain Media3 tracks. `AudioPlaybackController` recognizes `C.ROLE_FLAG_DESCRIBES_VIDEO` and appends `Audio description` to the user label only when Media3 metadata provides that role. The role does not force auto-selection.
+
+## Contrast and motion
+
+High contrast stays inside the project theme rather than hard-coded per-widget colors. Reduce Motion is a scoped accessibility policy for Step-9/new UI; Step 9 does not globally disable animation APIs or interfere with essential playback progress/state transitions.
+
+# Backup and manifest boundary
+
+Encrypted vault media is below `noBackupFilesDir`. Backup/data-extraction rules exclude private authentication/biometric preference files and preserve Step-7/8 credential exclusions.
+
+The app declares `USE_BIOMETRIC` for the optional platform biometric flow. Step 9 does not add `MANAGE_EXTERNAL_STORAGE`, exact alarms, device-admin or accessibility-service permissions. Existing exported launcher/deep-link/OAuth behavior, TV launcher behavior and exported MediaSession service contract remain preserved. The Step-7 cleartext-network setting remains because intentionally acknowledged HTTP/FTP/WebDAV support must not be broken by Step-9 privacy work.
+
+# Earlier architecture preserved
+
+## Step 8
+
+Cloud-provider state, Cast and signed relay, USB/OTG, Android TV and external-display architecture remain intact. Private content is restricted at the output boundary; public-media behavior is not globally disabled.
+
+## Step 7
+
+`NetworkRepository`, protocol clients, process-local request registry, `NetworkDataSourceRouter`, OkHttp, SMBJ, Commons Net and Media3 RTSP remain the professional network path for HTTP/HTTPS/HLS/DASH/RTSP/SMB/FTP/FTPS/WebDAV. Credential scoping, TLS policy, bounded XML/M3U parsing and isolated protocol certification remain unchanged.
+
+## Step 6
+
+Decoder policy still supplies Auto/Hardware/Enhanced Hardware/Software candidate pools to Media3/Android `MediaCodec`, tracks actual initialized backend, bounds fallback, persists per-media choices and re-prepares the same ExoPlayer while restoring queue/index/position/play state/repeat/shuffle/speed/pitch/track selections.
+
+## Step 5
+
+`MaxAudioProcessor` remains in the existing `DefaultAudioSink`, preserving tracks/external audio/EQ/preamp/boost/limiter/channel/balance/sync/pitch/audio-only/background behavior.
+
+## Step 4
+
+Embedded/external subtitles, SRT/WebVTT/SSA/ASS/TTML, encoding, sidecar discovery, appearance and per-media delay remain on the existing Media3 subtitle path.
+
+## Steps 1–3
+
+Service-owned playback/MediaSession, public library/SAF/history/playlists, player controls/gestures/seek/display/orientation/queue/repeat/shuffle/public PiP and long-safe URI/reference media foundations remain authoritative.
 
 # Verification architecture
 
-Step-7 certification adds authenticated progressive/range/redirect tests, HLS VOD/live and adaptive-quality fixtures, multi-representation DASH, secure WebDAV PROPFIND/XXE/root tests, credential-vault lifecycle tests, Room v5→v6 migration, and an isolated API-35 Samba/FTP/RTSP server lane. The protocol lane verifies Unicode listing, wrong-password failure, exact ranged bytes, >3 GB sparse offsets and actual service-owned Media3 playback. All Step-1–6 lanes remain required.
+Step-9 adds `.github/workflows/step9-certification.yml`:
 
-Step-6 software/emulator certification adds:
+```text
+step9-security-unit
+  exact SHA checkout assertion
+  assembleDebug
+  testDebugUnitTest
+  assembleRelease
+  lintDebug
 
-- four-mode policy/unit tests
-- hardware/software backend isolation
-- Enhanced Hardware multi-candidate hardware-only behavior
-- Auto ordering and fallback termination
-- session blacklist behavior
-- profile/level, secure and size/rate policy checks
-- persisted enum fallback
-- Room v4→v5 plus earlier-chain preservation instrumentation
-- API-35 real service-owned Auto/Software/Hardware/Enhanced Hardware routing test with actual initialized codec identity
-- playback-position preservation across decoder switches
-- API-35 real codec inventory/classification report
-- retained Step-1–5 unit/instrumentation suites
-- retained API-26/API-28 thumbnail regressions
+step9-emulator-certification (API 35)
+  exact SHA checkout assertion
+  connectedDebugAndroidTest
+  install debug + androidTest APKs
+  run explicit Step-9 classes
+  fail on failure / missing OK / zero tests
+```
 
-See `STEP_6_TEST_MATRIX.md` for exact evidence.
+The existing Android CI and Step-8 certification workflows are retained. They continue to cover API-26/API-28 thumbnail regressions, API-35 full instrumentation, Step-7 isolated protocol servers, Step-8 cloud/Cast/TV/output paths and Step-6 decoder regressions.
 
 # Physical certification boundary
 
-The following remain:
+The following are **NOT VERIFIED — DEFERRED TO STEP 10**:
 
-**NOT VERIFIED — DEFERRED TO STEP 10**
+- physical biometric/OEM prompt/invalidation behavior;
+- OEM screenshot/recording/recents enforcement;
+- sustained real 3 GB+ private import and low-storage behavior;
+- real 4K/HDR/high-bitrate private playback/seek;
+- long-duration, battery and thermal behavior;
+- SD/USB/removable storage on hardware;
+- real Chromecast/receiver behavior;
+- Android TV hardware/remote behavior;
+- HDMI/Miracast/desktop/external-display behavior;
+- aggressive vendor process killing/background restrictions.
 
-- Snapdragon/Exynos/MediaTek/Tensor decoder behavior
-- OEM codec quirks and runtime crash recovery
-- representative physical H.264/HEVC/VP9/AV1 performance
-- physical 4K60/high-bitrate/HDR/10-bit color behavior
-- battery, thermal and long-play stability
-- broad phone/tablet decoder matrix
+Step 9 stops before this hardware phase.
