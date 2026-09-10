@@ -153,7 +153,15 @@ verified encrypted container
       └─ failure → encrypted copy exists + ORIGINAL REMAINS
 ```
 
-The app never reports a complete move when source deletion failed. Commit/database failures attempt to remove the newly created encrypted artifact. Startup cleanup removes incomplete partial/orphan state rather than surfacing it as a valid private item.
+The app never reports a complete move when source deletion failed. Commit/database failures attempt to remove the newly created encrypted artifact.
+
+## Cancellation and restart recovery
+
+Import is structured as bounded background I/O. The repository captures the owning coroutine `Job`, wraps source reads with cooperative cancellation checks, checks cancellation between transaction phases, and also checks each verification chunk. A cancellation observed while encryption/verification is in progress is rethrown as `CancellationException` and the active `.partial` is removed rather than being returned as a normal success/failure result.
+
+A hard process kill cannot execute coroutine cleanup. On restart, `recoverAbandonedTransactions()` removes `.partial` files and encrypted containers without a matching Room index row. Indexed containers are preserved. This gives cancellation and process-death two separate recovery paths without inventing a valid-looking item after interrupted work.
+
+The dedicated import instrumentation covers copy, move, failed source deletion, insufficient-storage preflight, read/write failures, database commit rollback, observed in-progress cancellation cleanup, and abandoned partial/orphan recovery.
 
 # Random-access playback
 
@@ -331,7 +339,7 @@ step9-emulator-certification (API 35)
   fail on failure / missing OK / zero tests
 ```
 
-The existing Android CI and Step-8 certification workflows are retained. They continue to cover API-26/API-28 thumbnail regressions, API-35 full instrumentation, Step-7 isolated protocol servers, Step-8 cloud/Cast/TV/output paths and Step-6 decoder regressions.
+The existing Android CI and Step-8 certification workflows are retained and also verify the literal PR-head checkout. They continue to cover API-26/API-28 thumbnail regressions, API-35 full instrumentation, Step-7 isolated protocol servers, Step-8 cloud/Cast/TV/output paths and Step-6 decoder regressions.
 
 # Physical certification boundary
 
