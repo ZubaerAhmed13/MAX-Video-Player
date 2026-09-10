@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ButtonDefaults
@@ -208,16 +207,12 @@ private fun PlayerTopBar(
         )
         PlayerCircleAction(
             label = if (localVideoProcessingAvailable) decoderCompactLabel(coordinator.decoder.requestedMode) else "Cast",
-            description = if (localVideoProcessingAvailable) {
-                "Decoder: ${decoderFullLabel(coordinator.decoder.requestedMode)}"
-            } else {
-                "Decoder controlled by Cast receiver"
-            },
+            description = if (localVideoProcessingAvailable) "Decoder: ${decoderFullLabel(coordinator.decoder.requestedMode)}" else "Decoder controlled by Cast receiver",
             onClick = onDecoder,
             enabled = localVideoProcessingAvailable,
             modifier = Modifier.testTag("decoder_button"),
         )
-        PlayerCircleAction("⋮", "More playback tools", onMore)
+        PlayerCircleAction("⋮", "More playback tools", onMore, Modifier.testTag("more_button"))
     }
 }
 
@@ -374,20 +369,19 @@ private fun PlayerBottomBar(
             )
         }
 
-        // Keep the extended actions composed and horizontally scrollable so narrow landscape never clips them.
         Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("extended_tool_rail"),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            ExtendedTool("Speed", "${formatSpeed(playback.playbackSpeed)}×", { onOpenMenu(PlayerMenu.SPEED) }, "speed_button")
+            ExtendedTool("Speed", "${formatSpeed(playback.playbackSpeed)}×", { onOpenMenu(PlayerMenu.SPEED) })
             ExtendedTool("Subtitle", if (playback.subtitles.enabled) "On" else "Off", onSubtitles)
             ExtendedTool("Decoder", decoderCompactLabel(coordinator.decoder.requestedMode), { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
-            ExtendedTool("Aspect", coordinator.resizeMode.name.lowercase().replaceFirstChar { it.uppercase() }, { onOpenMenu(PlayerMenu.DISPLAY) }, "display_button", localVideoProcessingAvailable)
-            ExtendedTool("Rotate", "90°", onRotate, "rotation_button", localVideoProcessingAvailable)
-            ExtendedTool("Orientation", coordinator.orientationMode.name.lowercase().replace('_', ' '), { onOpenMenu(PlayerMenu.ORIENTATION) }, "orientation_button")
-            ExtendedTool("PiP", "Window", onPip, "pip_button")
-            ExtendedTool("Fullscreen", if (coordinator.fullscreen) "Exit" else "Enter", onFullscreen, "fullscreen_button")
+            ExtendedTool("Aspect", coordinator.resizeMode.name.lowercase().replaceFirstChar { it.uppercase() }, { onOpenMenu(PlayerMenu.DISPLAY) }, enabled = localVideoProcessingAvailable)
+            ExtendedTool("Rotate", "90°", onRotate, enabled = localVideoProcessingAvailable)
+            ExtendedTool("Orientation", coordinator.orientationMode.name.lowercase().replace('_', ' '), { onOpenMenu(PlayerMenu.ORIENTATION) })
+            ExtendedTool("PiP", "Window", onPip)
+            ExtendedTool("Fullscreen", if (coordinator.fullscreen) "Exit" else "Enter", onFullscreen)
         }
     }
 }
@@ -412,9 +406,7 @@ private fun PlayerCircleAction(
             disabledContainerColor = MaxDesignTokens.PlayerControl.copy(alpha = 0.35f),
         ),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = if (prominent) 18.dp else 11.dp, vertical = 8.dp),
-        modifier = modifier
-            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-            .semantics { contentDescription = description },
+        modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = description },
     ) {
         Text(label, maxLines = 1, fontWeight = if (prominent) FontWeight.Bold else FontWeight.Medium)
     }
@@ -446,14 +438,13 @@ private fun ExtendedTool(
     title: String,
     value: String,
     onClick: () -> Unit,
-    tag: String? = null,
     enabled: Boolean = true,
 ) {
     TextButton(
         onClick = onClick,
         enabled = enabled,
         colors = ButtonDefaults.textButtonColors(contentColor = MaxDesignTokens.PlayerText),
-        modifier = (if (tag == null) Modifier else Modifier.testTag(tag)).sizeIn(minWidth = 76.dp, minHeight = 48.dp),
+        modifier = Modifier.sizeIn(minWidth = 76.dp, minHeight = 48.dp),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, maxLines = 1, style = MaterialTheme.typography.labelMedium)
