@@ -2,18 +2,17 @@ package com.zubaer.maxvideoplayer.feature.privatevault
 
 import android.content.Intent
 import android.media.MediaExtractor
+import android.net.Uri
 import androidx.media3.common.C
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.zubaer.maxvideoplayer.MainActivity
 import com.zubaer.maxvideoplayer.MaxVideoPlayerApplication
-import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.DecoderMode
-import com.zubaer.maxvideoplayer.core.model.MediaSourceType
-import com.zubaer.maxvideoplayer.feature.privatevault.crypto.PrivateVaultContainerFormat
 import com.zubaer.maxvideoplayer.feature.privatevault.crypto.PrivateVaultCrypto
 import com.zubaer.maxvideoplayer.playback.session.PlaybackService
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
@@ -21,17 +20,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
-import java.io.FileInputStream
-import java.util.UUID
 
 /**
  * Production-path coexistence certification using the existing redistribution-safe Step-5 MP4.
- * The fixture is encrypted by the real vault writer and then loaded through PlaybackConnection ->
- * PlaybackService -> Media3 -> EncryptedVaultDataSource. No second player is created for Step 9.
+ * The fixture is imported by the real PrivateVaultRepository and then loaded through
+ * PlaybackConnection -> PlaybackService -> Media3 -> EncryptedVaultDataSource. No second player is
+ * created for Step 9.
  *
- * This test writes its already-complete encrypted fixture directly to the final opaque container
- * name. Import transaction behavior is certified separately by Step9VaultImportInstrumentedTest;
- * using a `.partial` here would intentionally race the app's abandoned-transaction recovery.
+ * A completed private container is valid only after its opaque Room index row is committed. Writing
+ * an unindexed `.maxvault` file would correctly make it an orphan eligible for recovery cleanup and
+ * would not represent a production-created vault item.
  */
 @RunWith(AndroidJUnit4::class)
 class Step9PrivatePlaybackCoexistenceInstrumentedTest {
@@ -44,12 +42,11 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
         val container = app.container
         val connection = container.playbackConnection
         val session = container.privateVaultSession
+        val repository = container.privateVaultRepository
         val storage = container.privateVaultStorage
 
-        // The complete instrumentation suite intentionally exercises strict Hardware/Software
-        // decoder policies before this test. Reset this independent coexistence case to the normal
-        // Auto policy so its H.264 assertion certifies the private source path rather than inheriting
-        // a backend restriction from another test's process-global preferences.
+        // Other certification classes intentionally exercise strict decoder policies. This
+        // independent private-source coexistence case starts from the normal production Auto policy.
         container.decoderRepository.resetDecoderPreferences()
         assertEquals(DecoderMode.AUTO, container.decoderRepository.requestedMode())
 
@@ -58,45 +55,29 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
         }
         certifyFixtureContainsAvcAndAudio(fixture)
 
-        val vaultId = UUID.randomUUID()
         val master = PrivateVaultCrypto.randomKey()
-        val encryptedFixture = storage.containerFile(vaultId.toString())
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        var vaultId: String? = null
+        var scenario: ActivityScenario<MainActivity>? = null
         try {
             session.setConfigured(true)
             session.unlock(master)
-            storage.delete(vaultId.toString())
-            FileInputStream(fixture).use { input ->
-                PrivateVaultContainerFormat.write(
-                    input = input,
-                    sourceLength = fixture.length(),
-                    destination = encryptedFixture,
-                    vaultId = vaultId,
-                    metadata = PrivateMediaMetadata(
-                        originalDisplayName = "TOP_SECRET_PRIVATE_MOVIE_839247.mp4",
-                        title = "TOP_SECRET_PRIVATE_MOVIE_839247",
-                        mimeType = "video/mp4",
-                        durationMs = 2_000L,
-                        width = 160,
-                        height = 90,
-                    ),
-                    masterSecret = master,
-                )
-            }
-            assertTrue("Encrypted playback fixture was not created", encryptedFixture.isFile)
-            val media = AppMedia(
-                stableId = "maxvault://$vaultId",
-                uri = "maxvault://$vaultId",
-                title = "Private media",
-                mimeType = "video/mp4",
-                durationMs = 2_000L,
-                sizeBytes = fixture.length(),
-                width = 160,
-                height = 90,
-                sourceId = "private-vault",
-                sourceType = MediaSourceType.PRIVATE,
-            )
 
+            val imported = runBlocking {
+                repository.import(Uri.fromFile(fixture), PrivateImportMode.COPY)
+            }
+            assertTrue("Production Private Vault import failed: $imported", imported is PrivateImportResult.Success)
+            imported as PrivateImportResult.Success
+            vaultId = imported.item.vaultId
+            assertTrue(
+                "Indexed encrypted playback fixture was not committed",
+                storage.containerFile(imported.item.vaultId).isFile,
+            )
+            val media = repository.toAppMedia(imported.item)
+            assertTrue("Private playback media must use an opaque maxvault URI", media.uri.startsWith("maxvault://"))
+            assertEquals("Private media", media.title)
+
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            instrumentation.waitForIdleSync()
             instrumentation.runOnMainSync { connection.connect() }
             assertTrue("MediaController did not connect", await(10_000L) { connection.state.value.connected })
             instrumentation.runOnMainSync { connection.load(media, 0L, true) }
@@ -119,7 +100,7 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
 
             val controllerBefore = onMain(instrumentation) { connection.playerOrNull() }
             assertNotNull(controllerBefore)
-            scenario.recreate()
+            requireNotNull(scenario).recreate()
             instrumentation.waitForIdleSync()
             assertTrue("Service-owned private playback was lost across Activity recreation", await(5_000L) {
                 connection.state.value.connected && onMain(instrumentation) {
@@ -129,14 +110,17 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
             val controllerAfter = onMain(instrumentation) { connection.playerOrNull() }
             assertSame("Activity recreation created a second playback controller", controllerBefore, controllerAfter)
         } finally {
-            instrumentation.runOnMainSync {
-                connection.pause()
-                connection.disconnect()
+            runCatching {
+                instrumentation.runOnMainSync {
+                    connection.pause()
+                    connection.disconnect()
+                }
             }
-            scenario.close()
+            runCatching { scenario?.close() }
             context.stopService(Intent(context, PlaybackService::class.java))
+            instrumentation.waitForIdleSync()
+            vaultId?.let { id -> runCatching { runBlocking { repository.delete(id) } } }
             session.lock()
-            storage.delete(vaultId.toString())
             PrivateVaultCrypto.zero(master)
             fixture.delete()
         }
