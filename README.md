@@ -1,205 +1,113 @@
 # MAX Video Player
 
-MAX Video Player is an original, native Android media-player project growing toward professional media-player feature depth, reliability and usability through a clean-room implementation.
-
-Commercial players may be used only as behavioral inspiration. This repository does not copy proprietary source/decompiled code, binaries, decoder implementations, artwork, branding, package names, certificates, credentials or protected assets.
+MAX Video Player is an original native Android media-player project built as a clean-room implementation. Commercial players may be used only as behavioral inspiration; proprietary source/decompiled code, decoder implementations, branding, assets, credentials, certificates, package names and protected binaries are not copied.
 
 ## Current development status
 
-**Step 9 of 10 — Private Media · Security · Advanced Settings · Sleep Timer · Accessibility**
+**Step 10 of 10 — Final QA, Performance, Physical-Device Certification, Security Hardening & Release Readiness**
 
-PR #22 implements the Step-9 software/emulator scope on top of the certified Step-8 `main` baseline. Final Step-9 PASS is intentionally withheld until the exact documentation-complete PR head is green, the PR is merged, and the exact resulting `main` head is green. See `STEP_9_COMPLETION_REPORT.md` for the authoritative certification record.
+Step 1–9 software functionality is preserved. Step 10 adds release-candidate certification, exact-SHA CI, package/security audits, physical-device evidence tooling and final release documentation. It does not add unrelated product features or a second playback authority.
 
-Physical/OEM/real-hardware cases remain **NOT VERIFIED — DEFERRED TO STEP 10**.
+Step-10 branch: `step-10-final-certification-release`
+
+Verified Step-10 starting `main`: `476e5416836cb9e75dbe4c97b9a6ed08c9e02bad` (`docs: finalize Step 9 test matrix`). Android CI, Step 8 Certification and Step 9 Certification were green on that baseline before Step-10 work began.
+
+The current execution environment has no connected physical certification hardware. Therefore physical phone/tablet, real >3 GB, 4K/HDR/4K60, Bluetooth/headset, NAS, USB/SD, Cast receiver, Android TV, biometric/OEM privacy, thermal/battery/endurance and external-display claims remain **NOT VERIFIED** until run on real hardware.
+
+Current policy status while those gates are missing:
+
+`STEP 10: PARTIAL — SOFTWARE CERTIFIED, PHYSICAL CERTIFICATION INCOMPLETE`
+
+The software portion of that status is valid only for an exact Step-10 head whose required workflow is green. A final release tag must not be created solely from emulator/software evidence.
 
 ## Platform baseline
 
-- Kotlin / Jetpack Compose / AndroidX
-- Media3 / ExoPlayer 1.11.0
-- MediaSession + MediaSessionService
-- Room 2.8.4, schema version 8
-- Coroutines + Flow / StateFlow
-- minSdk 23
-- targetSdk 36
-- compileSdk 36
+- Native Android / Kotlin / Jetpack Compose
 - Java 17
 - Android Gradle Plugin 9.4.0
-- Gradle 9.6.0
+- Kotlin Compose plugin 2.3.21
+- KSP 2.3.7
+- CI Gradle 9.6.0
+- compileSdk 36
+- targetSdk 36
+- minSdk 23
+- Media3 / ExoPlayer 1.11.0
+- Room 2.8.4, schema version 8
+- Compose BOM 2026.06.00
+- Coroutines 1.10.2
+- OkHttp 5.1.0
+- SMBJ 0.14.0
+- Apache Commons Net 3.13.0
 
-This is a native Android application. It does not use WebView, Capacitor, Cordova, React Native, Flutter or a TWA as its application architecture.
+`versionName` remains `0.1.0-step1` and `versionCode` remains `1`. Step 10 does not invent a release version before full certification/release policy is satisfied.
 
-# Step 9
-
-## Private Vault
-
-Private media is not merely hidden from the public library. It is stored in app-private no-backup storage as an original versioned encrypted container and accessed through opaque `maxvault://<vault-id>` identities.
-
-The current vault format uses AES-256-GCM authenticated encryption, a random master secret, random per-file content keys, encrypted/authenticated sensitive metadata, and bounded 1 MiB encrypted media chunks. Random access decrypts only the chunks needed for the requested Media3 range. It does not decrypt the full movie into RAM or a whole plaintext temporary video file.
-
-Room v8 adds `private_media` through explicit non-destructive `MIGRATION_7_8`. Its index stores opaque vault identity/location, sizes, timestamps, version/status data—not original plaintext private filenames/titles/source paths.
-
-Imports use an opaque partial-file transaction. Copy leaves the source intact. Move completes encryption and verification before committing/deleting the source; if source deletion fails the UI/domain result says the encrypted copy exists and the original still remains.
-
-## Authentication and App Lock
-
-`PrivateVaultSession` is the single in-process authority for locked/unlocked vault state. PINs/passphrases are never stored. A credential-derived key (PBKDF2-HMAC-SHA256 with a fresh random salt and 310,000 production iterations) protects the random vault master secret with AES-GCM.
-
-Changing the credential rewraps the same master secret rather than re-encrypting all private media. The replacement envelope is authenticated and compared against the current master before atomic persistence.
-
-Optional biometric unlock uses Android Keystore plus platform `BiometricPrompt`; PIN/passphrase remains the recovery route. Whole-app App Lock is separately optional and supports immediate/timed background locking using a monotonic clock.
-
-## Private playback and output policy
-
-Private media still uses the existing single player:
+## Authoritative playback architecture
 
 ```text
-Compose / PlayerViewModel
-        ↓
-PlaybackConnection
-        ↓
-PlaybackService : MediaSessionService
-        ↓
-MediaSession
-        ↓
-Media3PlaybackEngine / ExoPlayer
-        ↓
-ProfessionalMediaSourceFactory
-        ↓
-EncryptedVaultDataSource for maxvault:// media
+Compose/UI
+  → PlaybackConnection / MediaController
+  → PlaybackService : MediaSessionService
+  → MediaSession
+  → Media3PlaybackEngine
+  → one ExoPlayer
+  → ProfessionalMediaSourceFactory / ProfessionalRenderersFactory
 ```
 
-There is no Activity-owned or second private ExoPlayer. A redistribution-safe H.264/AAC fixture is encrypted during instrumentation and played through this production path.
+One service-owned player remains authoritative for local files, network sources, private-vault playback, decoder switching, background playback and all UI controller state. Cast/output-specific integrations may delegate appropriately, but there is no hidden Activity-owned second ExoPlayer.
 
-While private media is active:
+The only user-facing decoder labels remain `Auto`, `Hardware`, `Enhanced Hardware`, and `Software`. Effective decoder reporting must reflect the actual MediaCodec/runtime selection.
 
-- MediaSession/notification-facing title is generic `Private media`;
-- locking the vault pauses and clears private playback/session metadata;
-- `maxvault://` is rejected by Cast before direct/relay resolution;
-- PiP is blocked only for private media;
-- external Presentation output is returned to the phone before private playback;
-- normal public-media Cast, PiP and external-display behavior remains available;
-- protected private screens apply Android `FLAG_SECURE` and ordinary screens can restore normal capture policy.
+## Preserved Steps 1–9
 
-Actual OEM screenshot/recents behavior and physical receiver/display behavior remain Step-10 certification.
+- **Step 1:** service-owned playback, MediaSession, URI/reference-based media, resume/history and long-safe foundations.
+- **Step 2:** MediaStore/SAF library, folders, history, favourites, playlists, relink, file actions and bounded thumbnails.
+- **Step 3:** controls, seeking, gestures, zoom/pan/aspect/rotation/fullscreen, queue, repeat/shuffle and public PiP.
+- **Step 4:** embedded/external subtitles, sidecars, SRT/WebVTT/SSA/ASS/TTML, styling and timing.
+- **Step 5:** audio tracks/sidecars, EQ, preamp/boost/limiter, balance/channel mapping, delay, pitch and background/audio-only behavior.
+- **Step 6:** Auto/Hardware/Enhanced Hardware/Software decoder policy, real codec diagnostics, fallback and state-preserving reconfiguration.
+- **Step 7:** HTTP/HTTPS, HLS, DASH, RTSP, SMB2/3, WebDAV, FTP and explicit FTPS through the Media3 source architecture; credential/TLS policy retained.
+- **Step 8:** cloud providers, Cast, USB/OTG, Android TV and external-display paths.
+- **Step 9:** encrypted Private Vault, PIN/passphrase and optional biometric wrapper, privacy/output restrictions, advanced settings, sleep timer and accessibility.
 
-## Advanced Settings
+See the existing Step 1–9 architecture, security, test-matrix and completion documents for detailed historical evidence.
 
-Step 9 adds a typed settings layer for:
+## Step-10 certification infrastructure
 
-- App Lock and auto-lock timeout;
-- biometric convenience unlock;
-- private-screen capture protection;
-- Reduce Motion;
-- high-contrast controls;
-- Android system caption styling;
-- sleep-timer fade duration.
+`.github/workflows/step10-certification.yml` verifies the literal expected Git SHA and separates:
 
-Settings export contains supported non-sensitive values only. Import is versioned, validated and capped at 256 KiB. Unknown bounded future fields do not become secrets or arbitrary state. Ordinary reset restores non-sensitive defaults without deleting the Private Vault, cloud/network credentials, history or playlists.
+- clean debug/release/AAB build, JVM/unit tests and lint;
+- full API-35 retained instrumentation;
+- explicitly named strict critical instrumentation with non-zero-test checks;
+- static release/security checks;
+- release APK/AAB metadata, permission, debuggable/testOnly, secret-sentinel and SHA-256 inspection.
 
-`SecurityRedactor` masks common authorization/token/password/cookie/signed-query material before Step-9 diagnostic/export text is exposed.
+`tools/step10/` provides reusable scripts for sanitized device profiles, release-candidate install, launch/lifecycle stress, playback diagnostics, memory/thermal snapshots, evidence sanitization and release-package verification. These scripts never convert execution into a manual/physical PASS by themselves.
 
-## Sleep Timer
+## Security and storage policy
 
-The sleep timer is owned by `PlaybackService`, not an Activity. It supports fixed/custom duration, end of current media and end of queue. Duration uses `SystemClock.elapsedRealtime`; wall-clock changes do not move the deadline.
+- SAF/MediaStore remain the normal user-approved local-media access model; no all-files permission is added.
+- HTTP/FTP cleartext capability remains explicit because it is a supported user feature, not because TLS validation is disabled.
+- HTTPS uses the Android system trust store and normal hostname verification.
+- network/cloud/private-vault credential stores are excluded from backup/device-transfer rules.
+- private encrypted media remains below no-backup app-private storage and plays through bounded authenticated range decryption rather than a full plaintext temporary movie.
+- production signing keys/passwords are never committed.
 
-Optional fade changes only ExoPlayer/player output volume and restores the prior player volume on cancel/replace. Timer expiry pauses playback. Android system media volume is not rewritten by this feature.
+## Final Step-10 documents
 
-## Accessibility
-
-Step 9 adds/retains large-text-safe scrollable surfaces, approximately 48 dp minimum targets on new critical controls, meaningful state semantics, deterministic keyboard/D-pad mapping through the retained TV input layer, high-contrast theme mode, scoped Reduce Motion behavior, and locked-screen semantics that do not compose private titles underneath.
-
-When enabled, Android system caption styling reads supported `CaptioningManager` foreground/background/window/edge/font-scale preferences into the existing subtitle renderer state; disabling it restores the user's MAX custom subtitle style. Custom subtitles are not removed.
-
-Media3 audio tracks are labeled `Audio description` only when role metadata contains the descriptive-video role flag. The app does not invent this label and does not auto-select the track merely because it is descriptive.
-
-# Steps 1–8 preserved
-
-Step 9 extends rather than replaces the previously certified architecture.
-
-## Step 8 — Cloud, Cast, USB/OTG, Android TV and external output
-
-Cloud-provider integration, Cast/relay behavior, removable storage, Android TV navigation, external displays, signed adaptive relay behavior and decoder regression hardening remain in the existing Step-8 implementation/certification files. Step 9 applies private-content restrictions narrowly rather than disabling these systems globally.
-
-## Step 7 — Professional network playback
-
-HTTP/HTTPS progressive, HLS, DASH, RTSP, SMB2/3, WebDAV, FTP and explicit FTPS continue through `NetworkRepository`/protocol clients and `NetworkDataSourceRouter` into the same Media3 source factory/player. Credentials remain encrypted/scoped and diagnostics sanitized. The isolated Samba/FTP/FTPS/authenticated-RTSP certification lane remains required.
-
-## Step 6 — Decoder engine
-
-Auto, Hardware, Enhanced Hardware and Software decoder policy, actual Media3 codec identity/diagnostics, per-media persistence, controlled fallback and device capability inventory remain intact. Decoder switching reuses the same ExoPlayer and preserves queue/index/position/repeat/shuffle/speed/pitch/track selections. Step-6 decoder/coexistence tests remain retained gates.
-
-## Step 5 — Professional audio
-
-Embedded/external audio selection, 10-band EQ, preamp, boost/limiter, balance/channel control, delay/route compensation, pitch, audio-only/background behavior and the project-owned `MaxAudioProcessor` remain on the existing `DefaultAudioSink` path. Step 9 adds descriptive-track labeling without replacing audio processing.
-
-## Step 4 — Subtitles
-
-Embedded/external subtitle selection, SRT/WebVTT/SSA/ASS/TTML handling, encoding, sidecar discovery, appearance and per-media timing remain intact. Step 9 adds optional system-caption-style bridging without deleting MAX custom style.
-
-## Step 3 — Player experience
-
-Controls, seeking, gestures, zoom/pan, aspect/resize/rotation/orientation/fullscreen, player control lock, speed, queue, repeat/shuffle and public-media PiP remain intact. Seek-preview thumbnails remain limited by their earlier roadmap status; Step 9 does not fabricate them.
-
-## Step 2 — Library
-
-Videos/folders/Continue Watching/Recent/History/Favourites/Playlists, search/sort/filter, MediaStore/SAF, relink, rename/delete and bounded thumbnails remain intact. Private media is separated from normal file-action handling rather than disguised as an ordinary public library item.
-
-## Step 1 — Foundations
-
-Service-owned playback, MediaSession, resume/history, URI/reference-based media, long-safe sizes/timing and device-capability foundations remain authoritative.
-
-# Security, backup and large-media policy
-
-Step 9 does not request broad all-files storage, exact alarm, device-admin or accessibility-service privileges. `USE_BIOMETRIC` is declared only for the optional platform biometric flow. The existing Step-7 cleartext-network allowance is preserved because intentionally acknowledged HTTP/FTP/WebDAV behavior must not be broken by unrelated private-vault hardening.
-
-Private encrypted containers live below no-backup storage. Backup/data-extraction rules exclude private authentication/biometric preference files and retain cloud/network credential exclusions.
-
-Media/file positions and sizes remain `Long`; only bounded chunk buffers use `Int`. CI proves 2 GiB/3.2+ GiB geometry synthetically and exercises a generated 64 MiB streaming encrypted fixture. Sustained real 3 GB+ vault import, real 4K/HDR, low-storage, thermal and long-duration behavior are Step-10 physical tests.
-
-# Step-9 certification
-
-The dedicated `.github/workflows/step9-certification.yml` has two gates:
-
-- `step9-security-unit` — exact checkout assertion, debug build, full JVM tests, release build and lint;
-- `step9-emulator-certification` — exact checkout assertion, complete API-35 connected suite, then explicitly named Step-9 integration classes through a script that rejects failures and zero-test execution.
-
-The Step-9 workflow explicitly checks out the PR's literal head SHA for pull-request runs and verifies `git rev-parse HEAD` before executing the gates. A green synthetic PR merge ref alone is not accepted as the Step-9 exact-head proof.
-
-Retained Android CI/Step-8 workflows continue to provide API-26/API-28 thumbnail regression, API-35 integration, Step-7 real protocol servers and Step-8/Step-6 regressions.
-
-See:
-
-- `STEP_9_COMPLETION_REPORT.md`
-- `STEP_9_SECURITY.md`
-- `STEP_9_TEST_MATRIX.md`
-- `STEP_8_COMPLETION_REPORT.md`
-- `STEP_8_SECURITY.md`
-- `STEP_8_TEST_MATRIX.md`
-- `STEP_7_COMPLETION_REPORT.md`
-- `STEP_7_FINAL_CERTIFICATION.md`
-- `STEP_7_PROTOCOL_SECURITY.md`
-- `STEP_7_TEST_MATRIX.md`
-- `STEP_6_FINAL_CERTIFICATION.md`
-- earlier step completion/architecture/test documents
-- `LARGE_MEDIA_AUDIT.md`
-
-# Step-10 boundary
-
-The following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
-
-- physical biometric/OEM prompt and invalidation behavior;
-- OEM screenshot/screen-recording/recents behavior;
-- sustained real 3 GB+ private imports and actual low-storage exhaustion;
-- real 4K/HDR/high-bitrate private playback/seek;
-- long playback, battery and thermal behavior;
-- physical SD/USB/removable storage;
-- physical Chromecast/receiver behavior;
-- real Android TV remote/focus behavior;
-- HDMI/Miracast/desktop/external-display behavior;
-- aggressive vendor process killing/background restrictions.
-
-Do not start Step 10 from this branch. After Step 9 passes, stop for independent review.
+- `STEP_10_COMPLETION_REPORT.md`
+- `STEP_10_DEVICE_MATRIX.md`
+- `STEP_10_MEDIA_MATRIX.md`
+- `STEP_10_PERFORMANCE_REPORT.md`
+- `STEP_10_SECURITY_PRIVACY_REPORT.md`
+- `STEP_10_RELEASE_CHECKLIST.md`
+- `STEP_10_KNOWN_LIMITATIONS.md`
+- `PARITY_MATRIX.md`
+- `DEPENDENCIES.md`
+- `ARCHITECTURE.md`
+- `CHANGELOG.md`
 
 ## Contribution principle
 
-Do not solve difficult architectural problems by deleting requirements. Preserve working behavior, implement independently, retain user data through schema changes, keep private/security status truthful, and never fabricate verification results.
+Do not solve certification failures by deleting requirements, weakening tests, inserting assumptions/skips, hiding errors, disabling TLS verification, replacing real protocol behavior with mocks, or calling unexecuted physical work a PASS. Any reproducible P0/P1 blocks release.
+
+Do not begin Step 11.
