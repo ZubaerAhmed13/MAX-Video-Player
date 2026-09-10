@@ -64,7 +64,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: step10-release-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          name: step10-release-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 14
           path: |
@@ -115,7 +115,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: step10-api35-full-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          name: step10-api35-full-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 14
           path: |
@@ -165,7 +165,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: step10-strict-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          name: step10-strict-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 14
           path: app/build/reports/step10-instrumentation/**
@@ -189,7 +189,7 @@ jobs:
         run: sdkmanager "build-tools;36.0.0" >/dev/null
       - uses: actions/download-artifact@v4
         with:
-          pattern: step10-release-*
+          pattern: step10-release-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
           path: release-artifacts
           merge-multiple: true
       - name: Audit APK/AAB metadata and secrets
@@ -198,7 +198,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: step10-package-audit-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          name: step10-package-audit-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 14
           path: step10-package-audit/**
