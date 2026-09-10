@@ -29,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackService : MediaSessionService() {
@@ -121,6 +122,27 @@ class PlaybackService : MediaSessionService() {
             container.decoderRepository.modeRequests.collect { mode ->
                 if (::castPlayer.isInitialized && castPlayer.deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                     engine.reconfigureVideoDecoder(mode)
+                }
+            }
+        }
+        // A decoder change requested while Audio-only is active is retained by DecoderRepository,
+        // but Media3 correctly skips reconfiguration while its video track is disabled. When the
+        // user restores video, wait until AudioPlaybackController has applied the track-selection
+        // change, then force one local reprepare so renderer reuse cannot revive the old decoder.
+        serviceScope.launch {
+            var wasAudioOnly = container.audioRepository.state.value.audioOnlyMode
+            container.audioRepository.state.collect { audioState ->
+                val videoRestored = wasAudioOnly && !audioState.audioOnlyMode
+                wasAudioOnly = audioState.audioOnlyMode
+                if (!videoRestored) return@collect
+
+                yield()
+                if (
+                    ::castPlayer.isInitialized &&
+                    castPlayer.deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE &&
+                    androidx.media3.common.C.TRACK_TYPE_VIDEO !in engine.player.trackSelectionParameters.disabledTrackTypes
+                ) {
+                    engine.reconfigureVideoDecoder(container.decoderRepository.requestedMode())
                 }
             }
         }
