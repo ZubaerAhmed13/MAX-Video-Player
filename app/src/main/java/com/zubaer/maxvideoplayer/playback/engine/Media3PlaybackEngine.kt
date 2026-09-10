@@ -24,6 +24,7 @@ import com.zubaer.maxvideoplayer.feature.decoder.runtime.ProfessionalRenderersFa
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
 import com.zubaer.maxvideoplayer.feature.privatevault.datasource.PrivateVaultResolver
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
+import java.util.concurrent.atomic.AtomicLong
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class Media3PlaybackEngine(
@@ -37,6 +38,7 @@ class Media3PlaybackEngine(
 ) : PlaybackEngine {
     val audioProcessor = MaxAudioProcessor(audioRepository)
     private val appContext = context.applicationContext
+    private val decoderEngineGeneration = NEXT_ENGINE_GENERATION.incrementAndGet()
     private val renderersFactory = ProfessionalRenderersFactory(appContext, decoderRepository, audioProcessor)
 
     private val decoderAnalyticsListener = object : AnalyticsListener {
@@ -46,10 +48,12 @@ class Media3PlaybackEngine(
             initializedTimestampMs: Long,
             initializationDurationMs: Long,
         ) {
+            if (!ownsSharedPlaybackState()) return
             decoderRepository.recordDecoderInitialized(decoderName, initializationDurationMs)
         }
 
         override fun onVideoDecoderReleased(eventTime: AnalyticsListener.EventTime, decoderName: String) {
+            if (!ownsSharedPlaybackState()) return
             decoderRepository.recordDecoderReleased(decoderName)
         }
 
@@ -58,6 +62,7 @@ class Media3PlaybackEngine(
             format: Format,
             decoderReuseEvaluation: DecoderReuseEvaluation?,
         ) {
+            if (!ownsSharedPlaybackState()) return
             decoderRepository.recordInputFormat(
                 DecoderFormatSnapshot(
                     mimeType = format.sampleMimeType,
@@ -75,10 +80,12 @@ class Media3PlaybackEngine(
             droppedFrames: Int,
             elapsedMs: Long,
         ) {
+            if (!ownsSharedPlaybackState()) return
             decoderRepository.addDroppedFrames(droppedFrames)
         }
 
         override fun onVideoDisabled(eventTime: AnalyticsListener.EventTime, decoderCounters: DecoderCounters) {
+            if (!ownsSharedPlaybackState()) return
             if (C.TRACK_TYPE_VIDEO in exoPlayer.trackSelectionParameters.disabledTrackTypes) {
                 decoderRepository.markVideoDecoderInactive("Video decoder inactive — audio-only mode")
             }
@@ -87,7 +94,7 @@ class Media3PlaybackEngine(
 
     private val decoderFailureListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
-            if (error.errorCode !in DECODER_ERROR_CODES) return
+            if (!ownsSharedPlaybackState() || error.errorCode !in DECODER_ERROR_CODES) return
             val runtimeFailure = error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
                 error.errorCode == PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED
             val hasAlternative = decoderRepository.recordCodecFailure(
@@ -124,13 +131,23 @@ class Media3PlaybackEngine(
         }
 
     init {
-        audioRepository.setDspPipelineInstalled(true)
+        // DecoderRepository and AudioRepository are application-scoped while this engine is owned
+        // by a PlaybackService instance. A service can be stopped and rebound quickly enough that
+        // the old engine's release/analytics callbacks overlap creation of its replacement. Claim
+        // one process-local generation atomically so stale engines can no longer clear or overwrite
+        // the live decoder/DSP state of the newest engine.
+        synchronized(ENGINE_OWNERSHIP_LOCK) {
+            ACTIVE_ENGINE_GENERATION.set(decoderEngineGeneration)
+            decoderRepository.resetActiveDecoderInstances()
+            decoderRepository.markVideoDecoderInactive("Playback engine initializing")
+            audioRepository.setDspPipelineInstalled(true)
+        }
     }
 
     override val player: Player get() = exoPlayer
 
     fun reconfigureVideoDecoder(mode: DecoderMode = decoderRepository.requestedMode()) {
-        if (exoPlayer.isReleased || exoPlayer.mediaItemCount == 0) return
+        if (!ownsSharedPlaybackState() || exoPlayer.isReleased || exoPlayer.mediaItemCount == 0) return
         if (C.TRACK_TYPE_VIDEO in exoPlayer.trackSelectionParameters.disabledTrackTypes) {
             decoderRepository.markVideoDecoderInactive("Video decoder inactive — audio-only mode")
             return
@@ -190,14 +207,28 @@ class Media3PlaybackEngine(
             exoPlayer.removeListener(decoderFailureListener)
             exoPlayer.release()
         }
-        // Analytics callbacks have been detached, so no old codec instance can release after this
-        // point. Clear the per-instance accounting before the next service creates a new engine.
-        decoderRepository.resetActiveDecoderInstances()
-        decoderRepository.markVideoDecoderInactive("Playback released")
-        audioRepository.setDspPipelineInstalled(false)
+        synchronized(ENGINE_OWNERSHIP_LOCK) {
+            if (ownsSharedPlaybackState()) {
+                // Only the newest engine may retire application-scoped playback diagnostics. If a
+                // replacement engine already exists, this is a stale service teardown and touching
+                // the repositories here would corrupt the replacement's live decoder/DSP state.
+                decoderRepository.resetActiveDecoderInstances()
+                decoderRepository.markVideoDecoderInactive("Playback released")
+                audioRepository.setDspPipelineInstalled(false)
+                ACTIVE_ENGINE_GENERATION.set(NO_ACTIVE_ENGINE)
+            }
+        }
     }
 
+    private fun ownsSharedPlaybackState(): Boolean =
+        ACTIVE_ENGINE_GENERATION.get() == decoderEngineGeneration
+
     private companion object {
+        const val NO_ACTIVE_ENGINE = 0L
+        val NEXT_ENGINE_GENERATION = AtomicLong(NO_ACTIVE_ENGINE)
+        val ACTIVE_ENGINE_GENERATION = AtomicLong(NO_ACTIVE_ENGINE)
+        val ENGINE_OWNERSHIP_LOCK = Any()
+
         val DECODER_ERROR_CODES = setOf(
             PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
             PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
