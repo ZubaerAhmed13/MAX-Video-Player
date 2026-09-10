@@ -2,51 +2,53 @@
 
 Status vocabulary used here is intentionally strict:
 
-- `PASS` — automated evidence has passed on a relevant implementation revision and the behavior is implemented.
-- `PARTIAL` — implementation/evidence exists but the final documentation-complete exact PR head or post-merge `main` certification is still pending.
+- `PASS` — automated software/emulator evidence has passed on the certified Step-9 implementation and the behavior is implemented.
 - `NOT VERIFIED — DEFERRED TO STEP 10` — requires the physical/OEM/hardware phase reserved for Step 10.
 
-Until the exact documentation-complete PR head and exact post-merge `main` head are green, the overall Step-9 result remains `PARTIAL` even when individual tests have already passed on earlier revisions.
+Software-policy and emulator-testable behavior are separated from physical OEM/hardware behavior. A software policy may be `PASS` while the corresponding device/OEM enforcement remains explicitly deferred to Step 10.
 
-| Required area | Status before final exact-head certification | Automated evidence / boundary |
+| Required area | Status | Automated evidence / boundary |
 |---|---|---|
-| Vault encryption | PARTIAL | Production AES-256-GCM container unit/instrumentation tests; final docs-complete head pending |
-| Random-access decryption | PARTIAL | Production container reader + `EncryptedVaultDataSource` range tests |
-| Playback | PARTIAL | Redistribution-safe H.264/AAC fixture encrypted by production writer and loaded through existing service/player |
-| Seeking | PARTIAL | Start/non-zero/chunk-boundary/cross-chunk/final-byte/DataSpec tests; Media3 source is seekable by range |
-| Large logical offsets | PARTIAL | Synthetic `Long` geometry around 2 GiB and 3.2+ GiB without multi-GB allocation |
-| Copy to Vault | PARTIAL | Production repository copy transaction + original-retained assertion |
-| Move to Vault | PARTIAL | Production repository encrypt → verify → commit → source-delete transaction |
-| Failed source deletion semantics | PARTIAL | Dedicated transaction test requires encrypted-copy/original-remains result |
-| Storage-full preflight | PARTIAL | Sparse logical source larger than available vault filesystem space rejected before DB/container commit |
-| Cancel during encryption | PARTIAL | Cooperative coroutine cancellation observed while `.partial` exists; cancellation propagates and partial/index remain clean |
-| Source read failure | PARTIAL | Unreadable source path must fail without valid container/index |
-| Vault write failure | PARTIAL | Unwritable vault destination must fail without deleting original or creating valid item |
-| Verification mismatch/corruption | PARTIAL | Production decrypt/hash verification plus wrong-master/tamper/chunk-corruption tests; fresh-import mismatch injection not fabricated |
-| Partial-file cleanup | PARTIAL | Cancellation cleanup + abandoned `.partial` recovery |
-| Database write failure | PARTIAL | Fake DAO commit failure requires completed encrypted artifact rollback and original preservation |
-| Post-commit/startup recovery | PARTIAL | Orphan encrypted container removed; indexed containers preserved |
-| Corruption detection | PARTIAL | Wrong master/AAD/tamper/chunk swap/truncation/corrupt requested chunk fail closed |
-| PIN / passphrase | PARTIAL | Creation/unlock/wrong credential, minimum policy and no-plaintext-PIN assertions |
-| Biometric abstraction | PARTIAL | Keystore wrapper/fallback code is guarded; physical prompt/OEM behavior deferred |
-| PIN change | PARTIAL | Same master rewrapped; replacement envelope authenticated before atomic commit; old/new credential tests |
-| Auto-lock | PARTIAL | Immediate/timed monotonic timeout instrumentation |
-| Screenshot security | PARTIAL | `FLAG_SECURE` window-policy instrumentation; real OEM capture behavior deferred |
-| Notification privacy | PARTIAL | Generic private MediaSession metadata and lock clear behavior; physical lock-screen UI deferred |
-| Settings | PARTIAL | Typed persistence, enum handling, section/all reset tests |
-| Settings export | PARTIAL | Versioned non-sensitive JSON and sentinel-secret absence |
-| Settings import | PARTIAL | Validated/bounded parser, unknown field/version/malformed/oversize handling |
-| Secret redaction | PARTIAL | Token/password/cookie/Authorization/signed-query redaction unit tests |
-| Sleep timer | PARTIAL | Service-owned duration/end-current/end-queue controller with fake monotonic clock tests |
-| Sleep fade | PARTIAL | Player-volume-only progression/cancel/restore tests; does not alter system media volume |
-| TalkBack semantics | PARTIAL | Generic lock surface and sentinel private-title absence in Compose semantics |
-| Large font | PARTIAL | Representative Settings flow at 2.0× controlled font scale remains scrollable/reachable |
-| Keyboard | PARTIAL | Existing TV/player key policy exercised for Enter/Escape/media/navigation actions |
-| D-pad | PARTIAL | Existing Step-8 `TvPlayerInputController` policy retained and exercised |
-| System caption integration | PARTIAL | Android `CaptioningManager` bridge round-trip/restoration instrumentation |
-| Audio-description metadata | PARTIAL | Media3 descriptive-role policy labels only `ROLE_FLAG_DESCRIBES_VIDEO`; JVM test |
-| API compatibility | PARTIAL | minSdk 23 code guards + retained API-26/API-28 lanes; final exact-head results pending |
-| Step 1–8 regressions | PARTIAL | Android CI, Step-7 protocol, Step-8 certification and decoder regression lanes retained and exact-head checkout hardened; final results pending |
+| Vault encryption | PASS | Production AES-256-GCM container unit/instrumentation tests |
+| Random-access decryption | PASS | Production container reader + `EncryptedVaultDataSource` range tests |
+| Playback | PASS | Redistribution-safe H.264/AAC fixture encrypted by production writer and loaded through existing service/player |
+| Seeking | PASS | Start/non-zero/chunk-boundary/cross-chunk/final-byte/DataSpec tests; Media3 source is seekable by range |
+| Large logical offsets | PASS | Synthetic `Long` geometry around 2 GiB and 3.2+ GiB without multi-GB allocation |
+| Copy to Vault | PASS | Production repository copy transaction + original-retained assertion |
+| Move to Vault | PASS | Production repository encrypt → verify → commit → source-delete transaction |
+| Failed source deletion semantics | PASS | Dedicated transaction test requires encrypted-copy/original-remains result |
+| Storage-full preflight | PASS | Sparse logical source larger than available vault filesystem space rejected before DB/container commit |
+| Cancel during encryption | PASS | Cooperative coroutine cancellation observed while `.partial` exists; cancellation propagates and partial/index remain clean |
+| Source read failure | PASS | Unreadable source path must fail without valid container/index |
+| Vault write failure | PASS | Unwritable vault destination must fail without deleting original or creating valid item |
+| Verification mismatch/corruption | PASS | Production decrypt/hash verification plus wrong-master/tamper/chunk-corruption tests; fresh-import mismatch injection not fabricated |
+| Partial-file cleanup | PASS | Cancellation cleanup + abandoned `.partial` recovery |
+| Database write failure | PASS | Fake DAO commit failure requires completed encrypted artifact rollback and original preservation |
+| Post-commit/startup recovery | PASS | Orphan encrypted container removed; indexed containers preserved |
+| Corruption detection | PASS | Wrong master/AAD/tamper/chunk swap/truncation/corrupt requested chunk fail closed |
+| PIN / passphrase | PASS | Creation/unlock/wrong credential, minimum policy and no-plaintext-PIN assertions |
+| Biometric software policy | PASS | Android Keystore wrapper, guarded biometric path, PIN/passphrase recovery path, and invalidation fallback policy are implemented/tested at software level |
+| Biometric physical OEM behavior | NOT VERIFIED — DEFERRED TO STEP 10 | Real prompt/enrollment/invalidation behavior across physical OEM devices is not claimed by Step 9 |
+| PIN change | PASS | Same master rewrapped; replacement envelope authenticated before atomic commit; old/new credential tests |
+| Auto-lock | PASS | Immediate/timed monotonic timeout instrumentation |
+| Screenshot/recents software policy | PASS | `FLAG_SECURE` protected-surface window policy is instrumented and verified in software/emulator tests |
+| Screenshot/recording/recents physical OEM behavior | NOT VERIFIED — DEFERRED TO STEP 10 | Real screenshot, screen-recorder and recents enforcement varies by OEM/device and is reserved for physical certification |
+| Notification privacy software policy | PASS | Generic private MediaSession metadata and lock clear behavior |
+| Physical lock-screen / notification OEM presentation | NOT VERIFIED — DEFERRED TO STEP 10 | Device/OEM lock-screen and notification presentation is not physically certified in Step 9 |
+| Settings | PASS | Typed persistence, enum handling, section/all reset tests |
+| Settings export | PASS | Versioned non-sensitive JSON and sentinel-secret absence |
+| Settings import | PASS | Validated/bounded parser, unknown field/version/malformed/oversize handling |
+| Secret redaction | PASS | Token/password/cookie/Authorization/signed-query redaction unit tests |
+| Sleep timer | PASS | Service-owned duration/end-current/end-queue controller with fake monotonic clock tests |
+| Sleep fade | PASS | Player-volume-only progression/cancel/restore tests; does not alter system media volume |
+| TalkBack semantics | PASS | Generic lock surface and sentinel private-title absence in Compose semantics |
+| Large font | PASS | Representative Settings flow at 2.0× controlled font scale remains scrollable/reachable |
+| Keyboard | PASS | Existing TV/player key policy exercised for Enter/Escape/media/navigation actions |
+| D-pad | PASS | Existing Step-8 `TvPlayerInputController` policy retained and exercised |
+| System caption integration | PASS | Android `CaptioningManager` bridge round-trip/restoration instrumentation |
+| Audio-description metadata | PASS | Media3 descriptive-role policy labels only `ROLE_FLAG_DESCRIBES_VIDEO`; JVM test |
+| API compatibility | PASS | minSdk 23 code guards + retained API-26/API-28 lanes |
+| Step 1–8 regressions | PASS | Android CI, Step-7 protocol, Step-8 certification and decoder regression lanes retained and exact-head checkout hardened |
 | Physical-device certification | NOT VERIFIED — DEFERRED TO STEP 10 | No physical claims in Step 9 |
 
 ## Mandatory crypto/format coverage
@@ -81,7 +83,7 @@ The actual OS-kill point cannot run a Kotlin cleanup handler; `recoverAbandonedT
 
 `Step9VaultAuthInstrumentedTest` covers vault creation, correct/wrong credentials, no stored plaintext PIN, bounded retry behavior, credential change without changing the underlying master secret, rejection of the previous credential after successful change, acceptance of the replacement credential, and App Lock timeout behavior with an injected monotonic clock.
 
-Biometric Android Keystore integration remains software-reviewed/guarded in Step 9. Physical biometric prompt behavior and OEM invalidation are not promoted to PASS until Step 10.
+The biometric Android Keystore integration and recovery/invalidation policy are software-certified in Step 9. Physical biometric prompt, enrollment, invalidation and OEM-specific behavior remain **NOT VERIFIED — DEFERRED TO STEP 10**.
 
 ## Settings/privacy coverage
 
@@ -138,6 +140,6 @@ All of the following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
 
 ## Current overall status
 
-Final exact-head certification and post-merge `main` certification are intentionally still required before changing the software rows and completion report to final PASS.
+Step 9 software/emulator functionality is certified. This documentation-only synchronization commit does not change production code and must itself pass Android CI, retained Step-8 Certification, and Step-9 Certification on its literal new `main` SHA before the documentation update is treated as fully closed.
 
-**STEP 9 TEST MATRIX: PARTIAL — FINAL EXACT-HEAD CERTIFICATION PENDING**
+**STEP 9 TEST MATRIX: PASS — SOFTWARE / EMULATOR CERTIFIED**
