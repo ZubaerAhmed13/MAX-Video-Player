@@ -156,7 +156,8 @@ class DecoderRepository(
 
         val current = _state.value
         val sameEffectiveRequest = current.mediaId == mediaId && current.requestedMode == mode
-        if (sameEffectiveRequest) {
+        val sameModeIsHealthy = sameEffectiveRequest && current.diagnostics.videoDecoderActive
+        if (sameModeIsHealthy) {
             // Selecting the mode that is already active must not reprepare the player. A redundant
             // reprepare can recreate the same codec name; a late release callback from the old
             // instance can then make diagnostics look inactive even though the replacement codec is
@@ -171,7 +172,11 @@ class DecoderRepository(
                 )
             }
         } else {
-            applyRequestedMode(mode, mediaId, usingOverride = remember, resetAttempts = true, emitRequest = true)
+            // A same-mode request with inactive diagnostics is a recovery request, not a no-op.
+            // Media transitions can legitimately race the decoder-initialized analytics callback;
+            // re-emitting the current policy lets the playback engine rebuild once and restore a
+            // truthful active-decoder state instead of leaving diagnostics permanently inactive.
+            applyRequestedMode(mode, mediaId, usingOverride = remember, resetAttempts = true, emitRequest = mediaId != null)
         }
 
         if (remember && mediaId != null) {
