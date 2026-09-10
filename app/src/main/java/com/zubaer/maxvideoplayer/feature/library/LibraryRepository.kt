@@ -257,6 +257,7 @@ class LibraryRepository(
             MediaSourceType.MEDIA_STORE -> MediaStoreRepository.SOURCE_ID
             MediaSourceType.SAF -> "saf:unknown"
             MediaSourceType.NETWORK -> "network"
+            MediaSourceType.PRIVATE -> "private-vault"
         },
         uri = uri,
         title = title,
@@ -306,6 +307,7 @@ class LibraryRepository(
         height = height,
         availability = SourceAvailability.UNAVAILABLE,
         sourceType = when {
+            uri.startsWith("maxvault://") -> MediaSourceType.PRIVATE
             uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("rtsp://") -> MediaSourceType.NETWORK
             uri.startsWith("content://media") -> MediaSourceType.MEDIA_STORE
             else -> MediaSourceType.SAF

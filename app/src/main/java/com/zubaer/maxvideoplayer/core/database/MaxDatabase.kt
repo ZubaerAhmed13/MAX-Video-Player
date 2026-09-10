@@ -10,6 +10,8 @@ import com.zubaer.maxvideoplayer.feature.cloud.persistence.CloudAccountDao
 import com.zubaer.maxvideoplayer.feature.cloud.persistence.CloudAccountEntity
 import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateDao
 import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateEntity
+import com.zubaer.maxvideoplayer.feature.privatevault.persistence.PrivateMediaDao
+import com.zubaer.maxvideoplayer.feature.privatevault.persistence.PrivateMediaEntity
 
 @Database(
     entities = [
@@ -29,8 +31,9 @@ import com.zubaer.maxvideoplayer.feature.decoder.persistence.DecoderMediaStateEn
         DecoderMediaStateEntity::class,
         NetworkLocationEntity::class,
         CloudAccountEntity::class,
+        PrivateMediaEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class MaxDatabase : RoomDatabase() {
@@ -47,6 +50,7 @@ abstract class MaxDatabase : RoomDatabase() {
     abstract fun decoderMediaStateDao(): DecoderMediaStateDao
     abstract fun networkLocationDao(): NetworkLocationDao
     abstract fun cloudAccountDao(): CloudAccountDao
+    abstract fun privateMediaDao(): PrivateMediaDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -106,6 +110,12 @@ abstract class MaxDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `private_media` (`vaultId` TEXT NOT NULL, `containerLocation` TEXT NOT NULL, `encryptedSizeBytes` INTEGER NOT NULL, `originalSizeBytes` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL, `importedAtMs` INTEGER NOT NULL, `formatVersion` INTEGER NOT NULL, `status` TEXT NOT NULL, PRIMARY KEY(`vaultId`))")
+            }
+        }
+
         fun create(context: Context): MaxDatabase =
             Room.databaseBuilder(context, MaxDatabase::class.java, "max-video-player.db")
                 .addMigrations(
@@ -115,6 +125,7 @@ abstract class MaxDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
+                    MIGRATION_7_8,
                 )
                 .build()
     }

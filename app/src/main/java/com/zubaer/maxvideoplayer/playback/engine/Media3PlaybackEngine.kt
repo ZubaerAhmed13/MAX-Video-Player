@@ -22,6 +22,7 @@ import com.zubaer.maxvideoplayer.feature.decoder.model.DecoderFormatSnapshot
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.DecoderRepository
 import com.zubaer.maxvideoplayer.feature.decoder.runtime.ProfessionalRenderersFactory
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
+import com.zubaer.maxvideoplayer.feature.privatevault.datasource.PrivateVaultResolver
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
@@ -32,6 +33,7 @@ class Media3PlaybackEngine(
     private val decoderRepository: DecoderRepository,
     networkRequestRegistry: NetworkRequestRegistry,
     cloudPlaybackRegistry: CloudPlaybackRegistry,
+    privateVaultResolver: PrivateVaultResolver? = null,
 ) : PlaybackEngine {
     val audioProcessor = MaxAudioProcessor(audioRepository)
     private val appContext = context.applicationContext
@@ -76,10 +78,7 @@ class Media3PlaybackEngine(
             decoderRepository.addDroppedFrames(droppedFrames)
         }
 
-        override fun onVideoDisabled(
-            eventTime: AnalyticsListener.EventTime,
-            decoderCounters: DecoderCounters,
-        ) {
+        override fun onVideoDisabled(eventTime: AnalyticsListener.EventTime, decoderCounters: DecoderCounters) {
             if (C.TRACK_TYPE_VIDEO in exoPlayer.trackSelectionParameters.disabledTrackTypes) {
                 decoderRepository.markVideoDecoderInactive("Video decoder inactive — audio-only mode")
             }
@@ -96,9 +95,7 @@ class Media3PlaybackEngine(
                 runtime = runtimeFailure,
             )
             val mode = decoderRepository.requestedMode()
-            if (hasAlternative && mode != DecoderMode.HARDWARE) {
-                reconfigureVideoDecoder(mode)
-            }
+            if (hasAlternative && mode != DecoderMode.HARDWARE) reconfigureVideoDecoder(mode)
         }
     }
 
@@ -111,6 +108,7 @@ class Media3PlaybackEngine(
             audioRepository,
             networkRequestRegistry,
             cloudPlaybackRegistry,
+            privateVaultResolver,
         ),
     )
         .build()
@@ -137,7 +135,6 @@ class Media3PlaybackEngine(
             decoderRepository.markVideoDecoderInactive("Video decoder inactive — audio-only mode")
             return
         }
-
         val items = List(exoPlayer.mediaItemCount) { exoPlayer.getMediaItemAt(it) }
         val index = exoPlayer.currentMediaItemIndex.coerceIn(items.indices)
         val positionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -193,6 +190,9 @@ class Media3PlaybackEngine(
             exoPlayer.removeListener(decoderFailureListener)
             exoPlayer.release()
         }
+        // Analytics callbacks have been detached, so no old codec instance can release after this
+        // point. Clear the per-instance accounting before the next service creates a new engine.
+        decoderRepository.resetActiveDecoderInstances()
         decoderRepository.markVideoDecoderInactive("Playback released")
         audioRepository.setDspPipelineInstalled(false)
     }

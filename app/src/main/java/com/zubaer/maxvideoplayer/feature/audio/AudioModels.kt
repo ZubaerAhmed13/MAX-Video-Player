@@ -22,6 +22,8 @@ data class AudioTrackInfo(
     val selected: Boolean,
     val supported: Boolean,
     val external: Boolean,
+    /** True when Media3 marks this track as describing the video for blind/low-vision users. */
+    val audioDescription: Boolean = false,
 )
 
 data class AudioTrackDescriptor(

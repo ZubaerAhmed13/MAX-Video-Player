@@ -282,13 +282,14 @@ class AudioPlaybackController(
                 val language = canonicalLanguage(format.language)
                 val readableLanguage = language?.let { Locale.forLanguageTag(it).getDisplayLanguage(Locale.getDefault()) }
                     ?.takeIf { it.isNotBlank() }
-                val commentary = format.roleFlags and C.ROLE_FLAG_COMMENTARY != 0
+                val commentary = AudioAccessibilityPolicy.isCommentary(format.roleFlags)
+                val audioDescription = AudioAccessibilityPolicy.isAudioDescription(format.roleFlags)
                 val base = format.label?.toString()?.takeIf { it.isNotBlank() }
                     ?: readableLanguage
                     ?: if (external) "External audio" else "Unknown"
                 tracks += AudioTrackInfo(
                     key = trackKey(groupIndex, trackIndex),
-                    label = buildString { append(base); if (commentary) append(" · Commentary") },
+                    label = AudioAccessibilityPolicy.readableLabel(base, commentary, audioDescription),
                     language = language,
                     mimeType = format.sampleMimeType,
                     codec = format.codecs,
@@ -299,6 +300,7 @@ class AudioPlaybackController(
                     selected = group.isTrackSelected(trackIndex),
                     supported = group.isTrackSupported(trackIndex),
                     external = external,
+                    audioDescription = audioDescription,
                 )
             }
         }

@@ -16,13 +16,11 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.zubaer.maxvideoplayer.feature.cloud.playback.CloudPlaybackRegistry
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkDataSourceRouter
 import com.zubaer.maxvideoplayer.feature.network.playback.NetworkRequestRegistry
+import com.zubaer.maxvideoplayer.feature.privatevault.datasource.PrivateVaultResolver
 import com.zubaer.maxvideoplayer.feature.subtitle.OffsetSubtitleParserFactory
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
 
-/**
- * One authoritative Media3 timeline: primary video/audio/subtitles plus at most the selected
- * external audio source. External subtitles remain configured on the primary MediaItem.
- */
+/** One authoritative Media3 timeline for public and encrypted private sources. */
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class ProfessionalMediaSourceFactory(
     context: Context,
@@ -30,9 +28,15 @@ class ProfessionalMediaSourceFactory(
     private val audioRepository: AudioRepository,
     private val networkRequestRegistry: NetworkRequestRegistry,
     private val cloudPlaybackRegistry: CloudPlaybackRegistry,
-) : ForwardingMediaSourceFactory(baseFactory(context, networkRequestRegistry, cloudPlaybackRegistry)) {
+    private val privateVaultResolver: PrivateVaultResolver? = null,
+) : ForwardingMediaSourceFactory(baseFactory(context, networkRequestRegistry, cloudPlaybackRegistry, privateVaultResolver)) {
     private val appContext = context.applicationContext
-    private val dataSourceFactory = NetworkDataSourceRouter.Factory(appContext, networkRequestRegistry, cloudPlaybackRegistry)
+    private val dataSourceFactory = NetworkDataSourceRouter.Factory(
+        appContext,
+        networkRequestRegistry,
+        cloudPlaybackRegistry,
+        privateVaultResolver,
+    )
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
         val primary = if (mediaItem.localConfiguration?.uri?.scheme.equals("rtsp", ignoreCase = true)) {
@@ -58,6 +62,9 @@ class ProfessionalMediaSourceFactory(
                 .createMediaSource(mediaItem)
         }
 
+        // External sidecars are intentionally not merged into private-vault items. Embedded audio
+        // and subtitles remain available through the normal production media pipeline.
+        if (mediaItem.localConfiguration?.uri?.scheme.equals("maxvault", ignoreCase = true)) return primary
         val external = audioRepository.selectedExternalFor(mediaItem.mediaId) ?: return primary
         val externalItem = MediaItem.Builder()
             .setMediaId("max.external.audio.${external.id}")
@@ -79,9 +86,16 @@ class ProfessionalMediaSourceFactory(
             context: Context,
             registry: NetworkRequestRegistry,
             cloudRegistry: CloudPlaybackRegistry,
+            privateVaultResolver: PrivateVaultResolver?,
         ): DefaultMediaSourceFactory =
-            DefaultMediaSourceFactory(NetworkDataSourceRouter.Factory(context.applicationContext, registry, cloudRegistry))
-                .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(NETWORK_RETRY_COUNT))
+            DefaultMediaSourceFactory(
+                NetworkDataSourceRouter.Factory(
+                    context.applicationContext,
+                    registry,
+                    cloudRegistry,
+                    privateVaultResolver,
+                ),
+            ).setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(NETWORK_RETRY_COUNT))
     }
 }
 

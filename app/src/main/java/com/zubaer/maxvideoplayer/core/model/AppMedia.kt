@@ -33,6 +33,7 @@ enum class MediaSourceType {
     MEDIA_STORE,
     SAF,
     NETWORK,
+    PRIVATE,
 }
 
 enum class SourceAvailability {

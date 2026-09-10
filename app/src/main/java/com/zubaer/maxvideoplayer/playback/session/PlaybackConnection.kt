@@ -151,6 +151,7 @@ class PlaybackConnection(
 
     fun load(media: AppMedia, startPositionMs: Long = 0L, playWhenReady: Boolean = true) {
         knownMediaById[media.stableId] = media
+        _state.value = _state.value.copy(error = null)
         withController { player ->
             clearPendingSeek()
             applyAutoPolicy(player)
@@ -163,6 +164,7 @@ class PlaybackConnection(
     fun setQueue(media: List<AppMedia>, startIndex: Int = 0, startPositionMs: Long = 0L, playWhenReady: Boolean = true) {
         if (media.isEmpty()) return
         media.forEach { knownMediaById[it.stableId] = it }
+        _state.value = _state.value.copy(error = null)
         withController { player ->
             clearPendingSeek()
             applyAutoPolicy(player)

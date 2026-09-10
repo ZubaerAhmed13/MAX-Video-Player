@@ -4,13 +4,16 @@ import android.app.UiModeManager
 import android.content.Context
 import android.content.res.Configuration
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
+import com.zubaer.maxvideoplayer.core.model.PlaybackTarget
 import com.zubaer.maxvideoplayer.feature.audio.BackgroundPlaybackMode
 import com.zubaer.maxvideoplayer.feature.audio.ProfessionalAudioPlayerHost
 import com.zubaer.maxvideoplayer.feature.cloud.presentation.CloudBrowserScreen
@@ -40,6 +44,13 @@ import com.zubaer.maxvideoplayer.feature.output.ExternalDisplayController
 import com.zubaer.maxvideoplayer.feature.output.OutputDeviceButton
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerViewModel
+import com.zubaer.maxvideoplayer.feature.privatevault.presentation.AppLockScreen
+import com.zubaer.maxvideoplayer.feature.privatevault.presentation.PrivateVaultScreen
+import com.zubaer.maxvideoplayer.feature.privatevault.presentation.PrivateVaultViewModel
+import com.zubaer.maxvideoplayer.feature.settings.AccessibilityContrastMode
+import com.zubaer.maxvideoplayer.feature.settings.SettingsScreen
+import com.zubaer.maxvideoplayer.feature.sleeptimer.SleepTimerButton
+import com.zubaer.maxvideoplayer.feature.sleeptimer.SleepTimerDialog
 import com.zubaer.maxvideoplayer.feature.tv.TvDestination
 import com.zubaer.maxvideoplayer.feature.tv.TvHomeScreen
 import com.zubaer.maxvideoplayer.feature.tv.TvLibraryScreen
@@ -58,30 +69,48 @@ fun MaxApp(
     onOrientationModeChanged: (OrientationMode) -> Unit,
     onPlayerHostStateChanged: (AppMedia?, Boolean) -> Unit,
     onAudioBackgroundPolicyChanged: (BackgroundPlaybackMode, Boolean) -> Unit,
+    onPrivateSurfaceChanged: (Boolean) -> Unit,
+    onBiometricUnlock: () -> Unit,
+    onBiometricEnroll: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val settings by container.settingsRepository.state.collectAsStateWithLifecycle()
+    val appLockState by container.appLockController.state.collectAsStateWithLifecycle()
+    val biometricConfigured = container.privateVaultBiometricKeyManager.isEnabled()
     val isTv = remember(context) {
         val uiModeManager = context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
         uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
     }
     var showNetwork by remember { mutableStateOf(false) }
     var showCloud by remember { mutableStateOf(false) }
+    var showPrivate by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var showSleepTimer by remember { mutableStateOf(false) }
     var showTvHome by remember { mutableStateOf(isTv) }
     var lastTvDestination by remember { mutableStateOf(TvDestination.LIBRARY) }
     val removableVolumes by container.removableStorageController.volumes.collectAsStateWithLifecycle()
     val navigationViewModel: AppNavigationViewModel = viewModel()
     val launch by navigationViewModel.playbackLaunch.collectAsStateWithLifecycle()
+    val privateVaultViewModel: PrivateVaultViewModel = viewModel(
+        factory = simpleFactory {
+            PrivateVaultViewModel(
+                container.privateVaultRepository,
+                container.privateVaultAuthenticator,
+                container.privateVaultSession,
+            )
+        },
+    )
     val libraryViewModel: LibraryViewModel = viewModel(
-        factory = simpleFactory { LibraryViewModel(container.libraryRepository, container.mediaFileActionRepository) }
+        factory = simpleFactory { LibraryViewModel(container.libraryRepository, container.mediaFileActionRepository) },
     )
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val networkViewModel: NetworkViewModel = viewModel(
-        factory = simpleFactory { NetworkViewModel(container.networkRepository, container.historyRepository) }
+        factory = simpleFactory { NetworkViewModel(container.networkRepository, container.historyRepository) },
     )
     val networkState by networkViewModel.state.collectAsStateWithLifecycle()
     val cloudViewModel: CloudBrowserViewModel = viewModel(
-        factory = simpleFactory { CloudBrowserViewModel(container.cloudOAuthCoordinator) }
+        factory = simpleFactory { CloudBrowserViewModel(container.cloudOAuthCoordinator) },
     )
     val cloudState by cloudViewModel.state.collectAsStateWithLifecycle()
 
@@ -103,10 +132,54 @@ fun MaxApp(
         }
     }
 
-    MaxTheme {
+    val privatePlayback = launch?.media?.sourceType == MediaSourceType.PRIVATE
+    LaunchedEffect(showPrivate, privatePlayback, settings.protectPrivateScreens) {
+        onPrivateSurfaceChanged(settings.protectPrivateScreens && (showPrivate || privatePlayback))
+    }
+    LaunchedEffect(privatePlayback) {
+        if (privatePlayback) externalDisplayController.returnToPhone()
+    }
+
+    MaxTheme(
+        highContrast = settings.contrastMode == AccessibilityContrastMode.HIGH_CONTRAST,
+        reduceMotion = settings.reduceMotion,
+    ) {
+        if (appLockState == com.zubaer.maxvideoplayer.feature.privatevault.auth.AppLockState.LOCKED) {
+            AppLockScreen(container.appLockController)
+            return@MaxTheme
+        }
+
         val playbackLaunch = launch
         if (playbackLaunch == null) {
             when {
+                showSettings -> SettingsScreen(
+                    repository = container.settingsRepository,
+                    vaultAuthenticator = container.privateVaultAuthenticator,
+                    biometricConfigured = biometricConfigured,
+                    onEnableBiometric = onBiometricEnroll,
+                    onDisableBiometric = container.privateVaultBiometricKeyManager::disable,
+                    onBack = { showSettings = false },
+                )
+                showPrivate -> PrivateVaultScreen(
+                    viewModel = privateVaultViewModel,
+                    repository = container.privateVaultRepository,
+                    onBack = { showPrivate = false },
+                    onPlay = { item ->
+                        if (container.playbackConnection.state.value.playbackTarget == PlaybackTarget.CAST_DEVICE) {
+                            Toast.makeText(context, "Disconnect Cast before playing Private Vault media.", Toast.LENGTH_LONG).show()
+                        } else {
+                            externalDisplayController.returnToPhone()
+                            showPrivate = false
+                            // The unlocked vault screen may show the decrypted title, but the
+                            // MediaSession receives only generic private metadata.
+                            navigationViewModel.select(
+                                container.privateVaultRepository.toAppMedia(item).copy(title = "Private media"),
+                            )
+                        }
+                    },
+                    biometricUnlockEnabled = settings.biometricUnlockEnabled && biometricConfigured,
+                    onBiometricUnlock = onBiometricUnlock,
+                )
                 isTv && showTvHome -> TvHomeScreen(
                     lastFocused = lastTvDestination,
                     mountedUsbCount = removableVolumes.count { it.mounted },
@@ -232,10 +305,15 @@ fun MaxApp(
                         playbackRequest = libraryViewModel::playbackRequest,
                     )
                     Row(
-                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        Button(onClick = { showPrivate = true }) { Text("Private") }
                         Button(onClick = { showCloud = true }) { Text("Cloud") }
+                        Button(onClick = { showSettings = true }) { Text("Settings") }
                         Button(onClick = { removableTreePicker.launch(null) }) {
                             val mounted = removableVolumes.count { it.mounted }
                             Text(if (mounted > 0) "USB / OTG ($mounted)" else "USB / OTG")
@@ -272,16 +350,26 @@ fun MaxApp(
                         navigationViewModel.clearSelection()
                         if (isTv) showTvHome = true
                     },
-                    onEnterPip = onEnterPip,
+                    onEnterPip = { selected ->
+                        if (selected.sourceType != MediaSourceType.PRIVATE) onEnterPip(selected)
+                    },
                     onFullscreenChanged = onFullscreenChanged,
                     onOrientationModeChanged = onOrientationModeChanged,
                     onPlayerHostStateChanged = onPlayerHostStateChanged,
                     onAudioBackgroundPolicyChanged = onAudioBackgroundPolicyChanged,
                 )
-                OutputDeviceButton(
-                    controller = externalDisplayController,
+                Row(
                     modifier = Modifier.align(Alignment.TopEnd).padding(14.dp),
-                )
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SleepTimerButton(container.sleepTimerRepository, onOpen = { showSleepTimer = true })
+                    if (media.sourceType != MediaSourceType.PRIVATE) {
+                        OutputDeviceButton(controller = externalDisplayController)
+                    }
+                }
+            }
+            if (showSleepTimer) {
+                SleepTimerDialog(container.sleepTimerRepository, onDismiss = { showSleepTimer = false })
             }
         }
     }

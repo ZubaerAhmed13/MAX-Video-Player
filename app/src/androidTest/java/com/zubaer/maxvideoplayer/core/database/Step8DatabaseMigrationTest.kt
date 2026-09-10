@@ -37,7 +37,9 @@ class Step8DatabaseMigrationTest {
         }
 
         val migrated = Room.databaseBuilder(context, MaxDatabase::class.java, name)
-            .addMigrations(MaxDatabase.MIGRATION_6_7)
+            // This retained Step-8 regression must now traverse the explicit Step-9 schema hop too;
+            // otherwise Room correctly rejects opening a v6 database with the current v8 model.
+            .addMigrations(MaxDatabase.MIGRATION_6_7, MaxDatabase.MIGRATION_7_8)
             .allowMainThreadQueries()
             .build()
         try {
@@ -60,6 +62,7 @@ class Step8DatabaseMigrationTest {
             assertEquals("keystore-token-cache-ref", stringValue(db, "SELECT authReference FROM cloud_accounts WHERE id='google:user-1'"))
             assertEquals(1L, longValue(db, "SELECT COUNT(*) FROM cloud_accounts WHERE provider='GOOGLE_DRIVE' AND providerAccountId='user-1'"))
             assertTrue(tableExists(db, "cloud_accounts"))
+            assertTrue(tableExists(db, "private_media"))
         } finally {
             migrated.close()
             context.deleteDatabase(name)

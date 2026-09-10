@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class DecoderRepository(
@@ -46,6 +47,7 @@ class DecoderRepository(
     private val candidatesByName = ConcurrentHashMap<String, DecoderCandidate>()
     private val rejectedNames = Collections.synchronizedSet(linkedSetOf<String>())
     private val mediaOverrides = ConcurrentHashMap<String, DecoderMode>()
+    private val activeDecoderInstances = ConcurrentHashMap<String, AtomicInteger>()
     private val activationGeneration = AtomicLong(0L)
     @Volatile private var currentOverride: DecoderMode? = null
 
@@ -254,6 +256,10 @@ class DecoderRepository(
     }
 
     fun recordDecoderInitialized(decoderName: String, initializationDurationMs: Long) {
+        // A reprepare can overlap the release callback of the preceding codec instance and Media3
+        // is free to choose the same codec name again. Count live instances by name so a late
+        // release from the older instance cannot mark the newly initialized replacement inactive.
+        activeDecoderInstances.computeIfAbsent(decoderName) { AtomicInteger(0) }.incrementAndGet()
         val candidate = candidatesByName[decoderName]
         val backend = candidate?.backend ?: DecoderBackendType.UNKNOWN
         val effective = when (backend) {
@@ -286,11 +292,20 @@ class DecoderRepository(
     }
 
     fun recordDecoderReleased(decoderName: String) {
+        val counter = activeDecoderInstances[decoderName] ?: return
+        val remaining = counter.decrementAndGet()
+        if (remaining > 0) return
+        activeDecoderInstances.remove(decoderName, counter)
         val current = _state.value
         if (current.diagnostics.activeDecoderName != decoderName) return
         _state.value = current.copy(
             diagnostics = current.diagnostics.copy(videoDecoderActive = false),
         )
+    }
+
+    /** Called when the owning playback engine is fully released and no analytics callbacks remain. */
+    fun resetActiveDecoderInstances() {
+        activeDecoderInstances.clear()
     }
 
     fun recordInputFormat(format: DecoderFormatSnapshot) {

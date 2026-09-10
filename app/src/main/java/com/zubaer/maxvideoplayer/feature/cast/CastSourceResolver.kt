@@ -2,11 +2,8 @@ package com.zubaer.maxvideoplayer.feature.cast
 
 /**
  * Truthful Cast source classification. A Cast receiver cannot dereference Android-only content
- * URIs or app-private network schemes, so those sources are never passed through as if they were
- * receiver-reachable URLs.
- *
- * This classifier intentionally avoids android.net.Uri because it is pure policy logic and must
- * remain deterministic in local JVM tests as well as Android instrumentation.
+ * URIs or app-private network schemes, and Private Vault media is deliberately never exposed to
+ * the LAN relay.
  */
 class CastSourceResolver {
     fun resolve(
@@ -17,6 +14,13 @@ class CastSourceResolver {
     ): CastSourceDecision {
         val scheme = schemeOf(uriString)
             ?: return CastSourceDecision(CastSourceMode.UNSUPPORTED_CAST, "Invalid media URI")
+
+        if (scheme == "maxvault") {
+            return CastSourceDecision(
+                CastSourceMode.UNSUPPORTED_CAST,
+                "Cast is unavailable for Private Vault media",
+            )
+        }
 
         if (scheme == "rtsp") {
             return CastSourceDecision(
@@ -33,10 +37,7 @@ class CastSourceResolver {
         }
 
         if (scheme in DIRECT_SCHEMES && receiverReachable && !requiresPrivateHeaders) {
-            return CastSourceDecision(
-                CastSourceMode.DIRECT_CAST,
-                "Receiver can fetch the resource directly",
-            )
+            return CastSourceDecision(CastSourceMode.DIRECT_CAST, "Receiver can fetch the resource directly")
         }
 
         if (scheme in RELAY_SCHEMES || requiresPrivateHeaders || !receiverReachable) {
@@ -46,10 +47,7 @@ class CastSourceResolver {
             )
         }
 
-        return CastSourceDecision(
-            CastSourceMode.UNSUPPORTED_CAST,
-            "Source scheme is not certified for Cast",
-        )
+        return CastSourceDecision(CastSourceMode.UNSUPPORTED_CAST, "Source scheme is not certified for Cast")
     }
 
     private fun schemeOf(value: String): String? {
