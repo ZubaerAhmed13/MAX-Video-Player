@@ -2,6 +2,7 @@ package com.zubaer.maxvideoplayer.feature.privatevault
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.zubaer.maxvideoplayer.feature.privatevault.auth.PrivateVaultSession
@@ -10,12 +11,17 @@ import com.zubaer.maxvideoplayer.feature.privatevault.persistence.PrivateMediaDa
 import com.zubaer.maxvideoplayer.feature.privatevault.persistence.PrivateMediaEntity
 import com.zubaer.maxvideoplayer.feature.privatevault.repository.PrivateVaultRepository
 import com.zubaer.maxvideoplayer.feature.privatevault.storage.PrivateVaultStorage
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -24,7 +30,7 @@ import java.io.RandomAccessFile
 @RunWith(AndroidJUnit4::class)
 class Step9VaultImportInstrumentedTest {
     @Test
-    fun copyAndMoveUseProductionTransactionOrdering() = withVault { context, storage, session, master, beforeIds ->
+    fun copyAndMoveUseProductionTransactionOrdering() = withVault { context, storage, session, _, beforeIds ->
         val dao = FakePrivateMediaDao()
         val repository = PrivateVaultRepository(context, dao, storage, session)
 
@@ -143,6 +149,49 @@ class Step9VaultImportInstrumentedTest {
             assertEquals(beforeIds, storage.opaqueContainerIds())
         } finally {
             storage.directory.setWritable(true, false)
+            source.delete()
+            cleanupNewContainers(storage, beforeIds)
+        }
+    }
+
+    @Test
+    fun cancellationDuringStreamingDeletesPartialAndCreatesNoIndexEntry() = withVault { context, storage, session, _, beforeIds ->
+        val dao = FakePrivateMediaDao()
+        val repository = PrivateVaultRepository(context, dao, storage, session)
+        val source = File(context.cacheDir, "step9-cancel-source-${System.nanoTime()}.mp4")
+        val beforePartials = storage.directory.listFiles()?.filter { it.name.endsWith(".partial") }?.mapTo(mutableSetOf()) { it.name }.orEmpty()
+        try {
+            // Sparse source keeps disk use bounded while giving CI enough read iterations to observe
+            // and cancel an import after the production writer has created its partial container.
+            RandomAccessFile(source, "rw").use { it.setLength(64L * 1024L * 1024L) }
+            runBlocking {
+                val deferred = async(Dispatchers.IO) {
+                    repository.import(Uri.fromFile(source), PrivateImportMode.COPY)
+                }
+                val deadline = SystemClock.elapsedRealtime() + 5_000L
+                var observedPartial = false
+                while (SystemClock.elapsedRealtime() < deadline && deferred.isActive) {
+                    observedPartial = storage.directory.listFiles()?.any {
+                        it.name.endsWith(".partial") && it.name !in beforePartials && it.length() > 0L
+                    } == true
+                    if (observedPartial) break
+                    delay(2L)
+                }
+                assertTrue("Did not observe an in-progress encrypted partial before import completed", observedPartial && deferred.isActive)
+                deferred.cancel()
+                try {
+                    deferred.await()
+                    fail("Cancelled import unexpectedly returned normally")
+                } catch (_: CancellationException) {
+                    // Expected: repository propagates cancellation instead of converting it to Success/Failure.
+                }
+            }
+            assertTrue(source.isFile)
+            assertTrue(dao.rows.isEmpty())
+            assertEquals(beforeIds, storage.opaqueContainerIds())
+            val afterPartials = storage.directory.listFiles()?.filter { it.name.endsWith(".partial") }?.mapTo(mutableSetOf()) { it.name }.orEmpty()
+            assertEquals(beforePartials, afterPartials)
+        } finally {
             source.delete()
             cleanupNewContainers(storage, beforeIds)
         }
