@@ -7,15 +7,12 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,10 +30,10 @@ import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.core.model.PlaybackTarget
 import com.zubaer.maxvideoplayer.feature.audio.BackgroundPlaybackMode
-import com.zubaer.maxvideoplayer.feature.audio.ProfessionalAudioPlayerHost
+import com.zubaer.maxvideoplayer.feature.audio.ReleaseProfessionalAudioPlayerHost
 import com.zubaer.maxvideoplayer.feature.cloud.presentation.CloudBrowserScreen
 import com.zubaer.maxvideoplayer.feature.cloud.presentation.CloudBrowserViewModel
-import com.zubaer.maxvideoplayer.feature.library.LibraryScreen
+import com.zubaer.maxvideoplayer.feature.library.ReleaseLibraryScreen
 import com.zubaer.maxvideoplayer.feature.library.LibraryViewModel
 import com.zubaer.maxvideoplayer.feature.network.presentation.NetworkScreen
 import com.zubaer.maxvideoplayer.feature.network.presentation.NetworkViewModel
@@ -170,8 +167,6 @@ fun MaxApp(
                         } else {
                             externalDisplayController.returnToPhone()
                             showPrivate = false
-                            // The unlocked vault screen may show the decrypted title, but the
-                            // MediaSession receives only generic private metadata.
                             navigationViewModel.select(
                                 container.privateVaultRepository.toAppMedia(item).copy(title = "Private media"),
                             )
@@ -247,79 +242,67 @@ fun MaxApp(
                     },
                     onBack = { showTvHome = true },
                 )
-                else -> Box(Modifier.fillMaxSize()) {
-                    LibraryScreen(
-                        state = libraryState,
-                        events = libraryViewModel.events,
-                        thumbnailRepository = container.thumbnailRepository,
-                        onRefresh = libraryViewModel::refresh,
-                        onOpenDocument = { uri ->
-                            persistUriPermission(uri)
-                            scope.launch {
-                                lastTvDestination = TvDestination.LIBRARY
-                                navigationViewModel.select(container.metadataExtractor.fromUri(uri, MediaSourceType.SAF))
-                            }
-                        },
-                        onAddFolder = { uri -> libraryViewModel.addFolder(uri, persistUriPermission(uri)) },
-                        onPlay = { request ->
+                else -> ReleaseLibraryScreen(
+                    state = libraryState,
+                    events = libraryViewModel.events,
+                    thumbnailRepository = container.thumbnailRepository,
+                    onRefresh = libraryViewModel::refresh,
+                    onOpenDocument = { uri ->
+                        persistUriPermission(uri)
+                        scope.launch {
                             lastTvDestination = TvDestination.LIBRARY
-                            navigationViewModel.selectQueue(request.queue, request.startIndex)
-                        },
-                        onOpenNetworkUrl = { url -> navigationViewModel.select(container.networkRepository.prepareDirect(url)) },
-                        onOpenNetworkCenter = { showNetwork = true },
-                        onSection = libraryViewModel::setSection,
-                        onQuery = libraryViewModel::setQuery,
-                        onSort = libraryViewModel::setSort,
-                        onFolderSort = libraryViewModel::setFolderSort,
-                        onToggleSortDirection = libraryViewModel::toggleSortDirection,
-                        onFilter = libraryViewModel::setFilter,
-                        onViewMode = libraryViewModel::setViewMode,
-                        onOpenFolder = libraryViewModel::openFolder,
-                        onCloseFolder = libraryViewModel::closeFolder,
-                        onOpenPlaylist = libraryViewModel::openPlaylist,
-                        onClosePlaylist = libraryViewModel::closePlaylist,
-                        onToggleFavourite = libraryViewModel::toggleFavourite,
-                        onSetFavourite = libraryViewModel::setFavourite,
-                        onCreatePlaylist = libraryViewModel::createPlaylist,
-                        onRenamePlaylist = libraryViewModel::renamePlaylist,
-                        onDeletePlaylist = libraryViewModel::deletePlaylist,
-                        onAddToPlaylist = libraryViewModel::addToPlaylist,
-                        onAddManyToPlaylist = libraryViewModel::addManyToPlaylist,
-                        onRemoveFromPlaylist = libraryViewModel::removeFromPlaylist,
-                        onMovePlaylistItem = libraryViewModel::movePlaylistItem,
-                        onExcludeFolder = libraryViewModel::excludeFolder,
-                        onRestoreFolder = libraryViewModel::restoreFolder,
-                        onRemoveSource = libraryViewModel::removeSource,
-                        onDeleteHistory = libraryViewModel::deleteHistory,
-                        onClearHistory = libraryViewModel::clearHistory,
-                        onRequestDelete = libraryViewModel::requestDelete,
-                        onRequestRename = libraryViewModel::requestRename,
-                        onFileActionApproval = libraryViewModel::completeConfirmedFileAction,
-                        onRelinkSelected = { original, uri ->
-                            persistUriPermission(uri)
-                            scope.launch {
-                                val replacement = container.metadataExtractor.fromUri(uri, MediaSourceType.SAF)
-                                libraryViewModel.relinkMedia(original, replacement)
-                            }
-                        },
-                        playbackRequest = libraryViewModel::playbackRequest,
-                    )
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(12.dp)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Button(onClick = { showPrivate = true }) { Text("Private") }
-                        Button(onClick = { showCloud = true }) { Text("Cloud") }
-                        Button(onClick = { showSettings = true }) { Text("Settings") }
-                        Button(onClick = { removableTreePicker.launch(null) }) {
-                            val mounted = removableVolumes.count { it.mounted }
-                            Text(if (mounted > 0) "USB / OTG ($mounted)" else "USB / OTG")
+                            navigationViewModel.select(container.metadataExtractor.fromUri(uri, MediaSourceType.SAF))
                         }
-                    }
-                }
+                    },
+                    onAddFolder = { uri -> libraryViewModel.addFolder(uri, persistUriPermission(uri)) },
+                    onPlay = { request ->
+                        lastTvDestination = TvDestination.LIBRARY
+                        navigationViewModel.selectQueue(request.queue, request.startIndex)
+                    },
+                    onOpenNetworkUrl = { url -> navigationViewModel.select(container.networkRepository.prepareDirect(url)) },
+                    onOpenNetworkCenter = { showNetwork = true },
+                    onOpenPrivate = { showPrivate = true },
+                    onOpenCloud = { showCloud = true },
+                    onOpenSettings = { showSettings = true },
+                    onOpenUsb = { removableTreePicker.launch(null) },
+                    mountedUsbCount = removableVolumes.count { it.mounted },
+                    onSection = libraryViewModel::setSection,
+                    onQuery = libraryViewModel::setQuery,
+                    onSort = libraryViewModel::setSort,
+                    onFolderSort = libraryViewModel::setFolderSort,
+                    onToggleSortDirection = libraryViewModel::toggleSortDirection,
+                    onFilter = libraryViewModel::setFilter,
+                    onViewMode = libraryViewModel::setViewMode,
+                    onOpenFolder = libraryViewModel::openFolder,
+                    onCloseFolder = libraryViewModel::closeFolder,
+                    onOpenPlaylist = libraryViewModel::openPlaylist,
+                    onClosePlaylist = libraryViewModel::closePlaylist,
+                    onToggleFavourite = libraryViewModel::toggleFavourite,
+                    onSetFavourite = libraryViewModel::setFavourite,
+                    onCreatePlaylist = libraryViewModel::createPlaylist,
+                    onRenamePlaylist = libraryViewModel::renamePlaylist,
+                    onDeletePlaylist = libraryViewModel::deletePlaylist,
+                    onAddToPlaylist = libraryViewModel::addToPlaylist,
+                    onAddManyToPlaylist = libraryViewModel::addManyToPlaylist,
+                    onRemoveFromPlaylist = libraryViewModel::removeFromPlaylist,
+                    onMovePlaylistItem = libraryViewModel::movePlaylistItem,
+                    onExcludeFolder = libraryViewModel::excludeFolder,
+                    onRestoreFolder = libraryViewModel::restoreFolder,
+                    onRemoveSource = libraryViewModel::removeSource,
+                    onDeleteHistory = libraryViewModel::deleteHistory,
+                    onClearHistory = libraryViewModel::clearHistory,
+                    onRequestDelete = libraryViewModel::requestDelete,
+                    onRequestRename = libraryViewModel::requestRename,
+                    onFileActionApproval = libraryViewModel::completeConfirmedFileAction,
+                    onRelinkSelected = { original, uri ->
+                        persistUriPermission(uri)
+                        scope.launch {
+                            val replacement = container.metadataExtractor.fromUri(uri, MediaSourceType.SAF)
+                            libraryViewModel.relinkMedia(original, replacement)
+                        }
+                    },
+                    playbackRequest = libraryViewModel::playbackRequest,
+                )
             }
         } else {
             val media = playbackLaunch.media
@@ -339,7 +322,7 @@ fun MaxApp(
                 },
             )
             Box(Modifier.fillMaxSize()) {
-                ProfessionalAudioPlayerHost(
+                ReleaseProfessionalAudioPlayerHost(
                     media = media,
                     viewModel = playerViewModel,
                     playbackConnection = container.playbackConnection,
@@ -359,8 +342,8 @@ fun MaxApp(
                     onAudioBackgroundPolicyChanged = onAudioBackgroundPolicyChanged,
                 )
                 Row(
-                    modifier = Modifier.align(Alignment.TopEnd).padding(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 4.dp, end = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     SleepTimerButton(container.sleepTimerRepository, onOpen = { showSleepTimer = true })
                     if (media.sourceType != MediaSourceType.PRIVATE) {

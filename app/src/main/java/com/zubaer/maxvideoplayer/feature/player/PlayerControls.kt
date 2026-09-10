@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -40,10 +42,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.zubaer.maxvideoplayer.core.model.DecoderMode
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkPlaybackPhase
+import com.zubaer.maxvideoplayer.ui.MaxDesignTokens
 import kotlin.math.roundToLong
 
+/**
+ * Step-10 release-hardened player chrome. Playback state and transport remain service-owned; this
+ * composable only presents controls and forwards existing actions.
+ */
 @Composable
 fun PlayerControlsOverlay(
     coordinator: PlayerCoordinatorState,
@@ -75,36 +83,27 @@ fun PlayerControlsOverlay(
             modifier = Modifier.fillMaxSize(),
         ) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.62f))
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(
-                        onClick = onBack,
-                        modifier = Modifier.semantics { contentDescription = "Back to media library" },
-                    ) { Text("Back") }
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = playback.title.ifBlank { fallbackTitle },
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (playback.mediaItemCount > 1) {
-                            Text(
-                                text = "${playback.currentMediaItemIndex + 1} / ${playback.mediaItemCount}",
-                                color = Color.White.copy(alpha = 0.78f),
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                    }
-                    TextButton(onClick = { onOpenMenu(PlayerMenu.INFO) }) { Text("Info") }
-                    TextButton(onClick = { onOpenMenu(PlayerMenu.SETTINGS) }) { Text("More") }
-                }
+                PlayerTopBar(
+                    coordinator = coordinator,
+                    playback = playback,
+                    fallbackTitle = fallbackTitle,
+                    localVideoProcessingAvailable = localVideoProcessingAvailable,
+                    onBack = onBack,
+                    onSubtitles = onSubtitles,
+                    onDecoder = { onOpenMenu(PlayerMenu.DECODER) },
+                    onMore = { onOpenMenu(PlayerMenu.SETTINGS) },
+                )
+
+                PlayerQuickRail(
+                    coordinator = coordinator,
+                    playback = playback,
+                    localVideoProcessingAvailable = localVideoProcessingAvailable,
+                    onOpenMenu = onOpenMenu,
+                    onSubtitles = onSubtitles,
+                    onRotate = onRotate,
+                    onPip = onPip,
+                    onFullscreen = onFullscreen,
+                )
 
                 Spacer(Modifier.weight(1f))
 
@@ -131,15 +130,16 @@ fun PlayerControlsOverlay(
         }
 
         if (coordinator.controlsLocked && coordinator.unlockVisible) {
-            Button(
+            PlayerCircleAction(
+                label = "Unlock",
+                description = "Unlock player controls",
                 onClick = onUnlock,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .safeDrawingPadding()
                     .padding(16.dp)
-                    .testTag("unlock_button")
-                    .semantics { contentDescription = "Unlock player controls" },
-            ) { Text("Unlock") }
+                    .testTag("unlock_button"),
+            )
         }
 
         if (playback.isBuffering || coordinator.preparing || playback.network.phase == NetworkPlaybackPhase.RECONNECTING) {
@@ -153,13 +153,107 @@ fun PlayerControlsOverlay(
                     NetworkPlaybackPhase.RECONNECTING -> "Reconnecting…"
                     NetworkPlaybackPhase.INITIAL_LOADING -> "Loading network media…"
                     NetworkPlaybackPhase.BUFFERING -> "Buffering…"
-                    else -> null
+                    else -> if (coordinator.preparing) "Loading…" else null
                 }
-                status?.let { Text(it, color = Color.White) }
+                status?.let { Text(it, color = MaxDesignTokens.PlayerText) }
             }
         }
 
         PlayerHud(coordinator.hud, Modifier.align(Alignment.Center))
+    }
+}
+
+@Composable
+private fun PlayerTopBar(
+    coordinator: PlayerCoordinatorState,
+    playback: PlaybackUiState,
+    fallbackTitle: String,
+    localVideoProcessingAvailable: Boolean,
+    onBack: () -> Unit,
+    onSubtitles: () -> Unit,
+    onDecoder: () -> Unit,
+    onMore: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaxDesignTokens.PlayerOverlaySoft)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        PlayerCircleAction("‹", "Back to media library", onBack)
+        Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
+            Text(
+                text = playback.title.ifBlank { fallbackTitle },
+                color = MaxDesignTokens.PlayerText,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleSmall,
+            )
+            if (playback.mediaItemCount > 1) {
+                Text(
+                    text = "${playback.currentMediaItemIndex + 1} / ${playback.mediaItemCount}",
+                    color = MaxDesignTokens.PlayerTextSecondary,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+        PlayerCircleAction(
+            label = if (!playback.subtitles.enabled) "CC" else "CC•",
+            description = "Subtitle tracks",
+            onClick = onSubtitles,
+            modifier = Modifier.testTag("subtitle_button"),
+        )
+        PlayerCircleAction(
+            label = if (localVideoProcessingAvailable) decoderCompactLabel(coordinator.decoder.requestedMode) else "Cast",
+            description = if (localVideoProcessingAvailable) {
+                "Decoder: ${decoderFullLabel(coordinator.decoder.requestedMode)}"
+            } else {
+                "Decoder controlled by Cast receiver"
+            },
+            onClick = onDecoder,
+            enabled = localVideoProcessingAvailable,
+            modifier = Modifier.testTag("decoder_button"),
+        )
+        PlayerCircleAction("⋮", "More playback tools", onMore)
+    }
+}
+
+@Composable
+private fun PlayerQuickRail(
+    coordinator: PlayerCoordinatorState,
+    playback: PlaybackUiState,
+    localVideoProcessingAvailable: Boolean,
+    onOpenMenu: (PlayerMenu) -> Unit,
+    onSubtitles: () -> Unit,
+    onRotate: () -> Unit,
+    onPip: () -> Unit,
+    onFullscreen: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.Black.copy(alpha = 0.20f))
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RailAction("${formatSpeed(playback.playbackSpeed)}×", "Playback speed", { onOpenMenu(PlayerMenu.SPEED) }, "speed_button", playback.playbackSpeed != 1f)
+        RailAction("CC", "Subtitles", onSubtitles, modified = playback.subtitles.enabled)
+        RailAction("Dec", "Decoder", { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
+        RailAction("Fit", "Display and aspect ratio", { onOpenMenu(PlayerMenu.DISPLAY) }, "display_button", coordinator.resizeMode != ResizeMode.FIT, localVideoProcessingAvailable)
+        RailAction("↻", "Rotate display", onRotate, "rotation_button", coordinator.displayRotationDegrees != 0, localVideoProcessingAvailable)
+        RailAction("Mode", "Repeat and shuffle", { onOpenMenu(PlayerMenu.PLAYBACK) }, "playback_mode_button", playback.shuffleEnabled)
+        if (playback.videoTracks.size > 1) {
+            RailAction("${playback.videoTracks.firstOrNull { it.selected }?.height ?: "Q"}p", "Video quality", { onOpenMenu(PlayerMenu.QUALITY) }, "video_quality_button")
+        }
+        RailAction("Orient", "Player orientation", { onOpenMenu(PlayerMenu.ORIENTATION) }, "orientation_button")
+        RailAction("PiP", "Picture in picture", onPip, "pip_button")
+        RailAction(if (coordinator.fullscreen) "Window" else "Full", "Fullscreen", onFullscreen, "fullscreen_button", coordinator.fullscreen)
+        RailAction("More", "More playback tools", { onOpenMenu(PlayerMenu.SETTINGS) })
     }
 }
 
@@ -198,117 +292,172 @@ private fun PlayerBottomBar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.Black.copy(alpha = 0.72f))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .background(MaxDesignTokens.PlayerOverlay)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
     ) {
         if (playback.isLive) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("LIVE", color = Color.Red, fontWeight = FontWeight.Bold)
+                Text("LIVE", color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold)
                 val offset = playback.liveOffsetMs
                 if (offset != null && offset > 3_000L) {
-                    Text("${offset / 1_000L}s behind live", color = Color.White)
+                    Text("${offset / 1_000L}s behind live", color = MaxDesignTokens.PlayerText)
                     TextButton(onClick = onGoLive, modifier = Modifier.testTag("go_live_button")) { Text("Go Live") }
                 }
             }
         }
-        Slider(
-            value = if (scrubbing) scrubFraction else fraction,
-            onValueChange = { value ->
-                if (duration <= 0L) return@Slider
-                if (!scrubbing) onInteractionStart()
-                scrubbing = true
-                scrubFraction = value
-                val target = (duration.toDouble() * value.toDouble()).roundToLong().coerceIn(0L, duration)
-                onSeekPreview(playback.currentPositionMs, target)
-            },
-            onValueChangeFinished = {
-                if (duration > 0L && scrubbing) {
-                    val target = (duration.toDouble() * scrubFraction.toDouble()).roundToLong().coerceIn(0L, duration)
-                    onSeekCommit(target)
-                }
-                scrubbing = false
-                onInteractionEnd()
-            },
-            modifier = Modifier.fillMaxWidth().testTag("seek_bar"),
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            val displayPosition = if (scrubbing && duration > 0L) {
-                (duration.toDouble() * scrubFraction.toDouble()).roundToLong()
-            } else playback.currentPositionMs
-            Text(formatPlayerTime(displayPosition), color = Color.White)
-            Text(formatPlayerTime(duration), color = Color.White)
+
+        val displayPosition = if (scrubbing && duration > 0L) {
+            (duration.toDouble() * scrubFraction.toDouble()).roundToLong()
+        } else playback.currentPositionMs
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(formatPlayerTime(displayPosition), color = MaxDesignTokens.PlayerText, style = MaterialTheme.typography.labelMedium)
+            Slider(
+                value = if (scrubbing) scrubFraction else fraction,
+                onValueChange = { value ->
+                    if (duration <= 0L) return@Slider
+                    if (!scrubbing) onInteractionStart()
+                    scrubbing = true
+                    scrubFraction = value
+                    val target = (duration.toDouble() * value.toDouble()).roundToLong().coerceIn(0L, duration)
+                    onSeekPreview(playback.currentPositionMs, target)
+                },
+                onValueChangeFinished = {
+                    if (duration > 0L && scrubbing) {
+                        val target = (duration.toDouble() * scrubFraction.toDouble()).roundToLong().coerceIn(0L, duration)
+                        onSeekCommit(target)
+                    }
+                    scrubbing = false
+                    onInteractionEnd()
+                },
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp).testTag("seek_bar").semantics {
+                    contentDescription = "Seek, ${formatPlayerTime(displayPosition)} of ${formatPlayerTime(duration)}"
+                },
+            )
+            Text(formatPlayerTime(duration), color = MaxDesignTokens.PlayerText, style = MaterialTheme.typography.labelMedium)
         }
+
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(
-                onClick = onPrevious,
-                enabled = playback.hasPrevious,
-                modifier = Modifier.testTag("previous_button").semantics { contentDescription = "Previous video" },
-            ) { Text("Prev") }
-            Button(
+            PlayerCircleAction("Lock", "Lock player controls", onLock, Modifier.testTag("lock_button"))
+            PlayerCircleAction("|‹", "Previous video", onPrevious, Modifier.testTag("previous_button"), playback.hasPrevious)
+            PlayerCircleAction(
+                label = if (playback.isPlaying) "❚❚" else if (playback.playbackEnded) "↺" else "▶",
+                description = if (playback.isPlaying) "Pause" else if (playback.playbackEnded) "Replay" else "Play",
                 onClick = onPlayPause,
-                modifier = Modifier.testTag("play_pause_button").semantics { contentDescription = if (playback.isPlaying) "Pause" else "Play" },
-            ) { Text(if (playback.isPlaying) "Pause" else if (playback.playbackEnded) "Replay" else "Play") }
-            Button(
-                onClick = onNext,
-                enabled = playback.hasNext,
-                modifier = Modifier.testTag("next_button").semantics { contentDescription = "Next video" },
-            ) { Text("Next") }
+                modifier = Modifier.testTag("play_pause_button"),
+                prominent = true,
+            )
+            PlayerCircleAction("›|", "Next video", onNext, Modifier.testTag("next_button"), playback.hasNext)
+            PlayerCircleAction(
+                label = when (coordinator.resizeMode) {
+                    ResizeMode.FIT -> "Fit"
+                    ResizeMode.FILL -> "Fill"
+                    ResizeMode.CROP -> "Crop"
+                    ResizeMode.ORIGINAL -> "1:1"
+                    else -> "AR"
+                },
+                description = "Display and aspect ratio",
+                onClick = { onOpenMenu(PlayerMenu.DISPLAY) },
+                enabled = localVideoProcessingAvailable,
+            )
         }
+
         if (!localVideoProcessingAvailable) {
             Text(
-                "Cast receiver controls decoding and video presentation. Phone decoder, zoom, aspect and rotation settings are kept for local playback.",
-                color = Color.White.copy(alpha = 0.82f),
+                "Cast receiver controls decoding and video presentation; saved phone processing settings remain unchanged.",
+                color = MaxDesignTokens.PlayerTextSecondary,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.testTag("cast_video_processing_unavailable"),
             )
         }
+
+        // Keep the extended actions composed and horizontally scrollable so narrow landscape never clips them.
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            TextButton(onClick = { onOpenMenu(PlayerMenu.SPEED) }, modifier = Modifier.testTag("speed_button")) {
-                Text("${formatSpeed(playback.playbackSpeed)}×")
-            }
-            TextButton(onClick = { onOpenMenu(PlayerMenu.PLAYBACK) }, modifier = Modifier.testTag("playback_mode_button")) { Text("Mode") }
-            if (playback.videoTracks.size > 1) {
-                TextButton(onClick = { onOpenMenu(PlayerMenu.QUALITY) }, modifier = Modifier.testTag("video_quality_button")) {
-                    val selectedHeight = playback.videoTracks.firstOrNull { it.selected }?.height
-                    Text(if (playback.videoQualityAuto) "Auto${selectedHeight?.let { " ${it}p" }.orEmpty()}" else selectedHeight?.let { "${it}p" } ?: "Quality")
-                }
-            }
-            TextButton(
-                onClick = { onOpenMenu(PlayerMenu.DECODER) },
-                enabled = localVideoProcessingAvailable,
-                modifier = Modifier
-                    .testTag("decoder_button")
-                    .semantics { contentDescription = if (localVideoProcessingAvailable) "Decoder selection and diagnostics" else "Decoder controlled by Cast receiver" },
-            ) { Text(if (localVideoProcessingAvailable) "Decoder" else "Decoder (Cast)") }
-            TextButton(
-                onClick = onSubtitles,
-                modifier = Modifier.testTag("subtitle_button").semantics { contentDescription = "Subtitles and closed captions" },
-            ) {
-                val selected = playback.subtitles.tracks.firstOrNull { it.selected }
-                Text(if (!playback.subtitles.enabled) "CC Off" else selected?.language?.uppercase()?.let { "CC $it" } ?: "CC")
-            }
-            TextButton(
-                onClick = { onOpenMenu(PlayerMenu.DISPLAY) },
-                enabled = localVideoProcessingAvailable,
-                modifier = Modifier.testTag("display_button"),
-            ) { Text(if (localVideoProcessingAvailable) "Display" else "Display (Cast)") }
-            TextButton(
-                onClick = onRotate,
-                enabled = localVideoProcessingAvailable,
-                modifier = Modifier.testTag("rotation_button"),
-            ) { Text(if (localVideoProcessingAvailable) "Rotate" else "Rotate (Cast)") }
-            TextButton(onClick = { onOpenMenu(PlayerMenu.ORIENTATION) }, modifier = Modifier.testTag("orientation_button")) { Text("Orient") }
-            TextButton(onClick = onLock, modifier = Modifier.testTag("lock_button")) { Text("Lock") }
-            TextButton(onClick = onPip, modifier = Modifier.testTag("pip_button")) { Text("PiP") }
-            TextButton(onClick = onFullscreen, modifier = Modifier.testTag("fullscreen_button")) { Text(if (coordinator.fullscreen) "Window" else "Full") }
-            Spacer(Modifier.width(4.dp))
+            ExtendedTool("Speed", "${formatSpeed(playback.playbackSpeed)}×", { onOpenMenu(PlayerMenu.SPEED) }, "speed_button")
+            ExtendedTool("Subtitle", if (playback.subtitles.enabled) "On" else "Off", onSubtitles)
+            ExtendedTool("Decoder", decoderCompactLabel(coordinator.decoder.requestedMode), { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
+            ExtendedTool("Aspect", coordinator.resizeMode.name.lowercase().replaceFirstChar { it.uppercase() }, { onOpenMenu(PlayerMenu.DISPLAY) }, "display_button", localVideoProcessingAvailable)
+            ExtendedTool("Rotate", "90°", onRotate, "rotation_button", localVideoProcessingAvailable)
+            ExtendedTool("Orientation", coordinator.orientationMode.name.lowercase().replace('_', ' '), { onOpenMenu(PlayerMenu.ORIENTATION) }, "orientation_button")
+            ExtendedTool("PiP", "Window", onPip, "pip_button")
+            ExtendedTool("Fullscreen", if (coordinator.fullscreen) "Exit" else "Enter", onFullscreen, "fullscreen_button")
+        }
+    }
+}
+
+@Composable
+private fun PlayerCircleAction(
+    label: String,
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    prominent: Boolean = false,
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        shape = CircleShape,
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = if (prominent) Color.White.copy(alpha = 0.22f) else MaxDesignTokens.PlayerControl,
+            contentColor = MaxDesignTokens.PlayerText,
+            disabledContentColor = MaxDesignTokens.PlayerText.copy(alpha = 0.35f),
+            disabledContainerColor = MaxDesignTokens.PlayerControl.copy(alpha = 0.35f),
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = if (prominent) 18.dp else 11.dp, vertical = 8.dp),
+        modifier = modifier
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .semantics { contentDescription = description },
+    ) {
+        Text(label, maxLines = 1, fontWeight = if (prominent) FontWeight.Bold else FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun RailAction(
+    label: String,
+    description: String,
+    onClick: () -> Unit,
+    tag: String? = null,
+    modified: Boolean = false,
+    enabled: Boolean = true,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        PlayerCircleAction(
+            label = label,
+            description = description + if (modified) ", modified" else "",
+            onClick = onClick,
+            enabled = enabled,
+            modifier = if (tag == null) Modifier else Modifier.testTag(tag),
+        )
+        if (modified) Text("•", color = Color(0xFF9DC8EE), style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+private fun ExtendedTool(
+    title: String,
+    value: String,
+    onClick: () -> Unit,
+    tag: String? = null,
+    enabled: Boolean = true,
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.textButtonColors(contentColor = MaxDesignTokens.PlayerText),
+        modifier = (if (tag == null) Modifier else Modifier.testTag(tag)).sizeIn(minWidth = 76.dp, minHeight = 48.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(title, maxLines = 1, style = MaterialTheme.typography.labelMedium)
+            Text(value, maxLines = 1, color = MaxDesignTokens.PlayerTextSecondary, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -334,13 +483,13 @@ fun PlayerHud(hud: PlayerHudState, modifier: Modifier = Modifier) {
             }
             Surface(
                 modifier = Modifier.testTag("player_hud"),
-                color = Color.Black.copy(alpha = 0.74f),
+                color = MaxDesignTokens.PlayerOverlay,
                 shape = MaterialTheme.shapes.medium,
-                tonalElevation = 4.dp,
+                tonalElevation = 0.dp,
             ) {
                 Text(
                     text = text,
-                    color = Color.White,
+                    color = MaxDesignTokens.PlayerText,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
                 )
@@ -358,3 +507,17 @@ fun formatPlayerTime(ms: Long): String {
 }
 
 private fun formatSpeed(value: Float): String = if (value % 1f == 0f) value.toInt().toString() else "%.2f".format(value).trimEnd('0')
+
+private fun decoderCompactLabel(mode: DecoderMode): String = when (mode) {
+    DecoderMode.AUTO -> "Auto"
+    DecoderMode.HARDWARE -> "HW"
+    DecoderMode.ENHANCED_HARDWARE -> "EHW"
+    DecoderMode.SOFTWARE -> "SW"
+}
+
+private fun decoderFullLabel(mode: DecoderMode): String = when (mode) {
+    DecoderMode.AUTO -> "Auto"
+    DecoderMode.HARDWARE -> "Hardware"
+    DecoderMode.ENHANCED_HARDWARE -> "Enhanced Hardware"
+    DecoderMode.SOFTWARE -> "Software"
+}
