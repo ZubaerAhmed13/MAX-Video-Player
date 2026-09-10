@@ -8,6 +8,7 @@ TEST_CLASSES="
 com.zubaer.maxvideoplayer.feature.privatevault.PrivateVaultIntegrationTest
 com.zubaer.maxvideoplayer.feature.privatevault.Step9PrivatePlaybackCoexistenceInstrumentedTest
 com.zubaer.maxvideoplayer.feature.privatevault.Step9VaultAuthInstrumentedTest
+com.zubaer.maxvideoplayer.feature.privatevault.Step9VaultImportInstrumentedTest
 com.zubaer.maxvideoplayer.core.database.Step9DatabaseMigrationTest
 com.zubaer.maxvideoplayer.feature.settings.Step9SettingsPrivacyInstrumentedTest
 com.zubaer.maxvideoplayer.feature.sleeptimer.Step9SleepTimerInstrumentedTest
