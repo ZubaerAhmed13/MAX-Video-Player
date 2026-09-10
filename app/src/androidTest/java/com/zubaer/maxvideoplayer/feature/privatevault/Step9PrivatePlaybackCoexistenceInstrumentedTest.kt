@@ -90,11 +90,22 @@ class Step9PrivatePlaybackCoexistenceInstrumentedTest {
             instrumentation.runOnMainSync { connection.connect() }
             assertTrue("MediaController did not connect", await(10_000L) { connection.state.value.connected })
             instrumentation.runOnMainSync { connection.load(media, 0L, true) }
+
+            // The retained full suite intentionally exercises unavailable sources before this class.
+            // A delayed callback from that old item must never be mistaken for a failure of the new
+            // private item. Wait until the MediaSession has transitioned to this exact media ID, then
+            // accept either its own error or initialized video tracks as the decisive result.
             assertTrue("Encrypted private fixture did not initialize: ${connection.state.value.error}", await(15_000L) {
-                connection.state.value.error != null || onMain(instrumentation) {
-                    connection.playerOrNull()?.currentTracks?.groups?.any { it.type == C.TRACK_TYPE_VIDEO } == true
-                }
+                val currentState = connection.state.value
+                val currentPrivateItem = currentState.mediaId == media.stableId
+                currentPrivateItem && (
+                    currentState.error != null || onMain(instrumentation) {
+                        connection.playerOrNull()?.currentMediaItem?.mediaId == media.stableId &&
+                            connection.playerOrNull()?.currentTracks?.groups?.any { it.type == C.TRACK_TYPE_VIDEO } == true
+                    }
+                )
             })
+            assertEquals("PlaybackConnection did not transition to the private item", media.stableId, connection.state.value.mediaId)
             assertTrue("Private playback reported an error: ${connection.state.value.error}", connection.state.value.error == null)
             assertTrue("Normal decoder pipeline did not expose a supported H.264 video track", onMain(instrumentation) {
                 connection.playerOrNull()?.currentTracks?.groups?.any { group ->
