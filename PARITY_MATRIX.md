@@ -1,219 +1,172 @@
-# MAX Video Player — Parity Matrix through Step 7
+# MAX Video Player — Parity Matrix through Step 9
 
-Status vocabulary: `PASS`, `PENDING`, `PARTIAL`, `FAIL`, `NOT VERIFIED`, `NOT IMPLEMENTED`, `NOT APPLICABLE`.
+Status vocabulary: `PASS`, `PARTIAL`, `FAIL`, `NOT VERIFIED — DEFERRED TO STEP 10`, `NOT IMPLEMENTED`, `NOT APPLICABLE`.
 
-A `PASS` requires implementation, a real product flow, error handling and automated evidence where feasible. Physical-device requirements are never inferred from emulator/software evidence.
+A `PASS` requires implemented behavior plus appropriate automated evidence. Final Step-9 software rows remain `PARTIAL` while the documentation-complete exact PR head/post-merge exact `main` certification is pending; this prevents an older green revision from being presented as final evidence. Physical/OEM behavior is never inferred from emulator/software tests.
 
-## Step-7 professional network playback and sources
+# Step 9 — Private Media, Security, Settings, Sleep Timer and Accessibility
 
-| Area | Capability | Status | Evidence / boundary |
+| Area | Capability | Current status | Evidence / boundary |
 |---|---|---|---|
-| Architecture | One service-owned player for local and network media | PASS | `NetworkDataSourceRouter -> ProfessionalMediaSourceFactory -> PlaybackService`; no protocol player/full download |
-| HTTP | Direct progressive playback | PASS | Real API-35 Media3/OkHttp production-path fixture |
-| HTTP | Byte ranges and seek | PASS | Recorded Media3 `Range` request and 206 response; capability remains server-dependent |
-| HTTP | Basic/bearer/custom headers | PASS | Process-local request registry; exact origin/directory scope |
-| HTTP | Redirects and loop bound | PASS | Deterministic redirect success and bounded loop failure |
-| HTTP | Cross-host auth isolation | PASS | Destination test server receives no Authorization |
-| HTTPS | TLS verification | PASS | Android system trust/hostname verification; no trust-all code |
-| Cleartext | Direct and saved HTTP warning/acknowledgement | PASS | Compose/domain tests require explicit persisted acknowledgement |
-| HLS | VOD/master/variants | PASS | Real Media3 playback of two synthetic variants |
-| HLS | Manual quality and Auto | PASS | Real Media3 track override and removal |
-| HLS | Live / Go Live | PASS | Rolling local playlist, advancing media sequence, DVR-window seek and measured live-offset reduction |
-| DASH | MPD VOD / adaptive representations / audio | PASS | Static local MPD with two AVC representations and AAC adaptation set |
-| RTSP | Authenticated production playback | PASS | Media3 BASIC/DIGEST against authenticated MediaMTX over RTP/RTSP/TCP; run #248 |
-| RTSP | Credential safety | PASS | URL userinfo rejected at input; private source injection is masked from controller-visible timeline/history/logs |
-| SMB | SMB2/SMB3 browse/auth/play | PASS | SMBJ against isolated authenticated Samba; SMB1 excluded; run #242 |
-| SMB | Random seek / >3 GB offsets | PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
-| SMB | Remote-file-change detection | PASS | full SMB metadata identity compared after reconnect; same-size replacement rejected in run #251 |
-| SMB | Signing/encryption truth | PASS | signing enabled; SMB3 server/share encryption honored, not claimed for SMB2 |
-| WebDAV | HTTPS and acknowledged-HTTP PROPFIND/browse/auth | PASS | deterministic authenticated PROPFIND, Depth, Unicode and folders-first mapping |
-| WebDAV | Secure XML/root confinement | PASS | DTD/XXE and off-origin/off-root response rejection |
-| WebDAV | Pre-allocation response bound | PASS | content-length preflight plus bounded streaming for unknown-length bodies |
-| WebDAV | Playback/range | PASS | resolved HTTPS entries use the shared Media3 OkHttp range path |
-| FTP | Browse/login/binary playback | PASS | Commons Net against isolated authenticated pyftpdlib server; run #242 |
-| FTP | REST seek / >3 GB offsets | PASS | exact ranged bytes and sparse-file read at 3,221,225,472; run #242 |
-| FTP | Cleartext warning | PASS | domain validation and UI test require explicit acknowledgement |
-| FTPS | Explicit TLS browse/seek/playback | PASS | required control/data TLS, endpoint checking, `PBSZ 0`, `PROT P`; real server lane #248 |
-| SFTP | SSH file transfer | NOT IMPLEMENTED | not aliased to FTP/FTPS |
-| Credentials | Keystore-backed encrypted vault | PASS | AES/GCM ciphertext lifecycle and invalidation recovery test |
-| Credentials | No plaintext Room/media/log secret | PASS | opaque Room ref, userinfo rejection, sanitized diagnostics/header tests |
-| Saved sources | Add/edit/test/rename/remove/forget | PASS | includes Room/vault round-trip for saved HTTP and WebDAV HTTP |
-| Browser | Breadcrumbs/Up/refresh/search/sort/Unicode | PASS | Compose surface + isolated Unicode listings |
-| History | Stable network identity/resume | PASS | signed tokens removed from canonical ID; sanitized URI persistence |
-| Playlist | Bounded HTTP/WebDAV M3U mixed queue | PASS | 2 MiB/1,000 item non-recursive parser |
-| Sidecars | HTTP/HTTPS subtitle and external audio | PASS | existing Step-4/5 repositories and shared MediaSource timeline; secret URLs rejected |
-| Diagnostics | Loading/buffering/reconnecting/error | PASS | shared player monitor, connectivity state, buffer/bandwidth/retry/redacted URI |
-| Database | Room v5→v6 | PASS | explicit migration preserves Steps 1–6 and adds secret-free network locations |
-| CI | Isolated network protocol job | PASS | Samba including forced reconnect/same-size replacement, plain FTP, TLS-required FTPS and authenticated MediaMTX; run #251 |
-| Physical network/device matrix | NAS/router/WAN/OEM/large remote media | NOT VERIFIED | Deferred to Step 10 |
+| Vault architecture | Real encrypted private storage | PARTIAL | Versioned `MAXVLT01` encrypted container in app-private no-backup storage; final exact-head cert pending |
+| Vault crypto | AES-256-GCM authenticated encryption | PARTIAL | Production JCA implementation + round-trip/tamper tests |
+| Vault crypto | Random per-file content key | PARTIAL | Per-container random key wrapped by vault master |
+| Vault crypto | Chunked random access | PARTIAL | 1 MiB chunks; production range reader/DataSource tests |
+| Vault crypto | No whole-media RAM decrypt/encrypt | PARTIAL | Streaming writer + bounded chunk reader; 64 MiB generated streaming fixture |
+| Vault crypto | No plaintext temporary playback file | PARTIAL | `EncryptedVaultDataSource` decrypts requested ranges only |
+| Vault metadata | Original private metadata encrypted | PARTIAL | Sensitive metadata is authenticated ciphertext; raw-container sentinel test |
+| Vault database | No plaintext private filenames/titles | PARTIAL | Room `private_media` stores opaque ID/location/geometry/status only |
+| Vault identity | Opaque `maxvault://` media identity | PARTIAL | UUID identity and resolver |
+| Vault import | Copy to Private | PARTIAL | Stream to partial → verify/commit; source retained |
+| Vault import | Move to Private | PARTIAL | Encrypt/verify/commit before source deletion |
+| Vault import | Source delete failure truth | PARTIAL | Explicit encrypted-copy/original-remains result |
+| Vault recovery | Partial/orphan cleanup | PARTIAL | Private storage recovery paths; incomplete items not surfaced as valid |
+| Large media | `Long`-safe offsets | PARTIAL | Checked math + 2 GiB/3.2+ GiB synthetic geometry |
+| Large media | Real sustained 3 GB+ import | NOT VERIFIED — DEFERRED TO STEP 10 | CI intentionally does not allocate multi-GB source merely to prove arithmetic |
+| Playback | Production Media3 encrypted DataSource | PARTIAL | `maxvault://` routes through existing source factory/player |
+| Playback | Encrypted H.264/AAC coexistence | PARTIAL | Existing redistribution-safe fixture encrypted at test time; service/decoder/audio track initialization asserted |
+| Playback | Activity recreation uses same session/player | PARTIAL | Production coexistence instrumentation compares controller identity across recreation |
+| Playback | Embedded audio preserved | PARTIAL | Existing Media3 embedded audio groups remain on private fixture |
+| Playback | Embedded subtitles architecture preserved | PARTIAL | Same MediaItem/Media3 source path; no alternate subtitle player |
+| Playback | External audio privacy policy | PARTIAL | Ordinary external sidecar not silently attached to private source |
+| Session privacy | Generic notification/MediaSession metadata | PARTIAL | Repository/service use `Private media` and opaque identity |
+| Session privacy | Vault lock pauses/clears private playback | PARTIAL | PlaybackService observes authoritative vault lock |
+| Cast | Private media blocked | PARTIAL | `CastSourceResolver` rejects `maxvault` before direct/relay selection |
+| Cast | Public Cast unchanged | PARTIAL | Existing Step-8 Cast architecture retained; private rule is source-specific |
+| PiP | Private media blocked | PARTIAL | Private source cannot enter PiP |
+| PiP | Public PiP unchanged | PARTIAL | Existing public-media path retained |
+| External display | Private Presentation output blocked | PARTIAL | Private playback returns output to phone |
+| External display | Public output unchanged | PARTIAL | Existing Step-8 Presentation path retained |
+| Capture privacy | `FLAG_SECURE` on protected private surfaces | PARTIAL | Activity/window instrumentation; OEM capture behavior deferred |
+| Capture privacy | Ordinary screen policy restored | PARTIAL | Secure flag follows private protected-surface state rather than global disable |
+| Authentication | PIN/passphrase unlock | PARTIAL | PBKDF2-derived wrapping key + AES-GCM master envelope |
+| Authentication | PIN/passphrase not stored | PARTIAL | Preference sentinel/storage assertions; only salt/nonce/ciphertext/iteration metadata persisted |
+| Authentication | Wrong credential fails closed | PARTIAL | Authenticated envelope failure + bounded retry tests |
+| Authentication | Credential rate limiting | PARTIAL | Bounded monotonic retry delay after repeated failures |
+| Authentication | Change PIN without media re-encryption | PARTIAL | Same master rewrapped with fresh salt |
+| Authentication | Verify replacement before atomic commit | PARTIAL | New envelope decrypt/authenticate + constant-time master comparison before persistence |
+| Biometric | Optional Keystore wrapper | PARTIAL | Android Keystore + platform BiometricPrompt code/API guards |
+| Biometric | PIN recovery after biometric unavailable/invalidation | PARTIAL | Credential envelope remains independent; physical invalidation deferred |
+| App Lock | Optional whole-app lock | PARTIAL | Separate controller reuses auth, not Compose-only state |
+| App Lock | Immediate/timed auto-lock | PARTIAL | elapsedRealtime timeout policy instrumentation |
+| Database | Room v7→v8 | PARTIAL | Explicit `MIGRATION_7_8`, migration test, no destructive fallback |
+| Settings | Typed advanced settings | PARTIAL | App Lock, capture, biometric, motion, contrast, captions, sleep fade |
+| Settings | Safe reset | PARTIAL | Non-sensitive defaults only; private/cloud/network/history/playlists unaffected |
+| Settings | Non-sensitive JSON export | PARTIAL | Versioned codec + secret sentinel tests |
+| Settings | Validated JSON import | PARTIAL | 256 KiB bound, supported fields/version validation, malformed/unknown handling |
+| Diagnostics | Secret redaction | PARTIAL | Authorization/token/password/cookie/userinfo/signed-query policy tests |
+| Sleep timer | Service-owned timer | PARTIAL | Controller attached in PlaybackService, not Activity |
+| Sleep timer | Duration/end-current/end-queue | PARTIAL | Production modes + fake-clock tests |
+| Sleep timer | Monotonic duration | PARTIAL | `SystemClock.elapsedRealtime` |
+| Sleep timer | Optional safe fade | PARTIAL | Player-volume-only fade; cancel restores prior player volume |
+| Accessibility | Large-font settings | PARTIAL | Compose test at 2.0× font scale with scroll-to assertions |
+| Accessibility | Locked TalkBack privacy | PARTIAL | Sentinel private title absent from unmerged semantics tree |
+| Accessibility | Keyboard/D-pad | PARTIAL | Step-8 `TvPlayerInputController` mappings exercised |
+| Accessibility | New critical touch targets | PARTIAL | Step-9 controls use minimum size constraints around 48 dp |
+| Accessibility | High-contrast controls/theme | PARTIAL | Theme-level contrast option |
+| Accessibility | Reduce Motion | PARTIAL | Scoped Step-9 theme policy; essential playback progress not disabled |
+| Accessibility | Android system caption preferences | PARTIAL | `CaptioningManager` bridge maps supported style/font scale and restores MAX style |
+| Accessibility | Audio-description role label | PARTIAL | Only labels Media3 tracks carrying `ROLE_FLAG_DESCRIBES_VIDEO` |
+| CI | Dedicated Step-9 unit/security job | PARTIAL | Exact checkout + debug/unit/release/lint; final docs-complete run pending |
+| CI | Dedicated Step-9 emulator job | PARTIAL | Full connected suite + named classes with zero-test rejection; final run pending |
+| CI | Exact literal PR-head verification | PARTIAL | Workflow asserts `git rev-parse HEAD == pull_request.head.sha`; final run pending |
+| CI | API-26/API-28 retained | PARTIAL | Existing lanes untouched; final exact-head result pending |
+| CI | Step-7 protocol lane retained | PARTIAL | Samba/FTP/FTPS/authenticated RTSP job retained |
+| CI | Step-8 regression retained | PARTIAL | Existing Step-8 certification workflow retained |
+| CI | Step-6 decoder regressions retained | PARTIAL | Existing full unit/instrumentation suites remain part of project CI |
+| Physical/OEM | Final device matrix | NOT VERIFIED — DEFERRED TO STEP 10 | Reserved for Step 10 |
 
-## Step-6 professional decoder engine
+# Step 8 — preserved
 
-| Area | Capability | Status | Evidence / boundary |
+| Area | Capability | Status before Step-9 final regression | Boundary |
 |---|---|---|---|
-| Architecture | One service-owned ExoPlayer / MediaSession | PASS | Decoder policy extends existing `PlaybackService -> MediaSession -> Media3PlaybackEngine`; no second player |
-| Architecture | Step-5 DSP coexistence | PASS | `ProfessionalRenderersFactory` keeps `MaxAudioProcessor` in the production `DefaultAudioSink` |
-| Modes | Auto | PASS | Distinct policy; hardware-first candidate ordering with deliberate cross-backend fallback permitted |
-| Modes | Hardware | PASS | Strict preferred hardware candidate only; software and additional hardware candidates are excluded |
-| Modes | Enhanced Hardware | PASS | Hardware-only multi-candidate chain; software candidates excluded |
-| Modes | Software | PASS | Software-only platform MediaCodec candidates; truthful unavailable state when device exposes none |
-| Routing | Requested vs effective state | PASS | UI/repository separate requested policy from actual initialized decoder/backend |
-| Routing | Actual decoder identity | PASS | Media3 analytics records initialized/released decoder name rather than label-only state |
-| Routing | Session blacklist | PASS | Failed codec name is rejected for current session before bounded retry |
-| Routing | Fallback termination | PASS | Retry occurs only when an unrejected candidate remains; fallback history bounded to 16 |
-| Routing | Hardware no software leak | PASS | Unit policy plus production API-35 capability-aware assertions |
-| Routing | Enhanced Hardware no software leak | PASS | Unit policy plus production API-35 capability-aware assertion |
-| Routing | Software no hardware leak | PASS | Unit policy plus production API-35 capability-aware assertion |
-| Compatibility | MIME-aware discovery | PASS | Media3 selector queried per actual MIME/secure/tunneling request |
-| Compatibility | Profile/level handling | PASS | Policy tests plus Media3 format-support ordering before initialization |
-| Compatibility | Resolution/frame-rate handling | PASS | Policy tests and device `VideoCapabilities` 720p/1080p/1440p/2160p 30/60 probes |
-| Compatibility | Secure decoder requirement | PASS | Secure requirement flows through Media3 selector; policy tests reject non-secure candidate |
-| Classification | API-29+ hardware/software/vendor truth | PASS | Android/Media3 platform flags are authoritative |
-| Classification | Legacy ambiguity | PASS | Known software families recognized; ambiguous codec names remain `UNKNOWN`, not guessed hardware |
-| Switching | Queue/index preservation | PASS | Same-player reprepare snapshots/restores queue and current index |
-| Switching | Playback position preservation | PASS | API-35 production test seeks before mode switch and requires non-zero position retention |
-| Switching | Play/pause state preservation | PASS | `playWhenReady` snapshotted/restored |
-| Switching | Repeat/shuffle preservation | PASS | Current repeat and shuffle snapshotted/restored |
-| Switching | Speed/pitch preservation | PASS | Media3 playback parameters snapshotted/restored |
-| Switching | Track-selection preservation | PASS | Track-selection parameters snapshotted/restored, preserving Step-4/5 selections |
-| Diagnostics | Decoder mode/backend/name | PASS | Requested/effective mode, backend and actual decoder surfaced |
-| Diagnostics | Format information | PASS | MIME/codec string/resolution/frame rate captured when Media3 exposes them |
-| Diagnostics | Init duration / dropped frames | PASS | Media3 analytics callbacks |
-| Diagnostics | Failure/fallback history | PASS | Structured failure state and bounded fallback history |
-| Device capability | Cached decoder inventory | PASS | `DeviceCapabilityProvider.collectDecoderProfile()` immutable process cache |
-| Device capability | Off-main scanning | PASS | Initial and manual refresh run on `Dispatchers.Default` |
-| Device capability | Per-MIME details | PASS | Profiles/levels, color formats, adaptive/secure/tunneled/low-latency when exposed, size/rate targets |
-| Device capability | Advanced panel | PASS | Expandable Decoder dialog panel with real manual refresh and device-specific warning |
-| Device capability | CI capability report | PASS | API-35 instrumentation writes and CI exports `decoder-capability-report-api35.txt` |
-| Persistence | Global default mode | PASS | Existing preference layer |
-| Persistence | Remember decoder per video | PASS | Room v5 `decoder_media_state` keyed by stable media ID |
-| Persistence | Diagnostics preference | PASS | Existing preference layer |
-| Database | `MIGRATION_4_5` | PASS | Explicit non-destructive migration; no destructive fallback |
-| Database | Step-1–5 preservation | PASS | Migration instrumentation preserves history/library/subtitle/audio rows while adding decoder state |
-| Large media | URI/reference architecture | PASS | Decoder switching reuses MediaItems/URIs; no full media copy/predecode/transcode |
-| Large media | No artificial 3 GB / 1080p ceiling | PASS | Long-safe media architecture retained; no Step-6 size/resolution cap introduced |
-| Color/HDR | No intentional recolor/transcode | PASS | Video remains on Media3/Android decoder-render path; no Step-6 pixel transform pipeline |
-| DRM/security | No secure-decoder bypass | PASS | Secure requirements remain in Media3/Android discovery; no private bypass |
-| Dependencies | No new proprietary/native decoder | PASS | No FFmpeg/native decoder/OEM binary/new `.so`; see `STEP_6_DEPENDENCIES.md` |
-| Privacy | Local decoder selection/diagnostics | PASS | No media upload/network service introduced by decoder engine |
-| Physical OEM matrix | Snapdragon/Exynos/MediaTek/Tensor | NOT VERIFIED | Deferred to Step 10 |
-| Physical formats | H.264/HEVC/VP9/AV1 on real devices | NOT VERIFIED | Deferred to Step 10 |
-| Physical performance | 4K60/high bitrate/HDR/10-bit | NOT VERIFIED | Deferred to Step 10 |
-| Physical endurance | thermal/battery/long play | NOT VERIFIED | Deferred to Step 10 |
+| Cloud | Existing provider/OAuth/browser/playback integration | PASS | Step-8 implementation retained; exact Step-9 regression still must be green |
+| Cast | Public-media Cast and signed relay | PASS | Private `maxvault` is the only new blocked class |
+| USB/OTG | Existing removable-storage flow | PASS | Physical removable-storage certification remains Step 10 |
+| Android TV | Existing TV navigation/remote policy | PASS | Step-9 reuses input controller; physical hardware deferred |
+| External display | Existing Presentation output | PASS | Private content returns to phone; public output unchanged |
+| Decoder coexistence | Step-6 routing retained through Step 8 | PASS | Existing decoder regression tests retained |
 
-## Step-5 professional audio engine — preserved through Step 7
+# Step 7 — preserved
 
-| Area | Capability | Status | Evidence / boundary |
+| Area | Capability | Status | Boundary |
 |---|---|---|---|
-| Tracks | Embedded discovery | PASS | Media3 `currentTracks` audio groups mapped to professional audio state; API-35 fixture has ≥2 embedded audio tracks |
-| Tracks | Auto/manual/preferred-language selection | PASS | Existing Media3 track-selection path retained through decoder switching |
-| External audio | SAF import / persistence / multiple associations / recovery | PASS | Room v4 state preserved through Room v5 migration |
-| External audio | Actual Media3 selection | PASS | Existing API-35 certification retained |
-| DSP | Production PCM processing | PASS | App-owned `MaxAudioProcessor` remains installed in production `DefaultAudioSink` |
-| DSP | PCM 16-bit / float / unsupported-format truth | PASS | Existing Step-5 signal tests retained |
-| EQ | 10-band / live / presets / custom / Nyquist safety | PASS | Existing deterministic Step-5 DSP retained |
-| Gain | Preamp / digital boost / limiter | PASS | Existing exact-DSP tests retained |
-| Channels | Stereo/mono/left/right/balance | PASS | Existing deterministic channel path retained |
-| Sync | Positive/negative/zero/per-media/route compensation | PASS | Existing Step-5 timing path retained |
-| Pitch | Independent pitch + speed separation | PASS | Decoder switch restores Media3 playback parameters |
-| Audio-only | Disable/restore video without new player | PASS | Existing track-selection architecture retained |
-| Background/PiP | Continue/pause/PiP behavior | PASS | Existing service-owned lifecycle tests retained |
-| Android audio | Audio focus / becoming noisy / route classification | PASS | Existing Media3/audio-route handling retained |
-| Performance | Realtime callback isolation | PASS | Decoder inventory scans are outside `queueInput` and off-main |
-| Numerical safety | NaN/Infinity/filter/DC/output bounds | PASS | Existing Step-5 exact-DSP certification retained |
-| Sample rates | 44.1/48/96 kHz | PASS | Existing Step-5 exact-DSP certification retained |
+| HTTP/HTTPS | Progressive, ranges, redirects, auth scoping | PASS | Existing Media3/OkHttp path retained |
+| HLS/DASH | Adaptive playback/manual quality | PASS | Existing deterministic fixtures retained |
+| RTSP | Authenticated Media3 RTSP/TCP | PASS | Isolated server lane retained |
+| SMB2/3 | Browse/auth/random reads/change detection | PASS | SMBJ and isolated Samba lane retained |
+| FTP/FTPS | Browse/auth/REST range and explicit TLS | PASS | Commons Net + isolated protocol lane retained |
+| WebDAV | Browse/security/root confinement/playback | PASS | Existing bounded secure XML path retained |
+| SFTP | SSH file transfer | NOT IMPLEMENTED | Not aliased to FTP/FTPS |
+| Credentials | Keystore-encrypted network credentials | PASS | Step-9 settings/reset/export does not absorb those secrets |
+| Network regressions | Protocol certification | PASS | Must be re-green on final Step-9 head/main |
 
-## Step-4 professional subtitle engine — preserved through Step 7
+# Step 6 — preserved
 
-| Area | Capability | Status | Evidence / boundary |
+| Area | Capability | Status | Boundary |
 |---|---|---|---|
-| Subtitle tracks | Embedded / Off / Auto / manual | PASS | Media3 text-track engine retained; decoder switch restores track-selection parameters |
-| External subtitles | SAF load / multiple associations / relink / recovery | PASS | Room v3 state preserved through Room v5 migration |
-| Formats | SRT / WebVTT / SSA / ASS / TTML | PASS | Existing parser instrumentation retained |
-| Encoding | UTF-8 / UTF-16 LE/BE / Windows-1252 | PASS | Existing normalization/persistence tests retained |
-| Sidecars | Same-folder filename/language matching | PASS | Existing Step-4 matcher retained |
-| Sync | Positive / negative / per-media subtitle delay | PASS | Separate from audio/decoder state |
-| Appearance | Size/colour/background/edge/bottom margin | PASS | Existing Media3 SubtitleView path retained |
-| Android system caption style toggle | NOT IMPLEMENTED | Still intentionally not exposed as a fake control |
+| Decoder modes | Auto / Hardware / Enhanced Hardware / Software | PASS | Existing distinct Media3/MediaCodec routing policies retained |
+| Runtime switching | Same player, queue/index/position/play state preserved | PASS | No Step-9 second player |
+| Coexistence | Subtitles/audio/DSP/speed/pitch/queue | PASS | Retained regression suite |
+| Diagnostics | Actual initialized codec/backend/failures | PASS | Existing device-specific reporting retained |
+| API compatibility | Device capability + API guards | PASS | Physical OEM matrix remains Step 10 |
 
-## Step-3 player experience — preserved through Step 7
+# Step 5 — preserved
 
-| Area | Capability | Status | Evidence / boundary |
+| Area | Capability | Status | Boundary |
 |---|---|---|---|
-| Player UI | Controls / auto-hide / buffering / error recovery | PASS | Full API-35 regression suite retained |
-| Gestures | Seek/double-tap/brightness/system volume | PASS | Real PlayerScreen gesture instrumentation retained and updated for Step-6 dependencies |
-| Gestures | Pinch zoom / rendered-aware pan | PASS | Existing Step-3 behavior retained |
-| Display | Resize/aspect/rotation/orientation/fullscreen | PASS | Existing surface-transform path retained |
-| Player | Screen lock | PASS | Existing touch suppression/unlock path retained |
-| Player | Playback speed | PASS | 0.25×–4× service-owned playback retained and preserved across decoder switches |
-| Player | Previous/Next/Repeat/Shuffle | PASS | Existing MediaSession queue retained |
-| PiP | Same-session continuity | PASS | Existing PiP certification retained |
-| Seek preview | Frame thumbnail preview | PARTIAL | Architecture/foundation only; Step 6 does not fabricate thumbnails |
+| Audio tracks | Embedded/manual/auto/external audio | PASS | Step-9 adds descriptive role label only |
+| DSP | EQ/preamp/boost/limiter/channel/balance | PASS | Existing `MaxAudioProcessor` retained |
+| Sync/pitch | Delay/route compensation/pitch/speed | PASS | Existing production path retained |
+| Background/audio-only | Existing policy | PASS | Not globally changed by Step 9 |
 
-## Step-2 library — preserved through Step 7
+# Step 4 — preserved and extended
 
-| Area | Capability | Status | Evidence / boundary |
+| Area | Capability | Status | Boundary |
 |---|---|---|---|
-| Library | Videos/Folders/Continue/Recent/History | PASS | Existing Step-2 library retained |
-| Library | Favourites/Playlists/queues | PASS | Room relationships retained through v5 migration |
-| Library | Search/sort/filter | PASS | Existing deterministic derivation retained |
-| Storage | MediaStore/SAF/persisted permissions | PASS | Existing source architecture retained |
-| Storage | Missing source/relink | PASS | Existing media relink remains separate from subtitle/audio/decoder state |
-| Files | Rename/delete | PASS | Existing provider-aware flows retained |
-| Media | Thumbnails | PASS | API-26/API-28 regression lanes retained |
+| Embedded/external subtitles | Off/Auto/manual/sidecar/relink | PASS | Existing Media3 subtitle architecture retained |
+| Formats/encoding | SRT/WebVTT/SSA/ASS/TTML and supported encodings | PASS | Existing parser path retained |
+| Styling/timing | MAX custom style + per-media delay | PASS | Custom style remains authoritative when system style off |
+| Android system caption style | PARTIAL | Implemented in Step 9; final exact-head certification pending |
 
-## Step-1 foundations — preserved through Step 7
+# Steps 1–3 — preserved
 
-| Area | Capability | Status | Evidence / boundary |
+| Step | Capability group | Status | Boundary |
 |---|---|---|---|
-| Player | Service-owned playback architecture | PASS | Single `PlaybackService -> MediaSession -> ExoPlayer` ownership retained |
-| Player | Local playback / play / pause / seek | PASS | Existing real Media3 integration retained |
-| Player | Resume/history | PASS | Room history retained through v5 migration |
-| Player | Background/session foundation | PASS | Extended, not replaced, by Steps 3–6 |
-| Media | Large-file-safe application types | PASS | Long-safe media/timing values retained |
-| Device | Capability foundation | PASS | Extended into Step-6 decoder inventory rather than replaced |
+| Step 3 | Player controls, seeking, gestures, display/orientation, queue/repeat/shuffle, public PiP | PASS | Private restrictions are narrow; seek-preview limitation retains earlier status |
+| Step 2 | Library/folders/history/favourites/playlists/SAF/relink/file actions/thumbnails | PASS | Private media excluded from ordinary public file actions; API-26/28 thumbnail lanes retained |
+| Step 1 | Service-owned playback/MediaSession/resume/URI handling/long-safe values | PASS | Still the authority for Step-9 private playback |
 
-## Step-7 certification gate
+# Step-9 final gate
 
-The Step-7 branch requires the exact documentation-complete head to pass:
+The exact documentation-complete Step-9 PR head must pass:
 
-- debug build
-- JVM/unit tests
-- release compilation
-- lint
-- complete API-35 instrumentation including Steps 1–7 integration and decoder capability report
-- API-26 thumbnail regression
-- API-28 thumbnail regression
-- isolated API-35 SMB/FTP/explicit-FTPS/authenticated-RTSP protocol certification
+- `:app:assembleDebug`;
+- `:app:testDebugUnitTest`;
+- `:app:assembleRelease`;
+- `:app:lintDebug`;
+- API-35 `:app:connectedDebugAndroidTest`;
+- dedicated Step-9 unit/security and named emulator classes;
+- retained API-26/API-28 lanes;
+- retained Step-7 protocol certification;
+- retained Step-8 certification;
+- retained Step-6 decoder/coexistence tests.
 
-After the review-gap branch is green, PR #14 must be merged with an expected-head lock and the exact `main` merge head must pass the same configured workflow before the closure can be declared complete.
+Then PR #22 must merge and the exact resulting/final `main` head must pass the required software/emulator gates before the Step-9 rows can be finalized as PASS.
 
-See:
+# Physical certification deferred to Step 10
 
-- `STEP_7_COMPLETION_REPORT.md`
-- `STEP_7_TEST_MATRIX.md`
-- `STEP_7_PROTOCOL_SECURITY.md`
+**NOT VERIFIED — DEFERRED TO STEP 10**:
 
-## Physical certification deferred to Step 10
+- real biometric/OEM prompt and invalidation behavior;
+- OEM screenshot/recording/recents behavior;
+- sustained real 3 GB+ private imports and low-storage exhaustion;
+- real 4K/HDR/high-bitrate private playback/seek;
+- long-play, battery and thermal behavior;
+- physical SD/USB/removable storage;
+- physical Chromecast/receiver behavior;
+- real Android TV remote/focus behavior;
+- HDMI/Miracast/desktop/external-display behavior;
+- aggressive vendor process killing/background restrictions.
 
-The following remain **NOT VERIFIED — DEFERRED TO STEP 10**:
-
-- real 3 GB+/5 GB+/10 GB playback under representative devices
-- physical 4K/HDR colour/performance
-- Snapdragon/Exynos/MediaTek/Tensor codec behavior
-- Samsung/Xiaomi/Oppo/OnePlus codec quirks
-- physical H.264/HEVC/VP9/AV1 matrices
-- OEM/provider/SAF variations
-- SD-card and USB/OTG device behavior
-- actual Bluetooth latency and route switching quality
-- USB DAC / HDMI receiver behavior
-- manufacturer-specific background restrictions
-- cutouts/foldables/external displays
-- battery, thermal and long-run physical testing
-- broad phone/tablet matrix
-
-## Overall result
-
-Steps 1–6 software/emulator functionality remains `PASS` as previously certified.
-
-**Step 7 is PASS in its declared software/emulator scope after the original exact-head chain in runs #242–#244 and review-gap implementation run #248. Physical network/device certification remains deferred to Step 10.**
+The software matrix must not convert these hardware deferrals into PASS.
