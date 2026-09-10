@@ -154,6 +154,10 @@ class ProfessionalAudioBackgroundIntegrationTest {
             }
             scenario.close()
             context.stopService(Intent(context, PlaybackService::class.java))
+            // stopService() is asynchronous relative to the instrumentation thread. Drain the target
+            // main looper so the next retained test cannot start while the old MediaSession/engine is
+            // still releasing codec/audio callbacks into process-global repositories.
+            instrumentation.waitForIdleSync()
             fixture.delete()
         }
     }
