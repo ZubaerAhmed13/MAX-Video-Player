@@ -34,6 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -47,6 +49,8 @@ import com.zubaer.maxvideoplayer.feature.network.model.NetworkPlaybackPhase
 import com.zubaer.maxvideoplayer.ui.MaxDesignTokens
 import kotlin.math.roundToLong
 
+private enum class PlayerPanelFocusReturn { SUBTITLE, DECODER, MORE }
+
 /**
  * Step-10 release-hardened player chrome. Playback state and transport remain service-owned; this
  * composable only presents controls and forwards existing actions.
@@ -57,6 +61,7 @@ fun PlayerControlsOverlay(
     playback: PlaybackUiState,
     fallbackTitle: String,
     localVideoProcessingAvailable: Boolean = true,
+    subtitlePanelVisible: Boolean = false,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
@@ -74,9 +79,47 @@ fun PlayerControlsOverlay(
     onFullscreen: () -> Unit,
     onSubtitles: () -> Unit = {},
 ) {
+    val subtitleButtonFocusRequester = remember { FocusRequester() }
+    val decoderButtonFocusRequester = remember { FocusRequester() }
+    val moreButtonFocusRequester = remember { FocusRequester() }
+    var pendingFocusReturn by remember { mutableStateOf<PlayerPanelFocusReturn?>(null) }
+    val controlsFocusable = coordinator.controlsVisible && !coordinator.controlsLocked
+
+    val openSubtitlesWithFocusReturn: () -> Unit = {
+        pendingFocusReturn = PlayerPanelFocusReturn.SUBTITLE
+        onSubtitles()
+    }
+    val openMenuWithFocusReturn: (PlayerMenu) -> Unit = { menu ->
+        when (menu) {
+            PlayerMenu.DECODER -> pendingFocusReturn = PlayerPanelFocusReturn.DECODER
+            PlayerMenu.SETTINGS -> pendingFocusReturn = PlayerPanelFocusReturn.MORE
+            else -> Unit
+        }
+        onOpenMenu(menu)
+    }
+
+    LaunchedEffect(
+        subtitlePanelVisible,
+        coordinator.activeMenu,
+        controlsFocusable,
+        pendingFocusReturn,
+    ) {
+        if (!controlsFocusable) return@LaunchedEffect
+        val target = when (pendingFocusReturn) {
+            PlayerPanelFocusReturn.SUBTITLE -> if (!subtitlePanelVisible) subtitleButtonFocusRequester else null
+            PlayerPanelFocusReturn.DECODER -> if (coordinator.activeMenu != PlayerMenu.DECODER) decoderButtonFocusRequester else null
+            PlayerPanelFocusReturn.MORE -> if (coordinator.activeMenu != PlayerMenu.SETTINGS) moreButtonFocusRequester else null
+            null -> null
+        }
+        if (target != null) {
+            runCatching { target.requestFocus() }
+            pendingFocusReturn = null
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(
-            visible = coordinator.controlsVisible && !coordinator.controlsLocked,
+            visible = controlsFocusable,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -87,18 +130,21 @@ fun PlayerControlsOverlay(
                     playback = playback,
                     fallbackTitle = fallbackTitle,
                     localVideoProcessingAvailable = localVideoProcessingAvailable,
+                    subtitleButtonFocusRequester = subtitleButtonFocusRequester,
+                    decoderButtonFocusRequester = decoderButtonFocusRequester,
+                    moreButtonFocusRequester = moreButtonFocusRequester,
                     onBack = onBack,
-                    onSubtitles = onSubtitles,
-                    onDecoder = { onOpenMenu(PlayerMenu.DECODER) },
-                    onMore = { onOpenMenu(PlayerMenu.SETTINGS) },
+                    onSubtitles = openSubtitlesWithFocusReturn,
+                    onDecoder = { openMenuWithFocusReturn(PlayerMenu.DECODER) },
+                    onMore = { openMenuWithFocusReturn(PlayerMenu.SETTINGS) },
                 )
 
                 PlayerQuickRail(
                     coordinator = coordinator,
                     playback = playback,
                     localVideoProcessingAvailable = localVideoProcessingAvailable,
-                    onOpenMenu = onOpenMenu,
-                    onSubtitles = onSubtitles,
+                    onOpenMenu = openMenuWithFocusReturn,
+                    onSubtitles = openSubtitlesWithFocusReturn,
                     onRotate = onRotate,
                     onPip = onPip,
                     onFullscreen = onFullscreen,
@@ -118,8 +164,8 @@ fun PlayerControlsOverlay(
                     onSeekCommit = onSeekCommit,
                     onInteractionStart = onInteractionStart,
                     onInteractionEnd = onInteractionEnd,
-                    onOpenMenu = onOpenMenu,
-                    onSubtitles = onSubtitles,
+                    onOpenMenu = openMenuWithFocusReturn,
+                    onSubtitles = openSubtitlesWithFocusReturn,
                     onRotate = onRotate,
                     onLock = onLock,
                     onPip = onPip,
@@ -168,6 +214,9 @@ private fun PlayerTopBar(
     playback: PlaybackUiState,
     fallbackTitle: String,
     localVideoProcessingAvailable: Boolean,
+    subtitleButtonFocusRequester: FocusRequester,
+    decoderButtonFocusRequester: FocusRequester,
+    moreButtonFocusRequester: FocusRequester,
     onBack: () -> Unit,
     onSubtitles: () -> Unit,
     onDecoder: () -> Unit,
@@ -203,16 +252,21 @@ private fun PlayerTopBar(
             label = if (!playback.subtitles.enabled) "CC" else "CC•",
             description = "Subtitle tracks",
             onClick = onSubtitles,
-            modifier = Modifier.testTag("subtitle_button"),
+            modifier = Modifier.focusRequester(subtitleButtonFocusRequester).testTag("subtitle_button"),
         )
         PlayerCircleAction(
             label = if (localVideoProcessingAvailable) decoderCompactLabel(coordinator.decoder.requestedMode) else "Cast",
             description = if (localVideoProcessingAvailable) "Decoder: ${decoderFullLabel(coordinator.decoder.requestedMode)}" else "Decoder controlled by Cast receiver",
             onClick = onDecoder,
             enabled = localVideoProcessingAvailable,
-            modifier = Modifier.testTag("decoder_button"),
+            modifier = Modifier.focusRequester(decoderButtonFocusRequester).testTag("decoder_button"),
         )
-        PlayerCircleAction("⋮", "More playback tools", onMore, Modifier.testTag("more_button"))
+        PlayerCircleAction(
+            label = "⋮",
+            description = "More playback tools",
+            onClick = onMore,
+            modifier = Modifier.focusRequester(moreButtonFocusRequester).testTag("more_button"),
+        )
     }
 }
 
