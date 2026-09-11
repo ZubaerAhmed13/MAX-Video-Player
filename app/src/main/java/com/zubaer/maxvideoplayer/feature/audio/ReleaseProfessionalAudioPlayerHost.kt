@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
@@ -72,9 +75,16 @@ fun ReleaseProfessionalAudioPlayerHost(
     val coordinator by viewModel.state.collectAsStateWithLifecycle()
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
     val audio by audioRepository.state.collectAsStateWithLifecycle()
+    val configuration = LocalConfiguration.current
+    val isTelevision =
+        (configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
+            android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
     val localProcessingAvailable = playback.playbackTarget != PlaybackTarget.CAST_DEVICE
+    val audioButtonFocusRequester = remember { FocusRequester() }
+    val audioPanelFocusRequester = remember { FocusRequester() }
     var sidePanelVisible by remember { mutableStateOf(false) }
     var advancedVisible by remember { mutableStateOf(false) }
+    var restoreAudioButtonFocus by remember { mutableStateOf(false) }
     var pickerError by remember { mutableStateOf<String?>(null) }
     var relinkAssociationId by remember { mutableStateOf<String?>(null) }
 
@@ -100,11 +110,30 @@ fun ReleaseProfessionalAudioPlayerHost(
     LaunchedEffect(audio.backgroundMode, audio.disableVideoInBackground) {
         onAudioBackgroundPolicyChanged(audio.backgroundMode, audio.disableVideoInBackground)
     }
+    LaunchedEffect(sidePanelVisible, isTelevision) {
+        if (sidePanelVisible && !isTelevision) runCatching { audioPanelFocusRequester.requestFocus() }
+    }
+    LaunchedEffect(
+        sidePanelVisible,
+        advancedVisible,
+        restoreAudioButtonFocus,
+        coordinator.controlsVisible,
+        coordinator.controlsLocked,
+        isTelevision,
+    ) {
+        if (!sidePanelVisible && !advancedVisible && restoreAudioButtonFocus) {
+            if (!isTelevision && coordinator.controlsVisible && !coordinator.controlsLocked) {
+                runCatching { audioButtonFocusRequester.requestFocus() }
+            }
+            restoreAudioButtonFocus = false
+        }
+    }
     DisposableEffect(audioController) { onDispose { audioController.unbind() } }
 
-    val openAudio: () -> Unit = {
+    fun showAudioPanel(restoreToHostButton: Boolean) {
         sidePanelVisible = true
         advancedVisible = false
+        restoreAudioButtonFocus = restoreToHostButton
         audioController.bind()
     }
 
@@ -123,12 +152,12 @@ fun ReleaseProfessionalAudioPlayerHost(
             onFullscreenChanged = onFullscreenChanged,
             onOrientationModeChanged = onOrientationModeChanged,
             onPlayerHostStateChanged = onPlayerHostStateChanged,
-            onAudioControls = openAudio,
+            onAudioControls = { showAudioPanel(restoreToHostButton = false) },
         )
 
         if (coordinator.controlsVisible && !coordinator.controlsLocked && !coordinator.tutorialVisible && coordinator.resumePositionMs == null && !sidePanelVisible && !advancedVisible) {
             TextButton(
-                onClick = openAudio,
+                onClick = { showAudioPanel(restoreToHostButton = !isTelevision) },
                 shape = CircleShape,
                 colors = ButtonDefaults.textButtonColors(
                     containerColor = MaxDesignTokens.PlayerControl,
@@ -138,6 +167,7 @@ fun ReleaseProfessionalAudioPlayerHost(
                     .align(Alignment.TopEnd)
                     .safeDrawingPadding()
                     .padding(top = 62.dp, end = 12.dp)
+                    .focusRequester(audioButtonFocusRequester)
                     .testTag("audio_button")
                     .semantics {
                         contentDescription = if (localProcessingAvailable) "Audio tracks" else "Audio tracks; phone processing unavailable during Cast"
@@ -146,21 +176,33 @@ fun ReleaseProfessionalAudioPlayerHost(
         }
 
         if (sidePanelVisible) {
-            ReleaseAudioSidePanel(
-                state = audio,
-                localProcessingAvailable = localProcessingAvailable,
-                onDismiss = { sidePanelVisible = false },
-                onAuto = audioController::selectAuto,
-                onTrack = audioController::selectTrack,
-                onExternal = audioController::selectExternal,
-                onLoadExternal = { audioPicker.launch(arrayOf("audio/*", "application/ogg")) },
-                onDelayDelta = audioController::adjustAudioDelay,
-                onDelayReset = audioController::resetAudioDelay,
-                onAdvanced = {
-                    sidePanelVisible = false
-                    advancedVisible = true
-                },
-            )
+            val audioPanelHostModifier = if (!isTelevision) {
+                Modifier
+                    .fillMaxSize()
+                    .focusRequester(audioPanelFocusRequester)
+                    .focusable()
+                    .testTag("audio_panel_focus_host")
+                    .semantics { contentDescription = "Audio tracks panel" }
+            } else {
+                Modifier.fillMaxSize()
+            }
+            Box(audioPanelHostModifier) {
+                ReleaseAudioSidePanel(
+                    state = audio,
+                    localProcessingAvailable = localProcessingAvailable,
+                    onDismiss = { sidePanelVisible = false },
+                    onAuto = audioController::selectAuto,
+                    onTrack = audioController::selectTrack,
+                    onExternal = audioController::selectExternal,
+                    onLoadExternal = { audioPicker.launch(arrayOf("audio/*", "application/ogg")) },
+                    onDelayDelta = audioController::adjustAudioDelay,
+                    onDelayReset = audioController::resetAudioDelay,
+                    onAdvanced = {
+                        sidePanelVisible = false
+                        advancedVisible = true
+                    },
+                )
+            }
         }
     }
 
