@@ -40,17 +40,19 @@ Audio uses a right-side translucent release panel while retaining the existing p
 
 Player menu ownership remains centralized through the existing coordinator state rather than creating competing playback engines or parallel feature implementations. Opening a player menu routes into the existing production action paths. Back/dismiss behavior closes the active overlay or panel before leaving playback according to the retained player hierarchy.
 
+On phone layouts, Audio, Subtitle and More now enter an explicit focusable panel host when opened. Subtitle/Decoder/More launcher actions retain a corresponding focus target and restore focus after dismissal; the dedicated Audio launcher restores its focus when the Audio/advanced-audio surface closes. TV keeps its existing D-pad focus path rather than being forced through the phone focus host.
+
 ## Cast, private media and source truthfulness
 
 The UI hardening does not re-enable local-only video processing while Cast owns playback. Private-media restrictions continue to block prohibited Cast/PiP/external-display/capture behavior and protect private metadata. Network, cloud and local media continue to use the same player architecture rather than protocol-specific player copies.
 
 ## Accessibility and responsive behavior
 
-Interactive player controls retain at least approximately 48 dp touch targets, semantic descriptions and disabled-state truthfulness. Titles use bounded line counts/ellipsis rather than forcing horizontal overflow. Scrollable rails and panels are used where fixed-width packing would clip content. Large-font, increased-display-scale, narrow-phone, tablet, landscape, TalkBack and D-pad behavior remain required certification targets.
+Interactive player controls retain at least approximately 48 dp touch targets, semantic descriptions and disabled-state truthfulness. Titles use bounded line counts/ellipsis rather than forcing horizontal overflow. Scrollable rails and panels are used where fixed-width packing would clip content. Release-player instrumentation now also exercises launcher-focus restoration and critical control/tool reachability at 200% font scale. Increased Android display size, narrow-phone, tablet, landscape, physical TalkBack behavior and OEM/D-pad behavior remain required certification targets and are not inferred from the font-scale test.
 
 ## Automated regression coverage
 
-Step-10 retains the complete existing JVM and instrumentation matrix and adds release-UI expectations without weakening old production assertions. `MainActivityTest` now exercises the compact library chrome, source rail, progressively disclosed search, overflow navigation, network URL entry, playlist surface, Back behavior and activity recreation. `PlayerControlsInstrumentedTest` covers the release player primary actions, Subtitle/Decoder/More entry points, tool rail, visibility state, buffering/HUD and lock/unlock behavior.
+Step-10 retains the complete existing JVM and instrumentation matrix and adds release-UI expectations without weakening old production assertions. `MainActivityTest` now exercises the compact library chrome, source rail, progressively disclosed search, overflow navigation, network URL entry, playlist surface, Back behavior and activity recreation. `PlayerControlsInstrumentedTest` covers the release player primary actions, Subtitle/Decoder/More entry points, tool rail, visibility state, buffering/HUD, lock/unlock behavior, launcher-focus restoration and 200% font-scale reachability.
 
 The strict Step-10 instrumentation script explicitly executes both release-UI classes in addition to retained decoder/coexistence, Cast, TV, USB, Private Vault, settings/accessibility and sleep-timer critical classes. Each strict class must report at least one executed test; missing, skipped, zero-test or failed critical runs remain release-blocking.
 
