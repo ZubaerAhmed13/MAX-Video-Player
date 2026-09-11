@@ -46,10 +46,10 @@ import org.junit.runner.RunWith
  *
  * Dialog-window Back routing itself belongs to AndroidX's separate ComponentDialog window and is
  * hardware/window-manager behavior. This synthetic TV host intentionally has no Android window
- * focus, so overlay state dismissal is certified through each production dialog's Done action,
- * which invokes the same app onDismiss callback as onDismissRequest. Real player Back hierarchy is
- * still certified below with focused Key.Escape events. Physical TV dialog-Back routing remains a
- * final hardware-certification item rather than being falsely simulated here.
+ * focus, so overlay state dismissal is certified through each production overlay's visible dismiss
+ * action, which invokes the same app-owned onDismiss callback as onDismissRequest. Real player Back
+ * hierarchy is still certified below with focused Key.Escape events. Physical TV dialog-Back
+ * routing remains a final hardware-certification item rather than being falsely simulated here.
  *
  * This intentionally uses the real PlaybackConnection/PlaybackService and the production
  * ProfessionalAudioPlayerHost. It does not emulate a Cast receiver or physical TV hardware.
@@ -181,14 +181,12 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
             }
         }
 
-        fun dismissOpenOverlay() {
-            // Material3 AlertDialog routes both platform onDismissRequest and the explicit Done
-            // action to the same app-owned onDismiss callback in these three production overlays.
-            // Invoke that production action directly because this synthetic ComponentActivity has
-            // no window focus for AndroidX's separate ComponentDialog window. performClick is a
-            // semantics action, not a touch injection; all navigation/transport/player Back paths
-            // in this workflow remain real D-pad/media-key events.
-            compose.onNodeWithText("Done").performClick()
+        fun dismissOpenOverlay(actionText: String) {
+            // Invoke the production overlay's visible dismiss action because this synthetic
+            // ComponentActivity has no window focus for AndroidX's separate dialog window.
+            // performClick is a semantics action, not touch injection; navigation/transport/player
+            // Back paths in this workflow remain real D-pad/media-key events.
+            compose.onNodeWithText(actionText).performClick()
             compose.waitForIdle()
         }
 
@@ -299,7 +297,7 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("subtitle_dialog").fetchSemanticsNode() }.isSuccess
         }
-        dismissOpenOverlay()
+        dismissOpenOverlay("Close")
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("subtitle_dialog").fetchSemanticsNode() }.isFailure
         }
@@ -318,7 +316,7 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("professional_audio_panel").fetchSemanticsNode() }.isSuccess
         }
-        dismissOpenOverlay()
+        dismissOpenOverlay("Done")
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("professional_audio_panel").fetchSemanticsNode() }.isFailure
         }
@@ -339,7 +337,7 @@ class Step8TvNoTouchPlaybackInstrumentedTest {
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("player_queue_dialog").fetchSemanticsNode() }.isSuccess
         }
-        dismissOpenOverlay()
+        dismissOpenOverlay("Done")
         compose.waitUntil(5_000L) {
             runCatching { compose.onNodeWithTag("player_queue_dialog").fetchSemanticsNode() }.isFailure
         }
