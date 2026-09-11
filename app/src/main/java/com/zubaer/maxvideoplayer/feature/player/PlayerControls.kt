@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -112,8 +114,13 @@ fun PlayerControlsOverlay(
             null -> null
         }
         if (target != null) {
-            runCatching { target.requestFocus() }
-            pendingFocusReturn = null
+            repeat(3) {
+                withFrameNanos { }
+                if (target.requestFocus()) {
+                    pendingFocusReturn = null
+                    return@LaunchedEffect
+                }
+            }
         }
     }
 
@@ -252,20 +259,20 @@ private fun PlayerTopBar(
             label = if (!playback.subtitles.enabled) "CC" else "CC•",
             description = "Subtitle tracks",
             onClick = onSubtitles,
-            modifier = Modifier.focusRequester(subtitleButtonFocusRequester).testTag("subtitle_button"),
+            modifier = Modifier.focusRequester(subtitleButtonFocusRequester).focusable().testTag("subtitle_button"),
         )
         PlayerCircleAction(
             label = if (localVideoProcessingAvailable) decoderCompactLabel(coordinator.decoder.requestedMode) else "Cast",
             description = if (localVideoProcessingAvailable) "Decoder: ${decoderFullLabel(coordinator.decoder.requestedMode)}" else "Decoder controlled by Cast receiver",
             onClick = onDecoder,
             enabled = localVideoProcessingAvailable,
-            modifier = Modifier.focusRequester(decoderButtonFocusRequester).testTag("decoder_button"),
+            modifier = Modifier.focusRequester(decoderButtonFocusRequester).focusable().testTag("decoder_button"),
         )
         PlayerCircleAction(
             label = "⋮",
             description = "More playback tools",
             onClick = onMore,
-            modifier = Modifier.focusRequester(moreButtonFocusRequester).testTag("more_button"),
+            modifier = Modifier.focusRequester(moreButtonFocusRequester).focusable().testTag("more_button"),
         )
     }
 }
