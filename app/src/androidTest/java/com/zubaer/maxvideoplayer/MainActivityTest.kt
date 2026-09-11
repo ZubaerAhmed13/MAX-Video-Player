@@ -29,7 +29,17 @@ class MainActivityTest {
         rule.onNodeWithTag("section_private").assertExists()
         rule.onNodeWithTag("section_network").assertExists()
         rule.onNodeWithTag("section_cloud").assertExists()
-        rule.onNodeWithTag("section_usb").assertExists()
+
+        // LazyRow intentionally virtualizes off-screen source chips. Scroll to the release-critical
+        // USB and Playlists entries before asserting visibility rather than assuming all seven chips
+        // are composed on a phone-width viewport at once.
+        rule.onNodeWithTag("library_section_row").performScrollToIndex(5)
+        rule.waitForIdle()
+        rule.onNodeWithTag("section_usb").assertIsDisplayed()
+        rule.onNodeWithTag("library_section_row").performScrollToIndex(6)
+        rule.waitForIdle()
+        rule.onNodeWithTag("section_playlists").assertIsDisplayed()
+
         rule.onNodeWithTag("library_search_input").assertDoesNotExist()
         rule.onNodeWithTag("network_url_input").assertDoesNotExist()
     }
