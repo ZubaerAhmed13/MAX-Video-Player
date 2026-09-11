@@ -52,6 +52,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -101,6 +103,8 @@ fun PlayerScreen(
         (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
     val localVideoProcessingAvailable = playback.playbackTarget != PlaybackTarget.CAST_DEVICE
     val tvFocusRequester = remember { FocusRequester() }
+    val subtitlePanelFocusRequester = remember { FocusRequester() }
+    val morePanelFocusRequester = remember { FocusRequester() }
     var subtitleDialogVisible by remember { mutableStateOf(false) }
     var queueDialogVisible by remember { mutableStateOf(false) }
     var subtitleLoadError by remember { mutableStateOf<String?>(null) }
@@ -148,6 +152,14 @@ fun PlayerScreen(
     }
     LaunchedEffect(isTelevision, coordinator.controlsVisible) {
         if (isTelevision && !coordinator.controlsVisible) tvFocusRequester.requestFocus()
+    }
+    LaunchedEffect(subtitleDialogVisible, isTelevision) {
+        if (subtitleDialogVisible && !isTelevision) runCatching { subtitlePanelFocusRequester.requestFocus() }
+    }
+    LaunchedEffect(coordinator.activeMenu, isTelevision) {
+        if (coordinator.activeMenu == PlayerMenu.SETTINGS && !isTelevision) {
+            runCatching { morePanelFocusRequester.requestFocus() }
+        }
     }
     LaunchedEffect(localVideoProcessingAvailable, coordinator.activeMenu) {
         if (!localVideoProcessingAvailable && coordinator.activeMenu in setOf(PlayerMenu.DECODER, PlayerMenu.DISPLAY)) {
@@ -446,6 +458,7 @@ fun PlayerScreen(
             playback = playback,
             fallbackTitle = currentMedia.title,
             localVideoProcessingAvailable = localVideoProcessingAvailable,
+            subtitlePanelVisible = subtitleDialogVisible,
             onBack = onBack,
             onPlayPause = ::togglePlayback,
             onPrevious = { playbackConnection.seekToPrevious(); viewModel.showControls() },
@@ -490,39 +503,51 @@ fun PlayerScreen(
             )
         }
 
-        PlayerDialogs(
-            coordinator = coordinator,
-            playback = playback,
-            media = currentMedia,
-            onDismissMenu = viewModel::closeMenu,
-            onSpeed = viewModel::setPlaybackSpeed,
-            onRepeatMode = playbackConnection::setRepeatMode,
-            onShuffle = playbackConnection::setShuffleEnabled,
-            onVideoQualityAuto = playbackConnection::selectVideoQualityAuto,
-            onVideoTrack = playbackConnection::selectVideoTrack,
-            onDecoderMode = { mode -> if (localVideoProcessingAvailable) viewModel.setDecoderMode(mode) },
-            onUseGlobalDecoder = { if (localVideoProcessingAvailable) viewModel.useGlobalDecoderForCurrentMedia() },
-            onDefaultDecoderMode = { mode -> if (localVideoProcessingAvailable) viewModel.setDefaultDecoderMode(mode) },
-            onRememberDecoderPerVideo = viewModel::setRememberDecoderPerVideo,
-            onShowDecoderDiagnostics = viewModel::setShowDecoderDiagnostics,
-            onResetDecoderPreferences = viewModel::resetDecoderPreferences,
-            onResize = { mode -> if (localVideoProcessingAvailable) viewModel.setResizeMode(mode) },
-            onCustomAspect = { width, height -> localVideoProcessingAvailable && viewModel.setCustomAspect(width, height) },
-            onResetZoom = { if (localVideoProcessingAvailable) viewModel.resetZoom() },
-            onRotate = { if (localVideoProcessingAvailable) viewModel.rotateDisplay() },
-            onOrientation = viewModel::setOrientationMode,
-            onDoubleTapSeconds = viewModel::setDoubleTapSeekSeconds,
-            onSensitivity = viewModel::setGestureSensitivity,
-            onHorizontalSeekEnabled = viewModel::setHorizontalSeekEnabled,
-            onBrightnessEnabled = viewModel::setBrightnessGestureEnabled,
-            onVolumeEnabled = viewModel::setVolumeGestureEnabled,
-            onPinchEnabled = viewModel::setPinchZoomEnabled,
-            onAutoHideMillis = viewModel::setAutoHideMillis,
-            onRememberSpeed = viewModel::setRememberPlaybackSpeed,
-            onAutoPip = viewModel::setAutoPip,
-            onShowTutorial = viewModel::showTutorial,
-            onDismissTutorial = viewModel::dismissTutorial,
-        )
+        val dialogHostModifier = if (!isTelevision && coordinator.activeMenu == PlayerMenu.SETTINGS) {
+            Modifier
+                .fillMaxSize()
+                .focusRequester(morePanelFocusRequester)
+                .focusable()
+                .testTag("more_panel_focus_host")
+                .semantics { contentDescription = "More playback tools panel" }
+        } else {
+            Modifier.fillMaxSize()
+        }
+        Box(dialogHostModifier) {
+            PlayerDialogs(
+                coordinator = coordinator,
+                playback = playback,
+                media = currentMedia,
+                onDismissMenu = viewModel::closeMenu,
+                onSpeed = viewModel::setPlaybackSpeed,
+                onRepeatMode = playbackConnection::setRepeatMode,
+                onShuffle = playbackConnection::setShuffleEnabled,
+                onVideoQualityAuto = playbackConnection::selectVideoQualityAuto,
+                onVideoTrack = playbackConnection::selectVideoTrack,
+                onDecoderMode = { mode -> if (localVideoProcessingAvailable) viewModel.setDecoderMode(mode) },
+                onUseGlobalDecoder = { if (localVideoProcessingAvailable) viewModel.useGlobalDecoderForCurrentMedia() },
+                onDefaultDecoderMode = { mode -> if (localVideoProcessingAvailable) viewModel.setDefaultDecoderMode(mode) },
+                onRememberDecoderPerVideo = viewModel::setRememberDecoderPerVideo,
+                onShowDecoderDiagnostics = viewModel::setShowDecoderDiagnostics,
+                onResetDecoderPreferences = viewModel::resetDecoderPreferences,
+                onResize = { mode -> if (localVideoProcessingAvailable) viewModel.setResizeMode(mode) },
+                onCustomAspect = { width, height -> localVideoProcessingAvailable && viewModel.setCustomAspect(width, height) },
+                onResetZoom = { if (localVideoProcessingAvailable) viewModel.resetZoom() },
+                onRotate = { if (localVideoProcessingAvailable) viewModel.rotateDisplay() },
+                onOrientation = viewModel::setOrientationMode,
+                onDoubleTapSeconds = viewModel::setDoubleTapSeekSeconds,
+                onSensitivity = viewModel::setGestureSensitivity,
+                onHorizontalSeekEnabled = viewModel::setHorizontalSeekEnabled,
+                onBrightnessEnabled = viewModel::setBrightnessGestureEnabled,
+                onVolumeEnabled = viewModel::setVolumeGestureEnabled,
+                onPinchEnabled = viewModel::setPinchZoomEnabled,
+                onAutoHideMillis = viewModel::setAutoHideMillis,
+                onRememberSpeed = viewModel::setRememberPlaybackSpeed,
+                onAutoPip = viewModel::setAutoPip,
+                onShowTutorial = viewModel::showTutorial,
+                onDismissTutorial = viewModel::dismissTutorial,
+            )
+        }
 
         if (queueDialogVisible) {
             PlayerQueueDialog(
@@ -534,24 +559,36 @@ fun PlayerScreen(
         }
 
         if (subtitleDialogVisible) {
-            SubtitleDialog(
-                playback = playback,
-                style = subtitleStyle,
-                onDismiss = { subtitleDialogVisible = false },
-                onEnabled = playbackConnection::setSubtitlesEnabled,
-                onAuto = playbackConnection::selectSubtitleAuto,
-                onTrack = playbackConnection::selectSubtitleTrack,
-                onLoadExternal = { subtitlePicker.launch(SubtitleFormatPolicy.supportedPickerMimeTypes()) },
-                onRemoveExternal = playbackConnection::clearExternalSubtitle,
-                onTextScale = subtitleRepository::setTextScale,
-                onBottomPadding = subtitleRepository::setBottomPaddingFraction,
-                onEdgeStyle = subtitleRepository::setEdgeStyle,
-                onForegroundColor = subtitleRepository::setForegroundColor,
-                onBackgroundColor = subtitleRepository::setBackgroundColor,
-                onApplyEmbeddedStyles = subtitleRepository::setApplyEmbeddedStyles,
-                onApplyEmbeddedFontSizes = subtitleRepository::setApplyEmbeddedFontSizes,
-                onResetStyle = subtitleRepository::resetStyle,
-            )
+            val subtitleHostModifier = if (!isTelevision) {
+                Modifier
+                    .fillMaxSize()
+                    .focusRequester(subtitlePanelFocusRequester)
+                    .focusable()
+                    .testTag("subtitle_panel_focus_host")
+                    .semantics { contentDescription = "Subtitle tracks panel" }
+            } else {
+                Modifier.fillMaxSize()
+            }
+            Box(subtitleHostModifier) {
+                SubtitleDialog(
+                    playback = playback,
+                    style = subtitleStyle,
+                    onDismiss = { subtitleDialogVisible = false },
+                    onEnabled = playbackConnection::setSubtitlesEnabled,
+                    onAuto = playbackConnection::selectSubtitleAuto,
+                    onTrack = playbackConnection::selectSubtitleTrack,
+                    onLoadExternal = { subtitlePicker.launch(SubtitleFormatPolicy.supportedPickerMimeTypes()) },
+                    onRemoveExternal = playbackConnection::clearExternalSubtitle,
+                    onTextScale = subtitleRepository::setTextScale,
+                    onBottomPadding = subtitleRepository::setBottomPaddingFraction,
+                    onEdgeStyle = subtitleRepository::setEdgeStyle,
+                    onForegroundColor = subtitleRepository::setForegroundColor,
+                    onBackgroundColor = subtitleRepository::setBackgroundColor,
+                    onApplyEmbeddedStyles = subtitleRepository::setApplyEmbeddedStyles,
+                    onApplyEmbeddedFontSizes = subtitleRepository::setApplyEmbeddedFontSizes,
+                    onResetStyle = subtitleRepository::resetStyle,
+                )
+            }
         }
 
         subtitleLoadError?.let { message ->
