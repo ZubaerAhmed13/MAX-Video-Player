@@ -59,7 +59,7 @@ class Step8CastRemoteUiInstrumentedTest {
 
         compose.onNodeWithTag("cast_video_processing_unavailable").assertTextContains("Cast", substring = true)
         compose.onNodeWithTag("decoder_button").assertIsNotEnabled().assertTextContains("Cast", substring = true)
-        compose.onNodeWithTag("display_button").assertIsNotEnabled().assertTextContains("Cast", substring = true)
+        compose.onNodeWithTag("display_button").assertIsNotEnabled().assertTextContains("Fit", substring = true)
         compose.onNodeWithTag("rotation_button").assertIsNotEnabled().assertTextContains("Cast", substring = true)
     }
 
