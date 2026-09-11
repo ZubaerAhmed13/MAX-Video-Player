@@ -1,12 +1,16 @@
 package com.zubaer.maxvideoplayer.feature.player
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Density
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -116,6 +120,66 @@ class PlayerControlsInstrumentedTest {
         }
         composeRule.onNodeWithTag("more_button").assertExists().performClick()
         composeRule.runOnIdle { assertEquals(PlayerMenu.SETTINGS, requestedMenu) }
+    }
+
+    @Test
+    fun subtitleAndMoreRestorePrimaryLauncherFocusAfterDismissal() {
+        var subtitleVisible by mutableStateOf(false)
+        var state by mutableStateOf(PlayerCoordinatorState(controlsVisible = true))
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerControlsOverlay(
+                    coordinator = state,
+                    playback = PlaybackUiState(durationMs = 60_000L),
+                    fallbackTitle = "Focus",
+                    subtitlePanelVisible = subtitleVisible,
+                    onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                    onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                    onInteractionStart = {}, onInteractionEnd = {},
+                    onOpenMenu = { menu -> state = state.copy(activeMenu = menu) },
+                    onSubtitles = { subtitleVisible = true },
+                    onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("subtitle_button").performClick()
+        composeRule.runOnIdle { subtitleVisible = false }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("subtitle_button").assertIsFocused()
+
+        composeRule.onNodeWithTag("more_button").performClick()
+        composeRule.runOnIdle { state = state.copy(activeMenu = PlayerMenu.NONE) }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("more_button").assertIsFocused()
+    }
+
+    @Test
+    fun largeFontKeepsCriticalControlsAndToolRailReachable() {
+        composeRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
+                MaterialTheme {
+                    PlayerControlsOverlay(
+                        coordinator = PlayerCoordinatorState(controlsVisible = true),
+                        playback = PlaybackUiState(durationMs = 60_000L, title = "Large font release verification title"),
+                        fallbackTitle = "Large font",
+                        onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                        onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                        onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                        onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("subtitle_button").assertExists()
+        composeRule.onNodeWithTag("decoder_button").assertExists()
+        composeRule.onNodeWithTag("more_button").assertExists()
+        composeRule.onNodeWithTag("seek_bar").assertExists()
+        composeRule.onNodeWithTag("tools_toggle_button").assertExists().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("extended_tool_rail").assertExists()
     }
 
     @Test
