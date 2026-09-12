@@ -12,6 +12,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 data class PlayerChromeHostState(
     val onAudio: (() -> Unit)? = null,
     val audioPanelVisible: Boolean = false,
+    val onSleepTimer: (() -> Unit)? = null,
+    val onOutputDevice: (() -> Unit)? = null,
 )
 
 val LocalPlayerChromeHostState = staticCompositionLocalOf { PlayerChromeHostState() }
