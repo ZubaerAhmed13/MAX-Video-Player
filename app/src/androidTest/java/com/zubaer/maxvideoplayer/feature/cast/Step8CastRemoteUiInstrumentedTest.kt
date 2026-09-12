@@ -1,6 +1,7 @@
 package com.zubaer.maxvideoplayer.feature.cast
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -10,6 +11,8 @@ import com.zubaer.maxvideoplayer.core.model.PlaybackTarget
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import com.zubaer.maxvideoplayer.feature.audio.AudioEngineState
 import com.zubaer.maxvideoplayer.feature.audio.ProfessionalAudioDialog
+import com.zubaer.maxvideoplayer.feature.player.LocalPlayerChromeHostState
+import com.zubaer.maxvideoplayer.feature.player.PlayerChromeHostState
 import com.zubaer.maxvideoplayer.feature.player.PlayerControlsOverlay
 import com.zubaer.maxvideoplayer.feature.player.PlayerCoordinatorState
 import com.zubaer.maxvideoplayer.feature.tv.TvPlayerShortcutBar
@@ -25,40 +28,45 @@ class Step8CastRemoteUiInstrumentedTest {
     @Test
     fun remoteCast_disables_phone_video_processing_and_labels_it_truthfully() {
         compose.setContent {
-            MaterialTheme {
-                PlayerControlsOverlay(
-                    coordinator = PlayerCoordinatorState(preparing = false, controlsVisible = true),
-                    playback = PlaybackUiState(
-                        connected = true,
-                        playbackTarget = PlaybackTarget.CAST_DEVICE,
-                        title = "Cast certification",
-                        durationMs = 60_000L,
-                    ),
-                    fallbackTitle = "Cast certification",
-                    localVideoProcessingAvailable = false,
-                    onBack = {},
-                    onPlayPause = {},
-                    onPrevious = {},
-                    onNext = {},
-                    onGoLive = {},
-                    onSeekPreview = { _, _ -> },
-                    onSeekCommit = {},
-                    onInteractionStart = {},
-                    onInteractionEnd = {},
-                    onOpenMenu = {},
-                    onRotate = {},
-                    onLock = {},
-                    onUnlock = {},
-                    onPip = {},
-                    onFullscreen = {},
-                    onSubtitles = {},
-                )
+            CompositionLocalProvider(
+                LocalPlayerChromeHostState provides PlayerChromeHostState(onOutputDevice = {}),
+            ) {
+                MaterialTheme {
+                    PlayerControlsOverlay(
+                        coordinator = PlayerCoordinatorState(preparing = false, controlsVisible = true),
+                        playback = PlaybackUiState(
+                            connected = true,
+                            playbackTarget = PlaybackTarget.CAST_DEVICE,
+                            title = "Cast certification",
+                            durationMs = 60_000L,
+                        ),
+                        fallbackTitle = "Cast certification",
+                        localVideoProcessingAvailable = false,
+                        onBack = {},
+                        onPlayPause = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onGoLive = {},
+                        onSeekPreview = { _, _ -> },
+                        onSeekCommit = {},
+                        onInteractionStart = {},
+                        onInteractionEnd = {},
+                        onOpenMenu = {},
+                        onRotate = {},
+                        onLock = {},
+                        onUnlock = {},
+                        onPip = {},
+                        onFullscreen = {},
+                        onSubtitles = {},
+                    )
+                }
             }
         }
         compose.waitForIdle()
 
         compose.onNodeWithTag("cast_video_processing_unavailable").assertTextContains("Cast", substring = true)
-        compose.onNodeWithTag("decoder_button").assertIsNotEnabled().assertTextContains("Cast", substring = true)
+        compose.onNodeWithTag("output_device_button").assertTextContains("Cast", substring = true)
+        compose.onNodeWithTag("decoder_button").assertIsNotEnabled()
         compose.onNodeWithTag("display_button").assertIsNotEnabled().assertTextContains("Fit", substring = true)
         compose.onNodeWithTag("rotation_button").assertIsNotEnabled()
     }
