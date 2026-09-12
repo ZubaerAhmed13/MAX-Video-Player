@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -26,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,7 +46,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zubaer.maxvideoplayer.core.model.AppMedia
 import com.zubaer.maxvideoplayer.core.model.PlaybackTarget
+import com.zubaer.maxvideoplayer.feature.player.LocalPlayerChromeHostState
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
+import com.zubaer.maxvideoplayer.feature.player.PlayerChromeHostState
 import com.zubaer.maxvideoplayer.feature.player.PlayerScreen
 import com.zubaer.maxvideoplayer.feature.player.PlayerViewModel
 import com.zubaer.maxvideoplayer.feature.subtitle.SubtitleRepository
@@ -54,8 +56,9 @@ import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 import com.zubaer.maxvideoplayer.ui.MaxDesignTokens
 
 /**
- * Step-10 release host. It keeps the existing production audio controller and advanced dialog, but
- * adds the approved compact Audio entry point and a translucent right-side track/sync panel.
+ * Step-10 release host. Existing production audio selection/DSP behavior is retained, while the
+ * Audio launcher is provided to the single PlayerControls chrome instead of drawn as a competing
+ * top-right overlay.
  */
 @Composable
 fun ReleaseProfessionalAudioPlayerHost(
@@ -72,7 +75,6 @@ fun ReleaseProfessionalAudioPlayerHost(
     onPlayerHostStateChanged: (AppMedia?, Boolean) -> Unit,
     onAudioBackgroundPolicyChanged: (BackgroundPlaybackMode, Boolean) -> Unit,
 ) {
-    val coordinator by viewModel.state.collectAsStateWithLifecycle()
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
     val audio by audioRepository.state.collectAsStateWithLifecycle()
     val configuration = LocalConfiguration.current
@@ -80,11 +82,9 @@ fun ReleaseProfessionalAudioPlayerHost(
         (configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
             android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
     val localProcessingAvailable = playback.playbackTarget != PlaybackTarget.CAST_DEVICE
-    val audioButtonFocusRequester = remember { FocusRequester() }
     val audioPanelFocusRequester = remember { FocusRequester() }
     var sidePanelVisible by remember { mutableStateOf(false) }
     var advancedVisible by remember { mutableStateOf(false) }
-    var restoreAudioButtonFocus by remember { mutableStateOf(false) }
     var pickerError by remember { mutableStateOf<String?>(null) }
     var relinkAssociationId by remember { mutableStateOf<String?>(null) }
 
@@ -113,27 +113,11 @@ fun ReleaseProfessionalAudioPlayerHost(
     LaunchedEffect(sidePanelVisible, isTelevision) {
         if (sidePanelVisible && !isTelevision) runCatching { audioPanelFocusRequester.requestFocus() }
     }
-    LaunchedEffect(
-        sidePanelVisible,
-        advancedVisible,
-        restoreAudioButtonFocus,
-        coordinator.controlsVisible,
-        coordinator.controlsLocked,
-        isTelevision,
-    ) {
-        if (!sidePanelVisible && !advancedVisible && restoreAudioButtonFocus) {
-            if (!isTelevision && coordinator.controlsVisible && !coordinator.controlsLocked) {
-                runCatching { audioButtonFocusRequester.requestFocus() }
-            }
-            restoreAudioButtonFocus = false
-        }
-    }
     DisposableEffect(audioController) { onDispose { audioController.unbind() } }
 
-    fun showAudioPanel(restoreToHostButton: Boolean) {
+    fun showAudioPanel() {
         sidePanelVisible = true
         advancedVisible = false
-        restoreAudioButtonFocus = restoreToHostButton
         audioController.bind()
     }
 
@@ -142,37 +126,24 @@ fun ReleaseProfessionalAudioPlayerHost(
     }
 
     Box(Modifier.fillMaxSize()) {
-        PlayerScreen(
-            media = media,
-            viewModel = viewModel,
-            playbackConnection = playbackConnection,
-            subtitleRepository = subtitleRepository,
-            onBack = onBack,
-            onEnterPip = onEnterPip,
-            onFullscreenChanged = onFullscreenChanged,
-            onOrientationModeChanged = onOrientationModeChanged,
-            onPlayerHostStateChanged = onPlayerHostStateChanged,
-            onAudioControls = { showAudioPanel(restoreToHostButton = false) },
-        )
-
-        if (coordinator.controlsVisible && !coordinator.controlsLocked && !coordinator.tutorialVisible && coordinator.resumePositionMs == null && !sidePanelVisible && !advancedVisible) {
-            TextButton(
-                onClick = { showAudioPanel(restoreToHostButton = !isTelevision) },
-                shape = CircleShape,
-                colors = ButtonDefaults.textButtonColors(
-                    containerColor = MaxDesignTokens.PlayerControl,
-                    contentColor = Color.White,
-                ),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .safeDrawingPadding()
-                    .padding(top = 62.dp, end = 12.dp)
-                    .focusRequester(audioButtonFocusRequester)
-                    .testTag("audio_button")
-                    .semantics {
-                        contentDescription = if (localProcessingAvailable) "Audio tracks" else "Audio tracks; phone processing unavailable during Cast"
-                    },
-            ) { Text("Audio") }
+        CompositionLocalProvider(
+            LocalPlayerChromeHostState provides PlayerChromeHostState(
+                onAudio = ::showAudioPanel,
+                audioPanelVisible = sidePanelVisible || advancedVisible,
+            ),
+        ) {
+            PlayerScreen(
+                media = media,
+                viewModel = viewModel,
+                playbackConnection = playbackConnection,
+                subtitleRepository = subtitleRepository,
+                onBack = onBack,
+                onEnterPip = onEnterPip,
+                onFullscreenChanged = onFullscreenChanged,
+                onOrientationModeChanged = onOrientationModeChanged,
+                onPlayerHostStateChanged = onPlayerHostStateChanged,
+                onAudioControls = ::showAudioPanel,
+            )
         }
 
         if (sidePanelVisible) {
