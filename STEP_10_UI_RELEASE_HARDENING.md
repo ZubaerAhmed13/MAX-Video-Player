@@ -30,6 +30,8 @@ The release library uses a compact title/action bar, horizontally scrollable sou
 
 Primary sources remain accessible without a permanently oversized navigation strip. Continue Watching, Recent, Favourites, History and settings-related actions use progressive disclosure instead of consuming permanent screen rows.
 
+The release library no longer uses Unicode pseudo-icons for app-bar controls, folder artwork, overflow actions, playlist disclosure, search clearing or floating Play. Those surfaces now use original Compose-drawn vector-style glyphs with semantic descriptions and approximately 48 dp action targets where interactive.
+
 ## Player redesign
 
 The player preserves the single service-owned playback authority and existing gesture, queue, resume, decoder, audio, subtitle, Cast, private-media and orientation behavior. Presentation uses translucent player chrome, compact circular controls, a thin seek timeline with a larger interactive target, centered transport controls and horizontally scrollable tool rails so narrow landscape layouts do not clip actions.
@@ -38,14 +40,13 @@ Audio uses a right-side translucent release panel while retaining the existing p
 
 ## Final player chrome composition hardening
 
-A final review identified four presentation defects after the first software-certified UI pass. They are corrected in software and must still be confirmed on the physical release device set:
+A final review identified presentation defects after the first software-certified UI pass. They are corrected in software and must still be confirmed on the physical release device set:
 
 - **Player top control composition — corrected in software.** The previous composition allowed `PlayerScreen`, the Audio wrapper and `MaxApp` to paint separate launchers into the same top region. The phone player now has one visual chrome owner. `MaxApp` no longer paints an independent Sleep/Output row and the audio wrapper no longer paints a floating Audio button.
-- **Cast/Audio integration — corrected in software.** Output/Cast and Audio now enter through the approved player chrome. The top bar owns Back/title + Output/Cast + Audio + More, while Cast state is conveyed by the integrated output action and the existing receiver-controlled processing notice.
-- **Tool-rail parity — corrected in software.** The scrollable primary/extended rails now expose the implemented Speed, Audio, Subtitle, Decoder, Aspect, Rotate, Playback mode, conditional Quality, Orientation, PiP, Fullscreen, Information, Sleep Timer, Output/Cast and More destinations. Conditional tools remain conditional rather than being represented by fake or disabled placeholder features.
-- **Icon quality — corrected in software.** Core player navigation, transport and tool controls no longer depend on Unicode arrows/play/pause/rotate/more symbols for their primary glyphs. They use Compose-drawn vector-style glyphs with semantic descriptions; short text such as `Auto`, `HW`, `CC`, `Fit` and speed values remains only where it conveys state or terminology.
-
-The responsive top bar intentionally keeps Subtitle and Decoder in the horizontally scrollable tool rail instead of packing every action into the fixed-width title row. This preserves the approved hierarchy and avoids replacing overlay collisions with narrow-phone clipping.
+- **Approved top hierarchy — corrected responsively.** At available widths of at least 640 dp, the player follows the approved reference order: Back/title + Output/Cast + Audio + Subtitle + Decoder + More. Below that width, Subtitle and Decoder move together to the front of the horizontally scrollable quick rail while Back/title + Output/Cast + Audio + More remain in the fixed top row. The controls therefore exist in exactly one primary location at a time rather than being duplicated or clipped.
+- **Cast/Audio integration — corrected in software.** Output/Cast and Audio enter through the approved player chrome. Cast state is conveyed by the integrated output action and the existing receiver-controlled processing notice.
+- **Tool-rail parity — corrected in software.** The scrollable primary/extended rails expose the implemented Speed, Audio, Subtitle, Decoder, Aspect, Rotate, Playback mode, conditional Quality, Orientation, PiP, Fullscreen, Information, Sleep Timer, Output/Cast and More destinations. Conditional tools remain conditional rather than being represented by fake or disabled placeholder features.
+- **Icon quality — corrected in software.** Core player navigation, transport and tool controls and the release-library navigation/action controls no longer depend on Unicode arrows/play/pause/rotate/more/search/grid/list/folder symbols for their primary glyphs. They use Compose-drawn vector-style glyphs with semantic descriptions; short text such as `Auto`, `HW`, `CC`, `Fit` and speed values remains only where it conveys state or terminology.
 
 ## Panel and Back behavior
 
@@ -59,11 +60,11 @@ The UI hardening does not re-enable local-only video processing while Cast owns 
 
 ## Accessibility and responsive behavior
 
-Interactive player controls retain at least approximately 48 dp touch targets, semantic descriptions and disabled-state truthfulness. Titles use bounded line counts/ellipsis rather than forcing horizontal overflow. Scrollable rails and panels are used where fixed-width packing would clip content. Release-player instrumentation also exercises launcher-focus restoration, unified host-action routing and critical control/tool reachability at 200% font scale. Increased Android display size, narrow-phone, tablet, landscape, physical TalkBack behavior and OEM/D-pad behavior remain required certification targets and are not inferred from the font-scale test.
+Interactive player controls retain at least approximately 48 dp touch targets, semantic descriptions and disabled-state truthfulness. Titles use bounded line counts/ellipsis rather than forcing horizontal overflow. Scrollable rails and panels are used where fixed-width packing would clip content. The 640 dp player threshold is based on the actual Compose width available to the player, not a hard-coded device orientation, so tablets, split-screen and landscape phones use the same responsive rule. Release-player instrumentation exercises both branches, launcher-focus restoration, unified host-action routing and critical control/tool reachability at 200% font scale. Increased Android display size, physical TalkBack behavior and OEM/D-pad behavior remain required certification targets and are not inferred from emulator-only tests.
 
 ## Automated regression coverage
 
-Step-10 retains the complete existing JVM and instrumentation matrix and adds release-UI expectations without weakening old production behavior requirements. `MainActivityTest` exercises the compact library chrome, source rail, progressively disclosed search, overflow navigation, network URL entry, playlist surface, Back behavior and activity recreation. `PlayerControlsInstrumentedTest` covers the release player primary actions, unified Audio/Output/Sleep host routing, Subtitle/Decoder/More entry points, tool rail, visibility state, buffering/HUD, lock/unlock behavior, launcher-focus restoration and 200% font-scale reachability.
+Step-10 retains the complete existing JVM and instrumentation matrix and adds release-UI expectations without weakening old production behavior requirements. `MainActivityTest` exercises the compact library chrome, vector glyph nodes, source rail, progressively disclosed search, overflow navigation, network URL entry, playlist surface, Back behavior and activity recreation. `PlayerControlsInstrumentedTest` covers the release player primary actions, the wide approved top hierarchy, the narrow quick-rail fallback, unified Audio/Output/Sleep host routing, Subtitle/Decoder/More entry points, tool rail, visibility state, buffering/HUD, lock/unlock behavior, launcher-focus restoration and 200% font-scale reachability.
 
 The Cast regression test verifies receiver-controlled processing truthfully through disabled local-processing controls, the integrated Output/Cast action and the dedicated Cast processing notice rather than requiring unrelated controls to carry presentation-specific `Cast` text.
 
