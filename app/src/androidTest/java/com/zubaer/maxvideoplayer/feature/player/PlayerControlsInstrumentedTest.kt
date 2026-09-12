@@ -80,6 +80,54 @@ class PlayerControlsInstrumentedTest {
     }
 
     @Test
+    fun wideLayoutPromotesSubtitleAndDecoderIntoApprovedTopRow() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 1f)) {
+                MaterialTheme {
+                    PlayerControlsOverlay(
+                        coordinator = PlayerCoordinatorState(controlsVisible = true),
+                        playback = PlaybackUiState(durationMs = 60_000L, title = "Wide reference hierarchy"),
+                        fallbackTitle = "Wide",
+                        onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                        onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                        onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                        onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("reference_top_actions").assertExists()
+        composeRule.onNodeWithTag("quick_primary_actions").assertDoesNotExist()
+        composeRule.onNodeWithTag("subtitle_button").assertExists()
+        composeRule.onNodeWithTag("decoder_button").assertExists()
+    }
+
+    @Test
+    fun narrowLayoutMovesSubtitleAndDecoderToQuickRailFallback() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 4f, fontScale = 1f)) {
+                MaterialTheme {
+                    PlayerControlsOverlay(
+                        coordinator = PlayerCoordinatorState(controlsVisible = true),
+                        playback = PlaybackUiState(durationMs = 60_000L, title = "Narrow responsive hierarchy"),
+                        fallbackTitle = "Narrow",
+                        onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                        onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                        onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                        onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("reference_top_actions").assertDoesNotExist()
+        composeRule.onNodeWithTag("quick_primary_actions").assertExists()
+        composeRule.onNodeWithTag("subtitle_button").assertExists()
+        composeRule.onNodeWithTag("decoder_button").assertExists()
+    }
+
+    @Test
     fun hostActionsAreIntegratedIntoSingleChrome() {
         var audioClicked = false
         var sleepClicked = false
