@@ -56,9 +56,9 @@ import com.zubaer.maxvideoplayer.playback.session.PlaybackConnection
 import com.zubaer.maxvideoplayer.ui.MaxDesignTokens
 
 /**
- * Step-10 release host. Existing production audio selection/DSP behavior is retained, while the
- * Audio launcher is provided to the single PlayerControls chrome instead of drawn as a competing
- * top-right overlay.
+ * Step-10 release host. Existing production audio selection/DSP behavior is retained, while host
+ * launchers are provided to the single PlayerControls chrome instead of drawn as competing
+ * top-right overlays.
  */
 @Composable
 fun ReleaseProfessionalAudioPlayerHost(
@@ -74,6 +74,8 @@ fun ReleaseProfessionalAudioPlayerHost(
     onOrientationModeChanged: (OrientationMode) -> Unit,
     onPlayerHostStateChanged: (AppMedia?, Boolean) -> Unit,
     onAudioBackgroundPolicyChanged: (BackgroundPlaybackMode, Boolean) -> Unit,
+    onSleepTimer: (() -> Unit)? = null,
+    onOutputDevice: (() -> Unit)? = null,
 ) {
     val playback by playbackConnection.state.collectAsStateWithLifecycle()
     val audio by audioRepository.state.collectAsStateWithLifecycle()
@@ -130,6 +132,8 @@ fun ReleaseProfessionalAudioPlayerHost(
             LocalPlayerChromeHostState provides PlayerChromeHostState(
                 onAudio = ::showAudioPanel,
                 audioPanelVisible = sidePanelVisible || advancedVisible,
+                onSleepTimer = onSleepTimer,
+                onOutputDevice = onOutputDevice,
             ),
         ) {
             PlayerScreen(
@@ -302,7 +306,7 @@ private fun ReleaseAudioSidePanel(
 
                 HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
                 Text("Audio synchronization", fontWeight = FontWeight.SemiBold)
-                Text("${signedAudioDelay(state.audioDelayMs)}", color = MaxDesignTokens.PlayerTextSecondary)
+                Text(signedAudioDelay(state.audioDelayMs), color = MaxDesignTokens.PlayerTextSecondary)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(-500L, -100L, 100L, 500L).forEach { delta ->
                         TextButton(onClick = { onDelayDelta(delta) }, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) {
