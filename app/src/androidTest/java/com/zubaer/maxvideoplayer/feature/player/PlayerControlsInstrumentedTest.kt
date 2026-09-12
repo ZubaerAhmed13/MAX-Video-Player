@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import org.junit.Assert.assertEquals
@@ -61,6 +62,7 @@ class PlayerControlsInstrumentedTest {
         composeRule.onNodeWithTag("previous_button").assertExists()
         composeRule.onNodeWithTag("play_pause_button").assertExists().performClick()
         composeRule.onNodeWithTag("next_button").assertExists()
+        composeRule.onNodeWithTag("player_tool_rail").assertExists()
         composeRule.onNodeWithTag("speed_button").assertExists()
         composeRule.onNodeWithTag("display_button").assertExists()
         composeRule.onNodeWithTag("rotation_button").assertExists()
@@ -70,10 +72,48 @@ class PlayerControlsInstrumentedTest {
         composeRule.onNodeWithTag("fullscreen_button").assertExists()
         composeRule.onNodeWithTag("subtitle_button").assertExists()
         composeRule.onNodeWithTag("decoder_button").assertExists()
+        composeRule.onNodeWithTag("info_button").assertExists()
         composeRule.onNodeWithTag("more_button").assertExists()
         composeRule.onNodeWithTag("tools_toggle_button").assertExists()
         composeRule.onNodeWithTag("extended_tool_rail").assertDoesNotExist()
         assertTrue(playClicked)
+    }
+
+    @Test
+    fun hostActionsAreIntegratedIntoSingleChrome() {
+        var audioClicked = false
+        var sleepClicked = false
+        var outputClicked = false
+        composeRule.setContent {
+            CompositionLocalProvider(
+                LocalPlayerChromeHostState provides PlayerChromeHostState(
+                    onAudio = { audioClicked = true },
+                    onSleepTimer = { sleepClicked = true },
+                    onOutputDevice = { outputClicked = true },
+                ),
+            ) {
+                MaterialTheme {
+                    PlayerControlsOverlay(
+                        coordinator = PlayerCoordinatorState(controlsVisible = true),
+                        playback = PlaybackUiState(durationMs = 60_000L),
+                        fallbackTitle = "Integrated chrome",
+                        onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                        onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                        onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                        onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("audio_button").assertExists().performClick()
+        composeRule.onNodeWithTag("output_device_button").assertExists().performClick()
+        composeRule.onNodeWithTag("sleep_timer_button").assertExists().performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertTrue(audioClicked)
+            assertTrue(sleepClicked)
+            assertTrue(outputClicked)
+        }
     }
 
     @Test
