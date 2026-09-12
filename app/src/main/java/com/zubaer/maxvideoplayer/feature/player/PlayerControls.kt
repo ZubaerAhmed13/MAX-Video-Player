@@ -4,21 +4,25 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -38,7 +42,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -46,12 +54,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zubaer.maxvideoplayer.core.model.DecoderMode
+import com.zubaer.maxvideoplayer.core.model.PlaybackTarget
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
 import com.zubaer.maxvideoplayer.feature.network.model.NetworkPlaybackPhase
 import com.zubaer.maxvideoplayer.ui.MaxDesignTokens
 import kotlin.math.roundToLong
 
-private enum class PlayerPanelFocusReturn { SUBTITLE, DECODER, MORE }
+private enum class PlayerPanelFocusReturn { SUBTITLE, AUDIO, DECODER, MORE }
+
+private enum class ChromeIcon {
+    BACK, SUBTITLES, AUDIO, MORE, ROTATE, PLAYBACK, ORIENTATION, PIP, FULLSCREEN,
+    EXIT_FULLSCREEN, LOCK, PREVIOUS, PLAY, PAUSE, REPLAY, NEXT, DISPLAY, INFO,
+    DECODER, SPEED, CAST, TOOLS,
+}
 
 /**
  * Step-10 release-hardened player chrome. Playback state and transport remain service-owned; this
@@ -81,7 +96,9 @@ fun PlayerControlsOverlay(
     onFullscreen: () -> Unit,
     onSubtitles: () -> Unit = {},
 ) {
+    val hostState = LocalPlayerChromeHostState.current
     val subtitleButtonFocusRequester = remember { FocusRequester() }
+    val audioButtonFocusRequester = remember { FocusRequester() }
     val decoderButtonFocusRequester = remember { FocusRequester() }
     val moreButtonFocusRequester = remember { FocusRequester() }
     var pendingFocusReturn by remember { mutableStateOf<PlayerPanelFocusReturn?>(null) }
@@ -90,6 +107,12 @@ fun PlayerControlsOverlay(
     val openSubtitlesWithFocusReturn: () -> Unit = {
         pendingFocusReturn = PlayerPanelFocusReturn.SUBTITLE
         onSubtitles()
+    }
+    val openAudioWithFocusReturn: () -> Unit = {
+        hostState.onAudio?.let {
+            pendingFocusReturn = PlayerPanelFocusReturn.AUDIO
+            it()
+        }
     }
     val openMenuWithFocusReturn: (PlayerMenu) -> Unit = { menu ->
         when (menu) {
@@ -102,6 +125,7 @@ fun PlayerControlsOverlay(
 
     LaunchedEffect(
         subtitlePanelVisible,
+        hostState.audioPanelVisible,
         coordinator.activeMenu,
         controlsFocusable,
         pendingFocusReturn,
@@ -109,6 +133,7 @@ fun PlayerControlsOverlay(
         if (!controlsFocusable) return@LaunchedEffect
         val target = when (pendingFocusReturn) {
             PlayerPanelFocusReturn.SUBTITLE -> if (!subtitlePanelVisible) subtitleButtonFocusRequester else null
+            PlayerPanelFocusReturn.AUDIO -> if (!hostState.audioPanelVisible) audioButtonFocusRequester else null
             PlayerPanelFocusReturn.DECODER -> if (coordinator.activeMenu != PlayerMenu.DECODER) decoderButtonFocusRequester else null
             PlayerPanelFocusReturn.MORE -> if (coordinator.activeMenu != PlayerMenu.SETTINGS) moreButtonFocusRequester else null
             null -> null
@@ -137,11 +162,14 @@ fun PlayerControlsOverlay(
                     playback = playback,
                     fallbackTitle = fallbackTitle,
                     localVideoProcessingAvailable = localVideoProcessingAvailable,
+                    audioAvailable = hostState.onAudio != null,
                     subtitleButtonFocusRequester = subtitleButtonFocusRequester,
+                    audioButtonFocusRequester = audioButtonFocusRequester,
                     decoderButtonFocusRequester = decoderButtonFocusRequester,
                     moreButtonFocusRequester = moreButtonFocusRequester,
                     onBack = onBack,
                     onSubtitles = openSubtitlesWithFocusReturn,
+                    onAudio = openAudioWithFocusReturn,
                     onDecoder = { openMenuWithFocusReturn(PlayerMenu.DECODER) },
                     onMore = { openMenuWithFocusReturn(PlayerMenu.SETTINGS) },
                 )
@@ -150,8 +178,10 @@ fun PlayerControlsOverlay(
                     coordinator = coordinator,
                     playback = playback,
                     localVideoProcessingAvailable = localVideoProcessingAvailable,
+                    audioAvailable = hostState.onAudio != null,
                     onOpenMenu = openMenuWithFocusReturn,
                     onSubtitles = openSubtitlesWithFocusReturn,
+                    onAudio = openAudioWithFocusReturn,
                     onRotate = onRotate,
                     onPip = onPip,
                     onFullscreen = onFullscreen,
@@ -163,6 +193,7 @@ fun PlayerControlsOverlay(
                     coordinator = coordinator,
                     playback = playback,
                     localVideoProcessingAvailable = localVideoProcessingAvailable,
+                    audioAvailable = hostState.onAudio != null,
                     onPlayPause = onPlayPause,
                     onPrevious = onPrevious,
                     onNext = onNext,
@@ -173,6 +204,7 @@ fun PlayerControlsOverlay(
                     onInteractionEnd = onInteractionEnd,
                     onOpenMenu = openMenuWithFocusReturn,
                     onSubtitles = openSubtitlesWithFocusReturn,
+                    onAudio = openAudioWithFocusReturn,
                     onRotate = onRotate,
                     onLock = onLock,
                     onPip = onPip,
@@ -183,7 +215,7 @@ fun PlayerControlsOverlay(
 
         if (coordinator.controlsLocked && coordinator.unlockVisible) {
             PlayerCircleAction(
-                label = "Unlock",
+                icon = ChromeIcon.LOCK,
                 description = "Unlock player controls",
                 onClick = onUnlock,
                 modifier = Modifier
@@ -221,11 +253,14 @@ private fun PlayerTopBar(
     playback: PlaybackUiState,
     fallbackTitle: String,
     localVideoProcessingAvailable: Boolean,
+    audioAvailable: Boolean,
     subtitleButtonFocusRequester: FocusRequester,
+    audioButtonFocusRequester: FocusRequester,
     decoderButtonFocusRequester: FocusRequester,
     moreButtonFocusRequester: FocusRequester,
     onBack: () -> Unit,
     onSubtitles: () -> Unit,
+    onAudio: () -> Unit,
     onDecoder: () -> Unit,
     onMore: () -> Unit,
 ) {
@@ -237,7 +272,7 @@ private fun PlayerTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        PlayerCircleAction("‹", "Back to media library", onBack)
+        PlayerCircleAction(icon = ChromeIcon.BACK, description = "Back to media library", onClick = onBack)
         Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
             Text(
                 text = playback.title.ifBlank { fallbackTitle },
@@ -255,21 +290,34 @@ private fun PlayerTopBar(
                 )
             }
         }
+        if (playback.playbackTarget == PlaybackTarget.CAST_DEVICE) {
+            PlayerStatusChip(icon = ChromeIcon.CAST, label = "Cast", description = "Playing on Cast receiver", tag = "cast_status_chip")
+        }
+        if (audioAvailable) {
+            PlayerCircleAction(
+                icon = ChromeIcon.AUDIO,
+                description = if (localVideoProcessingAvailable) "Audio tracks" else "Audio tracks; phone processing unavailable during Cast",
+                onClick = onAudio,
+                modifier = Modifier.focusRequester(audioButtonFocusRequester).focusable().testTag("audio_button"),
+            )
+        }
         PlayerCircleAction(
-            label = if (!playback.subtitles.enabled) "CC" else "CC•",
+            icon = ChromeIcon.SUBTITLES,
+            label = if (playback.subtitles.enabled) "On" else null,
             description = "Subtitle tracks",
             onClick = onSubtitles,
             modifier = Modifier.focusRequester(subtitleButtonFocusRequester).focusable().testTag("subtitle_button"),
         )
         PlayerCircleAction(
-            label = if (localVideoProcessingAvailable) decoderCompactLabel(coordinator.decoder.requestedMode) else "Cast",
+            icon = ChromeIcon.DECODER,
+            label = if (localVideoProcessingAvailable) decoderCompactLabel(coordinator.decoder.requestedMode) else null,
             description = if (localVideoProcessingAvailable) "Decoder: ${decoderFullLabel(coordinator.decoder.requestedMode)}" else "Decoder controlled by Cast receiver",
             onClick = onDecoder,
             enabled = localVideoProcessingAvailable,
             modifier = Modifier.focusRequester(decoderButtonFocusRequester).focusable().testTag("decoder_button"),
         )
         PlayerCircleAction(
-            label = "⋮",
+            icon = ChromeIcon.MORE,
             description = "More playback tools",
             onClick = onMore,
             modifier = Modifier.focusRequester(moreButtonFocusRequester).focusable().testTag("more_button"),
@@ -282,8 +330,10 @@ private fun PlayerQuickRail(
     coordinator: PlayerCoordinatorState,
     playback: PlaybackUiState,
     localVideoProcessingAvailable: Boolean,
+    audioAvailable: Boolean,
     onOpenMenu: (PlayerMenu) -> Unit,
     onSubtitles: () -> Unit,
+    onAudio: () -> Unit,
     onRotate: () -> Unit,
     onPip: () -> Unit,
     onFullscreen: () -> Unit,
@@ -297,19 +347,21 @@ private fun PlayerQuickRail(
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RailAction("${formatSpeed(playback.playbackSpeed)}×", "Playback speed", { onOpenMenu(PlayerMenu.SPEED) }, "speed_button", playback.playbackSpeed != 1f)
-        RailAction("CC", "Subtitles", onSubtitles, modified = playback.subtitles.enabled)
-        RailAction("Dec", "Decoder", { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
-        RailAction("Fit", "Display and aspect ratio", { onOpenMenu(PlayerMenu.DISPLAY) }, "display_button", coordinator.resizeMode != ResizeMode.FIT, localVideoProcessingAvailable)
-        RailAction("↻", "Rotate display", onRotate, "rotation_button", coordinator.displayRotationDegrees != 0, localVideoProcessingAvailable)
-        RailAction("Mode", "Repeat and shuffle", { onOpenMenu(PlayerMenu.PLAYBACK) }, "playback_mode_button", playback.shuffleEnabled)
+        RailAction(ChromeIcon.SPEED, "${formatSpeed(playback.playbackSpeed)}×", "Playback speed", { onOpenMenu(PlayerMenu.SPEED) }, "speed_button", playback.playbackSpeed != 1f)
+        if (audioAvailable) RailAction(ChromeIcon.AUDIO, "Audio", "Audio tracks", onAudio, "audio_rail_button")
+        RailAction(ChromeIcon.SUBTITLES, "CC", "Subtitles", onSubtitles, modified = playback.subtitles.enabled)
+        RailAction(ChromeIcon.DECODER, decoderCompactLabel(coordinator.decoder.requestedMode), "Decoder", { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
+        RailAction(ChromeIcon.DISPLAY, "Fit", "Display and aspect ratio", { onOpenMenu(PlayerMenu.DISPLAY) }, "display_button", coordinator.resizeMode != ResizeMode.FIT, localVideoProcessingAvailable)
+        RailAction(ChromeIcon.ROTATE, "Rotate", "Rotate display", onRotate, "rotation_button", coordinator.displayRotationDegrees != 0, localVideoProcessingAvailable)
+        RailAction(ChromeIcon.PLAYBACK, "Mode", "Repeat and shuffle", { onOpenMenu(PlayerMenu.PLAYBACK) }, "playback_mode_button", playback.shuffleEnabled)
         if (playback.videoTracks.size > 1) {
-            RailAction("${playback.videoTracks.firstOrNull { it.selected }?.height ?: "Q"}p", "Video quality", { onOpenMenu(PlayerMenu.QUALITY) }, "video_quality_button")
+            RailAction(ChromeIcon.DISPLAY, "${playback.videoTracks.firstOrNull { it.selected }?.height ?: "Q"}p", "Video quality", { onOpenMenu(PlayerMenu.QUALITY) }, "video_quality_button")
         }
-        RailAction("Orient", "Player orientation", { onOpenMenu(PlayerMenu.ORIENTATION) }, "orientation_button")
-        RailAction("PiP", "Picture in picture", onPip, "pip_button")
-        RailAction(if (coordinator.fullscreen) "Window" else "Full", "Fullscreen", onFullscreen, "fullscreen_button", coordinator.fullscreen)
-        RailAction("More", "More playback tools", { onOpenMenu(PlayerMenu.SETTINGS) })
+        RailAction(ChromeIcon.ORIENTATION, "Orient", "Player orientation", { onOpenMenu(PlayerMenu.ORIENTATION) }, "orientation_button")
+        RailAction(ChromeIcon.PIP, "PiP", "Picture in picture", onPip, "pip_button")
+        RailAction(if (coordinator.fullscreen) ChromeIcon.EXIT_FULLSCREEN else ChromeIcon.FULLSCREEN, if (coordinator.fullscreen) "Window" else "Full", "Fullscreen", onFullscreen, "fullscreen_button", coordinator.fullscreen)
+        RailAction(ChromeIcon.INFO, "Info", "Media information", { onOpenMenu(PlayerMenu.INFO) }, "info_button")
+        RailAction(ChromeIcon.MORE, "More", "More playback tools", { onOpenMenu(PlayerMenu.SETTINGS) })
     }
 }
 
@@ -318,6 +370,7 @@ private fun PlayerBottomBar(
     coordinator: PlayerCoordinatorState,
     playback: PlaybackUiState,
     localVideoProcessingAvailable: Boolean,
+    audioAvailable: Boolean,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -328,6 +381,7 @@ private fun PlayerBottomBar(
     onInteractionEnd: () -> Unit,
     onOpenMenu: (PlayerMenu) -> Unit,
     onSubtitles: () -> Unit,
+    onAudio: () -> Unit,
     onRotate: () -> Unit,
     onLock: () -> Unit,
     onPip: () -> Unit,
@@ -398,17 +452,18 @@ private fun PlayerBottomBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PlayerCircleAction("Lock", "Lock player controls", onLock, Modifier.testTag("lock_button"))
-            PlayerCircleAction("|‹", "Previous video", onPrevious, Modifier.testTag("previous_button"), playback.hasPrevious)
+            PlayerCircleAction(icon = ChromeIcon.LOCK, description = "Lock player controls", onClick = onLock, modifier = Modifier.testTag("lock_button"))
+            PlayerCircleAction(icon = ChromeIcon.PREVIOUS, description = "Previous video", onClick = onPrevious, modifier = Modifier.testTag("previous_button"), enabled = playback.hasPrevious)
             PlayerCircleAction(
-                label = if (playback.isPlaying) "❚❚" else if (playback.playbackEnded) "↺" else "▶",
+                icon = if (playback.isPlaying) ChromeIcon.PAUSE else if (playback.playbackEnded) ChromeIcon.REPLAY else ChromeIcon.PLAY,
                 description = if (playback.isPlaying) "Pause" else if (playback.playbackEnded) "Replay" else "Play",
                 onClick = onPlayPause,
                 modifier = Modifier.testTag("play_pause_button"),
                 prominent = true,
             )
-            PlayerCircleAction("›|", "Next video", onNext, Modifier.testTag("next_button"), playback.hasNext)
+            PlayerCircleAction(icon = ChromeIcon.NEXT, description = "Next video", onClick = onNext, modifier = Modifier.testTag("next_button"), enabled = playback.hasNext)
             PlayerCircleAction(
+                icon = ChromeIcon.DISPLAY,
                 label = when (coordinator.resizeMode) {
                     ResizeMode.FIT -> "Fit"
                     ResizeMode.FILL -> "Fill"
@@ -441,6 +496,8 @@ private fun PlayerBottomBar(
                 colors = ButtonDefaults.textButtonColors(contentColor = MaxDesignTokens.PlayerText),
                 modifier = Modifier.sizeIn(minHeight = 48.dp).testTag("tools_toggle_button"),
             ) {
+                PlayerGlyph(ChromeIcon.TOOLS, Modifier.size(20.dp))
+                Spacer(Modifier.size(6.dp))
                 Text(if (extendedToolsVisible) "Hide tools" else "Tools")
             }
         }
@@ -451,14 +508,21 @@ private fun PlayerBottomBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                ExtendedTool("Speed", "${formatSpeed(playback.playbackSpeed)}×", { onOpenMenu(PlayerMenu.SPEED) })
-                ExtendedTool("Subtitle", if (playback.subtitles.enabled) "On" else "Off", onSubtitles)
-                ExtendedTool("Decoder", decoderCompactLabel(coordinator.decoder.requestedMode), { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
-                ExtendedTool("Aspect", coordinator.resizeMode.name.lowercase().replaceFirstChar { it.uppercase() }, { onOpenMenu(PlayerMenu.DISPLAY) }, enabled = localVideoProcessingAvailable)
-                ExtendedTool("Rotate", "90°", onRotate, enabled = localVideoProcessingAvailable)
-                ExtendedTool("Orientation", coordinator.orientationMode.name.lowercase().replace('_', ' '), { onOpenMenu(PlayerMenu.ORIENTATION) })
-                ExtendedTool("PiP", "Window", onPip)
-                ExtendedTool("Fullscreen", if (coordinator.fullscreen) "Exit" else "Enter", onFullscreen)
+                ExtendedTool(ChromeIcon.SPEED, "Speed", "${formatSpeed(playback.playbackSpeed)}×", { onOpenMenu(PlayerMenu.SPEED) })
+                if (audioAvailable) ExtendedTool(ChromeIcon.AUDIO, "Audio", "Tracks", onAudio)
+                ExtendedTool(ChromeIcon.SUBTITLES, "Subtitle", if (playback.subtitles.enabled) "On" else "Off", onSubtitles)
+                ExtendedTool(ChromeIcon.DECODER, "Decoder", decoderCompactLabel(coordinator.decoder.requestedMode), { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
+                ExtendedTool(ChromeIcon.DISPLAY, "Aspect", coordinator.resizeMode.name.lowercase().replaceFirstChar { it.uppercase() }, { onOpenMenu(PlayerMenu.DISPLAY) }, enabled = localVideoProcessingAvailable)
+                ExtendedTool(ChromeIcon.ROTATE, "Rotate", "90°", onRotate, enabled = localVideoProcessingAvailable)
+                ExtendedTool(ChromeIcon.PLAYBACK, "Playback", if (playback.shuffleEnabled) "Shuffle" else "Mode", { onOpenMenu(PlayerMenu.PLAYBACK) })
+                if (playback.videoTracks.size > 1) {
+                    ExtendedTool(ChromeIcon.DISPLAY, "Quality", "${playback.videoTracks.firstOrNull { it.selected }?.height ?: "Q"}p", { onOpenMenu(PlayerMenu.QUALITY) })
+                }
+                ExtendedTool(ChromeIcon.ORIENTATION, "Orientation", coordinator.orientationMode.name.lowercase().replace('_', ' '), { onOpenMenu(PlayerMenu.ORIENTATION) })
+                ExtendedTool(ChromeIcon.PIP, "PiP", "Window", onPip)
+                ExtendedTool(if (coordinator.fullscreen) ChromeIcon.EXIT_FULLSCREEN else ChromeIcon.FULLSCREEN, "Fullscreen", if (coordinator.fullscreen) "Exit" else "Enter", onFullscreen)
+                ExtendedTool(ChromeIcon.INFO, "Info", "Media", { onOpenMenu(PlayerMenu.INFO) })
+                ExtendedTool(ChromeIcon.MORE, "More", "Tools", { onOpenMenu(PlayerMenu.SETTINGS) })
             }
         }
     }
@@ -466,12 +530,13 @@ private fun PlayerBottomBar(
 
 @Composable
 private fun PlayerCircleAction(
-    label: String,
     description: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     prominent: Boolean = false,
+    icon: ChromeIcon? = null,
+    label: String? = null,
 ) {
     TextButton(
         onClick = onClick,
@@ -483,15 +548,39 @@ private fun PlayerCircleAction(
             disabledContentColor = MaxDesignTokens.PlayerText.copy(alpha = 0.35f),
             disabledContainerColor = MaxDesignTokens.PlayerControl.copy(alpha = 0.35f),
         ),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = if (prominent) 18.dp else 11.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = if (prominent) 14.dp else 10.dp, vertical = 8.dp),
         modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = description },
     ) {
-        Text(label, maxLines = 1, fontWeight = if (prominent) FontWeight.Bold else FontWeight.Medium)
+        if (icon != null) PlayerGlyph(icon, Modifier.size(if (prominent) 24.dp else 20.dp))
+        if (label != null) {
+            if (icon != null) Spacer(Modifier.size(5.dp))
+            Text(label, maxLines = 1, fontWeight = if (prominent) FontWeight.Bold else FontWeight.Medium, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun PlayerStatusChip(icon: ChromeIcon, label: String, description: String, tag: String) {
+    Surface(
+        color = MaxDesignTokens.PlayerControl,
+        contentColor = MaxDesignTokens.PlayerText,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.testTag(tag).semantics { contentDescription = description },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PlayerGlyph(icon, Modifier.size(18.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+        }
     }
 }
 
 @Composable
 private fun RailAction(
+    icon: ChromeIcon,
     label: String,
     description: String,
     onClick: () -> Unit,
@@ -501,18 +590,22 @@ private fun RailAction(
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         PlayerCircleAction(
+            icon = icon,
             label = label,
             description = description + if (modified) ", modified" else "",
             onClick = onClick,
             enabled = enabled,
             modifier = if (tag == null) Modifier else Modifier.testTag(tag),
         )
-        if (modified) Text("•", color = Color(0xFF9DC8EE), style = MaterialTheme.typography.labelSmall)
+        if (modified) {
+            Canvas(Modifier.size(5.dp)) { drawCircle(Color(0xFF9DC8EE)) }
+        }
     }
 }
 
 @Composable
 private fun ExtendedTool(
+    icon: ChromeIcon,
     title: String,
     value: String,
     onClick: () -> Unit,
@@ -522,11 +615,47 @@ private fun ExtendedTool(
         onClick = onClick,
         enabled = enabled,
         colors = ButtonDefaults.textButtonColors(contentColor = MaxDesignTokens.PlayerText),
-        modifier = Modifier.sizeIn(minWidth = 76.dp, minHeight = 48.dp),
+        modifier = Modifier.sizeIn(minWidth = 82.dp, minHeight = 56.dp),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            PlayerGlyph(icon, Modifier.size(20.dp))
             Text(title, maxLines = 1, style = MaterialTheme.typography.labelMedium)
             Text(value, maxLines = 1, color = MaxDesignTokens.PlayerTextSecondary, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun PlayerGlyph(icon: ChromeIcon, modifier: Modifier = Modifier) {
+    val color = androidx.compose.material3.LocalContentColor.current
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = (w * 0.09f).coerceAtLeast(1.5f)
+        val style = Stroke(width = stroke, cap = StrokeCap.Round)
+        fun line(x1: Float, y1: Float, x2: Float, y2: Float) = drawLine(color, Offset(w * x1, h * y1), Offset(w * x2, h * y2), strokeWidth = stroke, cap = StrokeCap.Round)
+        when (icon) {
+            ChromeIcon.BACK -> { line(.70f, .18f, .34f, .50f); line(.34f, .50f, .70f, .82f) }
+            ChromeIcon.SUBTITLES -> { drawRoundRect(color, Offset(w*.10f,h*.20f), androidx.compose.ui.geometry.Size(w*.80f,h*.60f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w*.10f), style = style); line(.28f,.58f,.42f,.58f); line(.58f,.58f,.72f,.58f) }
+            ChromeIcon.AUDIO -> { line(.22f,.40f,.38f,.40f); line(.38f,.40f,.55f,.25f); line(.55f,.25f,.55f,.75f); line(.55f,.75f,.38f,.60f); line(.38f,.60f,.22f,.60f); drawArc(color,-55f,110f,false,Offset(w*.48f,h*.28f),androidx.compose.ui.geometry.Size(w*.36f,h*.44f),style=style) }
+            ChromeIcon.MORE -> { drawCircle(color,w*.07f,Offset(w*.25f,h*.50f)); drawCircle(color,w*.07f,Offset(w*.50f,h*.50f)); drawCircle(color,w*.07f,Offset(w*.75f,h*.50f)) }
+            ChromeIcon.ROTATE, ChromeIcon.REPLAY -> { drawArc(color,-55f,285f,false,Offset(w*.16f,h*.16f),androidx.compose.ui.geometry.Size(w*.68f,h*.68f),style=style); val p=Path().apply{moveTo(w*.72f,h*.10f);lineTo(w*.88f,h*.20f);lineTo(w*.70f,h*.29f);close()}; drawPath(p,color) }
+            ChromeIcon.PLAYBACK -> { line(.20f,.30f,.72f,.30f); line(.72f,.30f,.60f,.20f); line(.72f,.30f,.60f,.40f); line(.80f,.70f,.28f,.70f); line(.28f,.70f,.40f,.60f); line(.28f,.70f,.40f,.80f) }
+            ChromeIcon.ORIENTATION -> { drawRoundRect(color,Offset(w*.26f,h*.10f),androidx.compose.ui.geometry.Size(w*.48f,h*.80f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.06f),style=style); line(.43f,.78f,.57f,.78f) }
+            ChromeIcon.PIP -> { drawRect(color,Offset(w*.10f,h*.18f),androidx.compose.ui.geometry.Size(w*.80f,h*.64f),style=style); drawRect(color,Offset(w*.48f,h*.48f),androidx.compose.ui.geometry.Size(w*.30f,h*.22f),style=style) }
+            ChromeIcon.FULLSCREEN -> { line(.12f,.38f,.12f,.12f); line(.12f,.12f,.38f,.12f); line(.62f,.12f,.88f,.12f); line(.88f,.12f,.88f,.38f); line(.88f,.62f,.88f,.88f); line(.88f,.88f,.62f,.88f); line(.38f,.88f,.12f,.88f); line(.12f,.88f,.12f,.62f) }
+            ChromeIcon.EXIT_FULLSCREEN -> { line(.12f,.38f,.38f,.38f); line(.38f,.38f,.38f,.12f); line(.62f,.12f,.62f,.38f); line(.62f,.38f,.88f,.38f); line(.88f,.62f,.62f,.62f); line(.62f,.62f,.62f,.88f); line(.38f,.88f,.38f,.62f); line(.38f,.62f,.12f,.62f) }
+            ChromeIcon.LOCK -> { drawRoundRect(color,Offset(w*.24f,h*.42f),androidx.compose.ui.geometry.Size(w*.52f,h*.42f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.07f),style=style); drawArc(color,180f,180f,false,Offset(w*.32f,h*.16f),androidx.compose.ui.geometry.Size(w*.36f,h*.50f),style=style) }
+            ChromeIcon.PREVIOUS -> { line(.25f,.20f,.25f,.80f); val p=Path().apply{moveTo(w*.72f,h*.20f);lineTo(w*.36f,h*.50f);lineTo(w*.72f,h*.80f);close()}; drawPath(p,color) }
+            ChromeIcon.PLAY -> { val p=Path().apply{moveTo(w*.32f,h*.20f);lineTo(w*.78f,h*.50f);lineTo(w*.32f,h*.80f);close()}; drawPath(p,color) }
+            ChromeIcon.PAUSE -> { drawRoundRect(color,Offset(w*.28f,h*.20f),androidx.compose.ui.geometry.Size(w*.14f,h*.60f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.04f)); drawRoundRect(color,Offset(w*.58f,h*.20f),androidx.compose.ui.geometry.Size(w*.14f,h*.60f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.04f)) }
+            ChromeIcon.NEXT -> { line(.75f,.20f,.75f,.80f); val p=Path().apply{moveTo(w*.28f,h*.20f);lineTo(w*.64f,h*.50f);lineTo(w*.28f,h*.80f);close()}; drawPath(p,color) }
+            ChromeIcon.DISPLAY -> { drawRoundRect(color,Offset(w*.10f,h*.20f),androidx.compose.ui.geometry.Size(w*.80f,h*.55f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.06f),style=style); line(.40f,.86f,.60f,.86f); line(.50f,.75f,.50f,.86f) }
+            ChromeIcon.INFO -> { drawCircle(color,w*.38f,Offset(w*.50f,h*.50f),style=style); drawCircle(color,w*.055f,Offset(w*.50f,h*.32f)); line(.50f,.46f,.50f,.68f) }
+            ChromeIcon.DECODER -> { drawRoundRect(color,Offset(w*.16f,h*.20f),androidx.compose.ui.geometry.Size(w*.68f,h*.60f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.08f),style=style); line(.28f,.10f,.28f,.20f); line(.50f,.10f,.50f,.20f); line(.72f,.10f,.72f,.20f); line(.28f,.80f,.28f,.90f); line(.50f,.80f,.50f,.90f); line(.72f,.80f,.72f,.90f) }
+            ChromeIcon.SPEED -> { drawArc(color,180f,180f,false,Offset(w*.14f,h*.24f),androidx.compose.ui.geometry.Size(w*.72f,h*.72f),style=style); line(.50f,.60f,.72f,.38f) }
+            ChromeIcon.CAST -> { drawRoundRect(color,Offset(w*.16f,h*.18f),androidx.compose.ui.geometry.Size(w*.70f,h*.56f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.05f),style=style); drawArc(color,270f,90f,false,Offset(w*.08f,h*.58f),androidx.compose.ui.geometry.Size(w*.22f,h*.22f),style=style); drawArc(color,270f,90f,false,Offset(w*.08f,h*.46f),androidx.compose.ui.geometry.Size(w*.40f,h*.40f),style=style); drawCircle(color,w*.045f,Offset(w*.12f,h*.84f)) }
+            ChromeIcon.TOOLS -> { line(.18f,.28f,.82f,.28f); line(.18f,.50f,.82f,.50f); line(.18f,.72f,.82f,.72f); drawCircle(color,w*.08f,Offset(w*.36f,h*.28f)); drawCircle(color,w*.08f,Offset(w*.66f,h*.50f)); drawCircle(color,w*.08f,Offset(w*.46f,h*.72f)) }
         }
     }
 }
