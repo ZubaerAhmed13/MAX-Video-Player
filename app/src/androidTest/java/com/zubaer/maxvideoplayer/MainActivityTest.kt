@@ -22,8 +22,11 @@ class MainActivityTest {
     @Test
     fun releaseLibraryChromeRendersWithoutPermanentSearchOrLegacyTopStrip() {
         rule.onNodeWithTag("library_search_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_search_icon").assertIsDisplayed()
         rule.onNodeWithTag("library_view_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_view_icon").assertIsDisplayed()
         rule.onNodeWithTag("library_more_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_more_icon").assertIsDisplayed()
         rule.onNodeWithTag("library_section_row").assertIsDisplayed()
         rule.onNodeWithTag("section_folders").assertExists()
         rule.onNodeWithTag("section_private").assertExists()
@@ -82,13 +85,16 @@ class MainActivityTest {
         search.assertIsDisplayed().performTextInput("definitely missing")
         search.performImeAction()
         rule.waitForIdle()
-        rule.onNodeWithTag("clear_search_button").assertIsDisplayed().performClick()
+        rule.onNodeWithTag("clear_search_button").assertIsDisplayed()
+        rule.onNodeWithTag("clear_search_icon").assertIsDisplayed()
+        rule.onNodeWithTag("clear_search_button").performClick()
         rule.waitForIdle()
         rule.onAllNodes(hasTestTag("clear_search_button")).assertCountEquals(0)
 
         search.performTextInput("another query")
         rule.waitForIdle()
         rule.onNodeWithTag("clear_search_button").assertIsDisplayed()
+        rule.onNodeWithTag("clear_search_icon").assertIsDisplayed()
         rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         rule.waitForIdle()
         rule.onNodeWithTag("library_search_input").assertDoesNotExist()
@@ -110,7 +116,9 @@ class MainActivityTest {
         rule.activityRule.scenario.recreate()
         rule.waitForIdle()
         rule.onNodeWithTag("library_search_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_search_icon").assertIsDisplayed()
         rule.onNodeWithTag("library_more_button").assertIsDisplayed()
+        rule.onNodeWithTag("library_more_icon").assertIsDisplayed()
         rule.onNodeWithTag("library_section_row").assertIsDisplayed()
     }
 
