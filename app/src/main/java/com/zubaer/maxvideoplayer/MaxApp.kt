@@ -7,12 +7,6 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,10 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zubaer.maxvideoplayer.core.model.AppMedia
@@ -38,7 +29,7 @@ import com.zubaer.maxvideoplayer.feature.library.LibraryViewModel
 import com.zubaer.maxvideoplayer.feature.network.presentation.NetworkScreen
 import com.zubaer.maxvideoplayer.feature.network.presentation.NetworkViewModel
 import com.zubaer.maxvideoplayer.feature.output.ExternalDisplayController
-import com.zubaer.maxvideoplayer.feature.output.OutputDeviceButton
+import com.zubaer.maxvideoplayer.feature.output.OutputDeviceDialog
 import com.zubaer.maxvideoplayer.feature.player.OrientationMode
 import com.zubaer.maxvideoplayer.feature.player.PlayerViewModel
 import com.zubaer.maxvideoplayer.feature.privatevault.presentation.AppLockScreen
@@ -46,7 +37,6 @@ import com.zubaer.maxvideoplayer.feature.privatevault.presentation.PrivateVaultS
 import com.zubaer.maxvideoplayer.feature.privatevault.presentation.PrivateVaultViewModel
 import com.zubaer.maxvideoplayer.feature.settings.AccessibilityContrastMode
 import com.zubaer.maxvideoplayer.feature.settings.SettingsScreen
-import com.zubaer.maxvideoplayer.feature.sleeptimer.SleepTimerButton
 import com.zubaer.maxvideoplayer.feature.sleeptimer.SleepTimerDialog
 import com.zubaer.maxvideoplayer.feature.tv.TvDestination
 import com.zubaer.maxvideoplayer.feature.tv.TvHomeScreen
@@ -84,6 +74,7 @@ fun MaxApp(
     var showPrivate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showSleepTimer by remember { mutableStateOf(false) }
+    var showOutputDevice by remember { mutableStateOf(false) }
     var showTvHome by remember { mutableStateOf(isTv) }
     var lastTvDestination by remember { mutableStateOf(TvDestination.LIBRARY) }
     val removableVolumes by container.removableStorageController.volumes.collectAsStateWithLifecycle()
@@ -321,38 +312,40 @@ fun MaxApp(
                     )
                 },
             )
-            Box(Modifier.fillMaxSize()) {
-                ReleaseProfessionalAudioPlayerHost(
-                    media = media,
-                    viewModel = playerViewModel,
-                    playbackConnection = container.playbackConnection,
-                    subtitleRepository = container.subtitleRepository,
-                    audioRepository = container.audioRepository,
-                    audioController = container.audioPlaybackController,
-                    onBack = {
-                        navigationViewModel.clearSelection()
-                        if (isTv) showTvHome = true
-                    },
-                    onEnterPip = { selected ->
-                        if (selected.sourceType != MediaSourceType.PRIVATE) onEnterPip(selected)
-                    },
-                    onFullscreenChanged = onFullscreenChanged,
-                    onOrientationModeChanged = onOrientationModeChanged,
-                    onPlayerHostStateChanged = onPlayerHostStateChanged,
-                    onAudioBackgroundPolicyChanged = onAudioBackgroundPolicyChanged,
-                )
-                Row(
-                    modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 4.dp, end = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    SleepTimerButton(container.sleepTimerRepository, onOpen = { showSleepTimer = true })
-                    if (media.sourceType != MediaSourceType.PRIVATE) {
-                        OutputDeviceButton(controller = externalDisplayController)
+            ReleaseProfessionalAudioPlayerHost(
+                media = media,
+                viewModel = playerViewModel,
+                playbackConnection = container.playbackConnection,
+                subtitleRepository = container.subtitleRepository,
+                audioRepository = container.audioRepository,
+                audioController = container.audioPlaybackController,
+                onBack = {
+                    navigationViewModel.clearSelection()
+                    if (isTv) showTvHome = true
+                },
+                onEnterPip = { selected ->
+                    if (selected.sourceType != MediaSourceType.PRIVATE) onEnterPip(selected)
+                },
+                onFullscreenChanged = onFullscreenChanged,
+                onOrientationModeChanged = onOrientationModeChanged,
+                onPlayerHostStateChanged = onPlayerHostStateChanged,
+                onAudioBackgroundPolicyChanged = onAudioBackgroundPolicyChanged,
+                onSleepTimer = { showSleepTimer = true },
+                onOutputDevice = if (media.sourceType == MediaSourceType.PRIVATE) null else {
+                    {
+                        externalDisplayController.refreshPlayerBinding()
+                        showOutputDevice = true
                     }
-                }
-            }
+                },
+            )
             if (showSleepTimer) {
                 SleepTimerDialog(container.sleepTimerRepository, onDismiss = { showSleepTimer = false })
+            }
+            if (showOutputDevice && media.sourceType != MediaSourceType.PRIVATE) {
+                OutputDeviceDialog(
+                    controller = externalDisplayController,
+                    onDismiss = { showOutputDevice = false },
+                )
             }
         }
     }
