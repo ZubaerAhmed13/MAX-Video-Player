@@ -1,13 +1,19 @@
 package com.zubaer.maxvideoplayer.feature.player
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.Density
 import com.zubaer.maxvideoplayer.core.model.PlaybackUiState
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -56,13 +62,212 @@ class PlayerControlsInstrumentedTest {
         composeRule.onNodeWithTag("previous_button").assertExists()
         composeRule.onNodeWithTag("play_pause_button").assertExists().performClick()
         composeRule.onNodeWithTag("next_button").assertExists()
+        composeRule.onNodeWithTag("player_tool_rail").assertExists()
         composeRule.onNodeWithTag("speed_button").assertExists()
         composeRule.onNodeWithTag("display_button").assertExists()
+        composeRule.onNodeWithTag("rotation_button").assertExists()
         composeRule.onNodeWithTag("orientation_button").assertExists()
         composeRule.onNodeWithTag("lock_button").assertExists()
         composeRule.onNodeWithTag("pip_button").assertExists()
         composeRule.onNodeWithTag("fullscreen_button").assertExists()
+        composeRule.onNodeWithTag("subtitle_button").assertExists()
+        composeRule.onNodeWithTag("decoder_button").assertExists()
+        composeRule.onNodeWithTag("info_button").assertExists()
+        composeRule.onNodeWithTag("more_button").assertExists()
+        composeRule.onNodeWithTag("tools_toggle_button").assertExists()
+        composeRule.onNodeWithTag("extended_tool_rail").assertDoesNotExist()
         assertTrue(playClicked)
+    }
+
+    @Test
+    fun wideLayoutPromotesSubtitleAndDecoderIntoApprovedTopRow() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 1f)) {
+                MaterialTheme {
+                    PlayerControlsOverlay(
+                        coordinator = PlayerCoordinatorState(controlsVisible = true),
+                        playback = PlaybackUiState(durationMs = 60_000L, title = "Wide reference hierarchy"),
+                        fallbackTitle = "Wide",
+                        onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                        onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                        onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                        onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("reference_top_actions").assertExists()
+        composeRule.onNodeWithTag("quick_primary_actions").assertDoesNotExist()
+        composeRule.onNodeWithTag("subtitle_button").assertExists()
+        composeRule.onNodeWithTag("decoder_button").assertExists()
+    }
+
+    @Test
+    fun narrowLayoutMovesSubtitleAndDecoderToQuickRailFallback() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 4f, fontScale = 1f)) {
+                MaterialTheme {
+                    PlayerControlsOverlay(
+                        coordinator = PlayerCoordinatorState(controlsVisible = true),
+                        playback = PlaybackUiState(durationMs = 60_000L, title = "Narrow responsive hierarchy"),
+                        fallbackTitle = "Narrow",
+                        onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                        onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                        onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                        onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("reference_top_actions").assertDoesNotExist()
+        composeRule.onNodeWithTag("quick_primary_actions").assertExists()
+        composeRule.onNodeWithTag("subtitle_button").assertExists()
+        composeRule.onNodeWithTag("decoder_button").assertExists()
+    }
+
+    @Test
+    fun hostActionsAreIntegratedIntoSingleChrome() {
+        var audioClicked = false
+        var sleepClicked = false
+        var outputClicked = false
+        composeRule.setContent {
+            CompositionLocalProvider(
+                LocalPlayerChromeHostState provides PlayerChromeHostState(
+                    onAudio = { audioClicked = true },
+                    onSleepTimer = { sleepClicked = true },
+                    onOutputDevice = { outputClicked = true },
+                ),
+            ) {
+                MaterialTheme {
+                    PlayerControlsOverlay(
+                        coordinator = PlayerCoordinatorState(controlsVisible = true),
+                        playback = PlaybackUiState(durationMs = 60_000L),
+                        fallbackTitle = "Integrated chrome",
+                        onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                        onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                        onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                        onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("audio_button").assertExists().performClick()
+        composeRule.onNodeWithTag("output_device_button").assertExists().performClick()
+        composeRule.onNodeWithTag("sleep_timer_button").assertExists().performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertTrue(audioClicked)
+            assertTrue(sleepClicked)
+            assertTrue(outputClicked)
+        }
+    }
+
+    @Test
+    fun extendedToolRailUsesProgressiveDisclosure() {
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerControlsOverlay(
+                    coordinator = PlayerCoordinatorState(controlsVisible = true),
+                    playback = PlaybackUiState(durationMs = 60_000L),
+                    fallbackTitle = "Tools",
+                    onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                    onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                    onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                    onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("extended_tool_rail").assertDoesNotExist()
+        composeRule.onNodeWithTag("tools_toggle_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("extended_tool_rail").assertExists()
+        composeRule.onNodeWithTag("tools_toggle_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("extended_tool_rail").assertDoesNotExist()
+    }
+
+    @Test
+    fun moreButtonRoutesToSingleSettingsPanel() {
+        var requestedMenu = PlayerMenu.NONE
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerControlsOverlay(
+                    coordinator = PlayerCoordinatorState(controlsVisible = true),
+                    playback = PlaybackUiState(durationMs = 60_000L),
+                    fallbackTitle = "More",
+                    onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                    onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                    onInteractionStart = {}, onInteractionEnd = {},
+                    onOpenMenu = { requestedMenu = it },
+                    onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("more_button").assertExists().performClick()
+        composeRule.runOnIdle { assertEquals(PlayerMenu.SETTINGS, requestedMenu) }
+    }
+
+    @Test
+    fun subtitleAndMoreRestorePrimaryLauncherFocusAfterDismissal() {
+        var subtitleVisible by mutableStateOf(false)
+        var state by mutableStateOf(PlayerCoordinatorState(controlsVisible = true))
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerControlsOverlay(
+                    coordinator = state,
+                    playback = PlaybackUiState(durationMs = 60_000L),
+                    fallbackTitle = "Focus",
+                    subtitlePanelVisible = subtitleVisible,
+                    onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                    onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                    onInteractionStart = {}, onInteractionEnd = {},
+                    onOpenMenu = { menu -> state = state.copy(activeMenu = menu) },
+                    onSubtitles = { subtitleVisible = true },
+                    onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("subtitle_button").performClick()
+        composeRule.runOnIdle { subtitleVisible = false }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("subtitle_button").assertIsFocused()
+
+        composeRule.onNodeWithTag("more_button").performClick()
+        composeRule.runOnIdle { state = state.copy(activeMenu = PlayerMenu.NONE) }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("more_button").assertIsFocused()
+    }
+
+    @Test
+    fun largeFontKeepsCriticalControlsAndToolRailReachable() {
+        composeRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
+                MaterialTheme {
+                    PlayerControlsOverlay(
+                        coordinator = PlayerCoordinatorState(controlsVisible = true),
+                        playback = PlaybackUiState(durationMs = 60_000L, title = "Large font release verification title"),
+                        fallbackTitle = "Large font",
+                        onBack = {}, onPlayPause = {}, onPrevious = {}, onNext = {},
+                        onSeekPreview = { _, _ -> }, onSeekCommit = {},
+                        onInteractionStart = {}, onInteractionEnd = {}, onOpenMenu = {},
+                        onRotate = {}, onLock = {}, onUnlock = {}, onPip = {}, onFullscreen = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("subtitle_button").assertExists()
+        composeRule.onNodeWithTag("decoder_button").assertExists()
+        composeRule.onNodeWithTag("more_button").assertExists()
+        composeRule.onNodeWithTag("seek_bar").assertExists()
+        composeRule.onNodeWithTag("tools_toggle_button").assertExists().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("extended_tool_rail").assertExists()
     }
 
     @Test

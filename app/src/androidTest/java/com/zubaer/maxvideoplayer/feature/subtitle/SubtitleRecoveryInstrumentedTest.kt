@@ -28,16 +28,18 @@ class SubtitleRecoveryInstrumentedTest {
             .allowMainThreadQueries()
             .build()
         val repository = SubtitleRepository(context, database)
-        val original = File(context.cacheDir, "recovery.en.srt").apply {
+        val runId = "${System.currentTimeMillis()}-${System.nanoTime()}"
+        val mediaId = "media-recovery-$runId"
+        val original = File(context.cacheDir, "recovery-$runId.en.srt").apply {
             writeText("1\n00:00:00,100 --> 00:00:01,000\nOriginal\n")
         }
-        val replacement = File(context.cacheDir, "recovery.en.relinked.srt").apply {
+        val replacement = File(context.cacheDir, "recovery-$runId.en.relinked.srt").apply {
             writeText("1\n00:00:00,100 --> 00:00:01,000\nReplacement\n")
         }
 
         try {
             val attached = repository.saveExternalAttachment(
-                "media-recovery",
+                mediaId,
                 SubtitleFileDescriptor(
                     uri = Uri.fromFile(original).toString(),
                     displayName = original.name,
@@ -47,27 +49,28 @@ class SubtitleRecoveryInstrumentedTest {
                 ),
                 preferred = true,
             )
-            repository.setSubtitleDelay("media-recovery", -1_250L)
+            repository.setSubtitleDelay(mediaId, -1_250L)
             assertEquals(SubtitleAvailability.AVAILABLE, attached.availability)
 
             assertTrue(original.delete())
-            repository.refreshAvailability("media-recovery")
+            assertTrue("Original subtitle fixture still exists after delete", !original.exists())
+            repository.refreshAvailability(mediaId)
             assertEquals(
                 SubtitleAvailability.MISSING,
-                repository.externalAttachmentById("media-recovery", attached.id)?.availability,
+                repository.externalAttachmentById(mediaId, attached.id)?.availability,
             )
-            assertTrue(repository.recoverableErrorFor("media-recovery")?.contains("Video playback can continue") == true)
+            assertTrue(repository.recoverableErrorFor(mediaId)?.contains("Video playback can continue") == true)
 
             val descriptor = repository.describeAsync(Uri.fromFile(replacement))
             requireNotNull(descriptor)
-            val relinked = repository.relinkExternalAttachment("media-recovery", attached.id, descriptor)
+            val relinked = repository.relinkExternalAttachment(mediaId, attached.id, descriptor)
             requireNotNull(relinked)
             assertNotEquals(attached.id, relinked.id)
             assertEquals(-1_250L, relinked.delayMs)
-            assertEquals(relinked.id, repository.selectedExternalAttachmentId("media-recovery"))
+            assertEquals(relinked.id, repository.selectedExternalAttachmentId(mediaId))
             assertEquals(SubtitleAvailability.AVAILABLE, relinked.availability)
 
-            assertTrue(repository.setExternalEncoding("media-recovery", relinked.id, SubtitleEncoding.WINDOWS_1252))
+            assertTrue(repository.setExternalEncoding(mediaId, relinked.id, SubtitleEncoding.WINDOWS_1252))
             withTimeout(5_000L) {
                 while (database.subtitleDao().association(relinked.id)?.encoding != SubtitleEncoding.WINDOWS_1252.name) {
                     delay(25L)

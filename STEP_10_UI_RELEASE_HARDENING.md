@@ -1,0 +1,83 @@
+# Physical UI Release Hardening
+
+## Status
+
+This document records the Step-10 presentation-layer rebuild requested after physical review rejected the oversized purple development-style interface. It does not declare physical UI PASS. Physical phone verification remains mandatory before PR #23 can be merged or the application can be called release-ready.
+
+## Approved direction and clean-room boundary
+
+MAX Video Player now follows the approved reference interaction model for density, hierarchy, spacing, media browsing and playback controls while retaining original MAX branding, Compose implementation, strings, icons/assets and application architecture. Reference screenshots are design references only and must not be packaged in the APK/AAB. No proprietary source, decompiled resources, logos, trademarks, exact proprietary icons or protected artwork are used.
+
+Decoder terminology remains MAX-specific: `Auto`, `Hardware`, `Enhanced Hardware`, and `Software`. Compact player labels may use `Auto`, `HW`, `EHW`, and `SW`; `HW+` is forbidden.
+
+## Rejected UI defects
+
+The physical review identified release defects in the previous presentation:
+
+- P1: library content and primary controls could collide with the status-bar/cutout region.
+- P1/P2 pending physical reproducibility: the permanent top navigation strip could overflow horizontally and make destinations inaccessible.
+- P2: oversized purple pills, a permanently large search field, permanently visible sort/filter chrome and development-like player surfaces produced poor phone hierarchy and reduced usable video area.
+
+The hardening pass is therefore a presentation rebuild, not a status-bar-padding-only patch.
+
+## System insets and edge-to-edge
+
+Release library content is hosted inside safe drawing insets rather than universal hard-coded status-bar padding. Player video may remain immersive/edge-to-edge, while interactive player chrome and side panels respect safe drawing regions. Gesture-navigation, three-button navigation, display cutouts and landscape safe regions remain part of physical certification.
+
+## Library redesign
+
+The release library uses a compact title/action bar, horizontally scrollable source/category rail, lazy folder/media collections, compact progressive search, overflow sort/filter/navigation actions, thumbnail-based media rows, duration badges and a bottom-right Play action with list bottom clearance. Folder and media collections retain stable keys and the existing bounded thumbnail repository; scanning and thumbnail decoding are not moved onto the main thread.
+
+Primary sources remain accessible without a permanently oversized navigation strip. Continue Watching, Recent, Favourites, History and settings-related actions use progressive disclosure instead of consuming permanent screen rows.
+
+The release library no longer uses Unicode pseudo-icons for app-bar controls, folder artwork, overflow actions, playlist disclosure, search clearing or floating Play. Those surfaces now use original Compose-drawn vector-style glyphs with semantic descriptions and approximately 48 dp action targets where interactive.
+
+## Player redesign
+
+The player preserves the single service-owned playback authority and existing gesture, queue, resume, decoder, audio, subtitle, Cast, private-media and orientation behavior. Presentation uses translucent player chrome, compact circular controls, a thin seek timeline with a larger interactive target, centered transport controls and horizontally scrollable tool rails so narrow landscape layouts do not clip actions.
+
+Audio uses a right-side translucent release panel while retaining the existing production external-audio, synchronization and DSP paths. Subtitle uses the same right-side panel model while retaining embedded/external subtitle, synchronization, encoding, style and discovery behavior. Decoder uses a centered dark release modal with truthful requested/effective state. More/Tools uses a right-side scrollable release panel exposing only implemented actions and retained settings.
+
+## Final player chrome composition hardening
+
+A final review identified presentation defects after the first software-certified UI pass. They are corrected in software and must still be confirmed on the physical release device set:
+
+- **Player top control composition — corrected in software.** The previous composition allowed `PlayerScreen`, the Audio wrapper and `MaxApp` to paint separate launchers into the same top region. The phone player now has one visual chrome owner. `MaxApp` no longer paints an independent Sleep/Output row and the audio wrapper no longer paints a floating Audio button.
+- **Approved top hierarchy — corrected responsively.** At available widths of at least 640 dp, the player follows the approved reference order: Back/title + Output/Cast + Audio + Subtitle + Decoder + More. Below that width, Subtitle and Decoder move together to the front of the horizontally scrollable quick rail while Back/title + Output/Cast + Audio + More remain in the fixed top row. The controls therefore exist in exactly one primary location at a time rather than being duplicated or clipped.
+- **Cast/Audio integration — corrected in software.** Output/Cast and Audio enter through the approved player chrome. Cast state is conveyed by the integrated output action and the existing receiver-controlled processing notice.
+- **Tool-rail parity — corrected in software.** The scrollable primary/extended rails expose the implemented Speed, Audio, Subtitle, Decoder, Aspect, Rotate, Playback mode, conditional Quality, Orientation, PiP, Fullscreen, Information, Sleep Timer, Output/Cast and More destinations. Conditional tools remain conditional rather than being represented by fake or disabled placeholder features.
+- **Icon quality — corrected in software.** Core player navigation, transport and tool controls and the release-library navigation/action controls no longer depend on Unicode arrows/play/pause/rotate/more/search/grid/list/folder symbols for their primary glyphs. They use Compose-drawn vector-style glyphs with semantic descriptions; short text such as `Auto`, `HW`, `CC`, `Fit` and speed values remains only where it conveys state or terminology.
+
+## Panel and Back behavior
+
+Player menu ownership remains centralized through the existing coordinator state rather than creating competing playback engines or parallel feature implementations. Opening a player menu routes into the existing production action paths. Back/dismiss behavior closes the active overlay or panel before leaving playback according to the retained player hierarchy.
+
+On phone layouts, Audio, Subtitle and More enter an explicit focusable panel host when opened. Subtitle/Decoder/More launcher actions retain a corresponding focus target and restore focus after dismissal; the integrated Audio launcher restores focus through the same chrome focus-return mechanism after the Audio/advanced-audio surface closes. TV keeps its existing D-pad focus path rather than being forced through the phone focus host.
+
+## Cast, private media and source truthfulness
+
+The UI hardening does not re-enable local-only video processing while Cast owns playback. Private-media restrictions continue to block prohibited Cast/PiP/external-display/capture behavior and protect private metadata. Network, cloud and local media continue to use the same player architecture rather than protocol-specific player copies.
+
+## Accessibility and responsive behavior
+
+Interactive player controls retain at least approximately 48 dp touch targets, semantic descriptions and disabled-state truthfulness. Titles use bounded line counts/ellipsis rather than forcing horizontal overflow. Scrollable rails and panels are used where fixed-width packing would clip content. The 640 dp player threshold is based on the actual Compose width available to the player, not a hard-coded device orientation, so tablets, split-screen and landscape phones use the same responsive rule. Release-player instrumentation exercises both branches, launcher-focus restoration, unified host-action routing and critical control/tool reachability at 200% font scale. Increased Android display size, physical TalkBack behavior and OEM/D-pad behavior remain required certification targets and are not inferred from emulator-only tests.
+
+## Automated regression coverage
+
+Step-10 retains the complete existing JVM and instrumentation matrix and adds release-UI expectations without weakening old production behavior requirements. `MainActivityTest` exercises the compact library chrome, vector glyph nodes, source rail, progressively disclosed search, overflow navigation, network URL entry, playlist surface, Back behavior and activity recreation. `PlayerControlsInstrumentedTest` covers the release player primary actions, the wide approved top hierarchy, the narrow quick-rail fallback, unified Audio/Output/Sleep host routing, Subtitle/Decoder/More entry points, tool rail, visibility state, buffering/HUD, lock/unlock behavior, launcher-focus restoration and 200% font-scale reachability.
+
+The Cast regression test verifies receiver-controlled processing truthfully through disabled local-processing controls, the integrated Output/Cast action and the dedicated Cast processing notice rather than requiring unrelated controls to carry presentation-specific `Cast` text.
+
+The strict Step-10 instrumentation script explicitly executes both release-UI classes in addition to retained decoder/coexistence, Cast, TV, USB, Private Vault, settings/accessibility and sleep-timer critical classes. Each strict class must report at least one executed test; missing, skipped, zero-test or failed critical runs remain release-blocking.
+
+## Required certification after UI source/test changes
+
+Any UI or required-test/documentation change invalidates earlier Step-10 release-candidate evidence. The exact final PR-head SHA must independently pass Android CI, Step 8 Certification, Step 9 Certification and Step 10 Certification, including API-35 retained instrumentation and API-26/API-28 regressions where configured. A fresh APK/AAB and hashes must come from that exact certified head.
+
+Software CI cannot substitute for the required physical UI test. On the exact certified APK, physically repeat launch → browse folder → open video → play → seek → Audio → Subtitle → Decoder → More → aspect/speed/sleep/rotation/background → Output/Cast → return, plus rapid portrait/library scrolling and repeated landscape panel open/close/lock/unlock cycles. Capture sanitized screenshots of the main folder screen, video list, player controls, extended tool rail, Audio panel, Subtitle panel, Decoder dialog and More panel.
+
+## Release gate
+
+Keep PR #23 in draft and unmerged until the new exact-head software matrix is green and independent physical testing confirms there is no remaining status-bar collision, horizontal clipping, inaccessible control, broken Back behavior, player recreation, lost seek/track state or material mismatch with the approved professional interaction model.
+
+Current physical status: **NOT VERIFIED — PHYSICAL HARDWARE UNAVAILABLE IN THIS EXECUTION ENVIRONMENT.**

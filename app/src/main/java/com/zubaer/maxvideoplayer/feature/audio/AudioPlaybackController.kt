@@ -21,7 +21,6 @@ class AudioPlaybackController(
     private val playbackConnection: PlaybackConnection,
 ) {
     private var boundPlayer: Player? = null
-    private var pendingExternalMediaId: String? = null
     private var recoveringExternalFailure = false
     private var backgroundVideoDisabled = false
 
@@ -29,7 +28,6 @@ class AudioPlaybackController(
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
             val player = boundPlayer ?: return
             publishTracks(player)
-            applyPendingExternalSelection(player)
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -72,7 +70,6 @@ class AudioPlaybackController(
     fun unbind() {
         boundPlayer?.removeListener(listener)
         boundPlayer = null
-        pendingExternalMediaId = null
     }
 
     fun selectAuto() = withPlayer { player ->
@@ -119,7 +116,6 @@ class AudioPlaybackController(
         val mediaId = player.currentMediaItem?.mediaId ?: return@withPlayer
         val item = repository.saveExternal(mediaId, descriptor, preferred = true)
         if (item.availability == AudioAvailability.AVAILABLE) {
-            pendingExternalMediaId = mediaId
             rebuildCurrentMediaSource(player)
         }
     }
@@ -128,7 +124,6 @@ class AudioPlaybackController(
         val mediaId = player.currentMediaItem?.mediaId ?: return@withPlayer
         val replacement = repository.relinkExternal(mediaId, id, descriptor) ?: return@withPlayer
         if (replacement.availability == AudioAvailability.AVAILABLE) {
-            pendingExternalMediaId = mediaId
             rebuildCurrentMediaSource(player)
         }
     }
@@ -136,14 +131,12 @@ class AudioPlaybackController(
     fun selectExternal(id: String) = withPlayer { player ->
         val mediaId = player.currentMediaItem?.mediaId ?: return@withPlayer
         repository.selectExternal(mediaId, id)
-        pendingExternalMediaId = mediaId
         rebuildCurrentMediaSource(player)
     }
 
     fun removeExternal(id: String) = withPlayer { player ->
         val mediaId = player.currentMediaItem?.mediaId ?: return@withPlayer
         repository.removeExternal(mediaId, id)
-        pendingExternalMediaId = null
         rebuildCurrentMediaSource(player)
     }
 
@@ -211,9 +204,7 @@ class AudioPlaybackController(
     private fun applyPersistedPolicy(player: Player) {
         val mediaId = player.currentMediaItem?.mediaId ?: return
         val external = repository.selectedExternalFor(mediaId)
-        if (external != null) {
-            pendingExternalMediaId = mediaId
-        } else {
+        if (external == null) {
             val descriptor = repository.selectedTrackDescriptor(mediaId)
             if (descriptor == null) {
                 if (player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) {
@@ -233,6 +224,9 @@ class AudioPlaybackController(
                 }
             }
         }
+        // External tracks belong to the service-owned MergingMediaSource. PlaybackService applies
+        // their override directly to its local ExoPlayer after the merged TrackGroup is published,
+        // avoiding MediaController TrackGroup translation and asynchronous command races.
         val currentParams = player.playbackParameters
         val pitch = repository.state.value.pitch
         if (kotlin.math.abs(currentParams.pitch - pitch) > 0.001f) {
@@ -247,28 +241,6 @@ class AudioPlaybackController(
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableVideo)
             .build()
-    }
-
-    private fun applyPendingExternalSelection(player: Player) {
-        val mediaId = player.currentMediaItem?.mediaId ?: return
-        if (pendingExternalMediaId != mediaId || repository.selectedExternalFor(mediaId) == null) return
-        if (!player.isCommandAvailable(Player.COMMAND_GET_TRACKS) ||
-            !player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
-        ) return
-        player.currentTracks.groups.forEach { group ->
-            if (group.type != C.TRACK_TYPE_AUDIO || !isExternalGroup(group)) return@forEach
-            for (index in 0 until group.length) {
-                if (group.isTrackSupported(index)) {
-                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
-                        .build()
-                    if (group.isTrackSelected(index)) pendingExternalMediaId = null
-                    return
-                }
-            }
-        }
     }
 
     private fun publishTracks(player: Player) {

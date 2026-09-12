@@ -1,0 +1,204 @@
+name: Step 10 Certification
+
+on:
+  push:
+    branches: [ step-10-final-certification-release, main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  step10-build-unit-lint-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact certified checkout
+        shell: bash
+        run: |
+          expected="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          echo "Certifying exact SHA: $actual"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Clean build, unit tests, lint, APK and AAB
+        run: |
+          gradle --no-daemon clean --stacktrace
+          gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleRelease :app:bundleRelease --stacktrace
+      - name: Verify Bouncy Castle security resolution
+        shell: bash
+        run: |
+          mkdir -p app/build/reports/step10
+          gradle --no-daemon :app:dependencyInsight --dependency bcprov-jdk18on --configuration releaseRuntimeClasspath | tee app/build/reports/step10/bcprov-dependency-insight.txt
+          grep -q 'org.bouncycastle:bcprov-jdk18on:1.84' app/build/reports/step10/bcprov-dependency-insight.txt
+          if grep -Eq 'org\.bouncycastle:bcprov-jdk18on:1\.79([^0-9]|$).*(selected|resolved)' app/build/reports/step10/bcprov-dependency-insight.txt; then
+            echo 'Vulnerable bcprov 1.79 remained selected in releaseRuntimeClasspath.' >&2
+            exit 1
+          fi
+      - name: Step 10 static release audit
+        run: bash tools/step10/static_release_audit.sh
+      - name: Record release artifact hashes
+        shell: bash
+        run: |
+          mkdir -p app/build/reports/step10
+          find app/build/outputs -type f \( -name '*.apk' -o -name '*.aab' \) -print0 | sort -z | xargs -0 sha256sum | tee app/build/reports/step10/release-sha256.txt
+      - name: Upload Step 10 release artifacts and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step10-release-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            app/build/outputs/apk/release/**
+            app/build/outputs/bundle/release/**
+            app/build/reports/step10/**
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/test-results/testDebugUnitTest/**
+            app/build/reports/lint-results-debug.*
+
+  step10-api35-full-instrumentation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact certified checkout
+        shell: bash
+        run: |
+          expected="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          echo "Certifying exact SHA: $actual"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Full retained instrumentation suite on API 35
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: gradle --no-daemon :app:connectedDebugAndroidTest --stacktrace
+      - name: Upload full instrumentation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step10-api35-full-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            app/build/reports/androidTests/connected/**
+            app/build/outputs/androidTest-results/connected/**
+
+  step10-strict-instrumentation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact certified checkout
+        shell: bash
+        run: |
+          expected="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Strict critical-class certification on API 35
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            bash .github/scripts/step10-certify-instrumentation.sh
+      - name: Upload strict instrumentation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step10-strict-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 14
+          path: app/build/reports/step10-instrumentation/**
+
+  step10-package-audit:
+    needs: step10-build-unit-lint-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact certified checkout
+        shell: bash
+        run: |
+          expected="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+      - uses: android-actions/setup-android@v3
+      - name: Install package inspection tools
+        run: sdkmanager "build-tools;36.0.0" >/dev/null
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: step10-release-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
+          path: release-artifacts
+          merge-multiple: true
+      - name: Audit APK/AAB metadata and secrets
+        run: bash tools/step10/verify_release_package.sh release-artifacts
+      - name: Upload package audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step10-package-audit-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 14
+          path: step10-package-audit/**

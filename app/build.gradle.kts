@@ -110,6 +110,9 @@ dependencies {
 
     implementation(libs.okhttp)
     implementation(libs.smbj)
+    // Step 10 security pin: SMBJ 0.14.0 requests bcprov-jdk18on 1.79. Pin the same
+    // artifact to the vendor-fixed 1.84 line; Gradle resolves the runtime graph to 1.84.
+    implementation(libs.bouncycastle.bcprov)
     implementation(libs.commons.net)
 
     implementation(libs.androidx.room.runtime)
