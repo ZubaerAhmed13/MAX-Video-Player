@@ -10,6 +10,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -68,10 +69,16 @@ private enum class ChromeIcon {
     DECODER, SPEED, CAST, TOOLS, SLEEP,
 }
 
+private val ReferenceTopBarMinWidth = 640.dp
+
 /**
  * Step-10 release-hardened player chrome. Playback state and transport remain service-owned; this
  * composable only presents controls and forwards existing actions. All phone player launchers are
  * owned by this chrome so independent host overlays cannot compete for the same top region.
+ *
+ * The approved reference hierarchy is restored whenever the available width can carry it without
+ * sacrificing the media title. On narrow layouts Subtitle and Decoder move together to the front of
+ * the scrollable quick rail instead of being clipped or layered over the title.
  */
 @Composable
 fun PlayerControlsOverlay(
@@ -157,67 +164,75 @@ fun PlayerControlsOverlay(
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
         ) {
-            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                PlayerTopBar(
-                    playback = playback,
-                    fallbackTitle = fallbackTitle,
-                    localVideoProcessingAvailable = localVideoProcessingAvailable,
-                    audioAvailable = hostState.onAudio != null,
-                    outputAvailable = hostState.onOutputDevice != null,
-                    audioButtonFocusRequester = audioButtonFocusRequester,
-                    moreButtonFocusRequester = moreButtonFocusRequester,
-                    onBack = onBack,
-                    onAudio = openAudioWithFocusReturn,
-                    onOutput = { hostState.onOutputDevice?.invoke() },
-                    onMore = { openMenuWithFocusReturn(PlayerMenu.SETTINGS) },
-                )
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val primaryActionsInTopBar = maxWidth >= ReferenceTopBarMinWidth
+                Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+                    PlayerTopBar(
+                        coordinator = coordinator,
+                        playback = playback,
+                        fallbackTitle = fallbackTitle,
+                        localVideoProcessingAvailable = localVideoProcessingAvailable,
+                        audioAvailable = hostState.onAudio != null,
+                        outputAvailable = hostState.onOutputDevice != null,
+                        primaryActionsInTopBar = primaryActionsInTopBar,
+                        subtitleButtonFocusRequester = subtitleButtonFocusRequester,
+                        audioButtonFocusRequester = audioButtonFocusRequester,
+                        decoderButtonFocusRequester = decoderButtonFocusRequester,
+                        moreButtonFocusRequester = moreButtonFocusRequester,
+                        onBack = onBack,
+                        onSubtitles = openSubtitlesWithFocusReturn,
+                        onAudio = openAudioWithFocusReturn,
+                        onDecoder = { openMenuWithFocusReturn(PlayerMenu.DECODER) },
+                        onOutput = { hostState.onOutputDevice?.invoke() },
+                        onMore = { openMenuWithFocusReturn(PlayerMenu.SETTINGS) },
+                    )
 
-                PlayerQuickRail(
-                    coordinator = coordinator,
-                    playback = playback,
-                    localVideoProcessingAvailable = localVideoProcessingAvailable,
-                    audioAvailable = hostState.onAudio != null,
-                    sleepTimerAvailable = hostState.onSleepTimer != null,
-                    outputAvailable = hostState.onOutputDevice != null,
-                    subtitleButtonFocusRequester = subtitleButtonFocusRequester,
-                    decoderButtonFocusRequester = decoderButtonFocusRequester,
-                    onOpenMenu = openMenuWithFocusReturn,
-                    onSubtitles = openSubtitlesWithFocusReturn,
-                    onAudio = openAudioWithFocusReturn,
-                    onSleepTimer = { hostState.onSleepTimer?.invoke() },
-                    onOutput = { hostState.onOutputDevice?.invoke() },
-                    onRotate = onRotate,
-                    onPip = onPip,
-                    onFullscreen = onFullscreen,
-                )
+                    PlayerQuickRail(
+                        coordinator = coordinator,
+                        playback = playback,
+                        localVideoProcessingAvailable = localVideoProcessingAvailable,
+                        sleepTimerAvailable = hostState.onSleepTimer != null,
+                        outputAvailable = hostState.onOutputDevice != null,
+                        primaryActionsInTopBar = primaryActionsInTopBar,
+                        subtitleButtonFocusRequester = subtitleButtonFocusRequester,
+                        decoderButtonFocusRequester = decoderButtonFocusRequester,
+                        onOpenMenu = openMenuWithFocusReturn,
+                        onSubtitles = openSubtitlesWithFocusReturn,
+                        onSleepTimer = { hostState.onSleepTimer?.invoke() },
+                        onOutput = { hostState.onOutputDevice?.invoke() },
+                        onRotate = onRotate,
+                        onPip = onPip,
+                        onFullscreen = onFullscreen,
+                    )
 
-                Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.weight(1f))
 
-                PlayerBottomBar(
-                    coordinator = coordinator,
-                    playback = playback,
-                    localVideoProcessingAvailable = localVideoProcessingAvailable,
-                    audioAvailable = hostState.onAudio != null,
-                    sleepTimerAvailable = hostState.onSleepTimer != null,
-                    outputAvailable = hostState.onOutputDevice != null,
-                    onPlayPause = onPlayPause,
-                    onPrevious = onPrevious,
-                    onNext = onNext,
-                    onGoLive = onGoLive,
-                    onSeekPreview = onSeekPreview,
-                    onSeekCommit = onSeekCommit,
-                    onInteractionStart = onInteractionStart,
-                    onInteractionEnd = onInteractionEnd,
-                    onOpenMenu = openMenuWithFocusReturn,
-                    onSubtitles = openSubtitlesWithFocusReturn,
-                    onAudio = openAudioWithFocusReturn,
-                    onSleepTimer = { hostState.onSleepTimer?.invoke() },
-                    onOutput = { hostState.onOutputDevice?.invoke() },
-                    onRotate = onRotate,
-                    onLock = onLock,
-                    onPip = onPip,
-                    onFullscreen = onFullscreen,
-                )
+                    PlayerBottomBar(
+                        coordinator = coordinator,
+                        playback = playback,
+                        localVideoProcessingAvailable = localVideoProcessingAvailable,
+                        audioAvailable = hostState.onAudio != null,
+                        sleepTimerAvailable = hostState.onSleepTimer != null,
+                        outputAvailable = hostState.onOutputDevice != null,
+                        onPlayPause = onPlayPause,
+                        onPrevious = onPrevious,
+                        onNext = onNext,
+                        onGoLive = onGoLive,
+                        onSeekPreview = onSeekPreview,
+                        onSeekCommit = onSeekCommit,
+                        onInteractionStart = onInteractionStart,
+                        onInteractionEnd = onInteractionEnd,
+                        onOpenMenu = openMenuWithFocusReturn,
+                        onSubtitles = openSubtitlesWithFocusReturn,
+                        onAudio = openAudioWithFocusReturn,
+                        onSleepTimer = { hostState.onSleepTimer?.invoke() },
+                        onOutput = { hostState.onOutputDevice?.invoke() },
+                        onRotate = onRotate,
+                        onLock = onLock,
+                        onPip = onPip,
+                        onFullscreen = onFullscreen,
+                    )
+                }
             }
         }
 
@@ -257,15 +272,21 @@ fun PlayerControlsOverlay(
 
 @Composable
 private fun PlayerTopBar(
+    coordinator: PlayerCoordinatorState,
     playback: PlaybackUiState,
     fallbackTitle: String,
     localVideoProcessingAvailable: Boolean,
     audioAvailable: Boolean,
     outputAvailable: Boolean,
+    primaryActionsInTopBar: Boolean,
+    subtitleButtonFocusRequester: FocusRequester,
     audioButtonFocusRequester: FocusRequester,
+    decoderButtonFocusRequester: FocusRequester,
     moreButtonFocusRequester: FocusRequester,
     onBack: () -> Unit,
+    onSubtitles: () -> Unit,
     onAudio: () -> Unit,
+    onDecoder: () -> Unit,
     onOutput: () -> Unit,
     onMore: () -> Unit,
 ) {
@@ -273,7 +294,8 @@ private fun PlayerTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaxDesignTokens.PlayerOverlaySoft)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .testTag("player_top_bar"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -312,6 +334,29 @@ private fun PlayerTopBar(
                 modifier = Modifier.focusRequester(audioButtonFocusRequester).focusable().testTag("audio_button"),
             )
         }
+        if (primaryActionsInTopBar) {
+            Row(
+                modifier = Modifier.testTag("reference_top_actions"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                PlayerCircleAction(
+                    icon = ChromeIcon.SUBTITLES,
+                    label = if (playback.subtitles.enabled) "On" else null,
+                    description = "Subtitle tracks",
+                    onClick = onSubtitles,
+                    modifier = Modifier.focusRequester(subtitleButtonFocusRequester).focusable().testTag("subtitle_button"),
+                )
+                PlayerCircleAction(
+                    icon = ChromeIcon.DECODER,
+                    label = if (localVideoProcessingAvailable) decoderCompactLabel(coordinator.decoder.requestedMode) else null,
+                    description = if (localVideoProcessingAvailable) "Decoder: ${decoderFullLabel(coordinator.decoder.requestedMode)}" else "Decoder controlled by Cast receiver",
+                    onClick = onDecoder,
+                    enabled = localVideoProcessingAvailable,
+                    modifier = Modifier.focusRequester(decoderButtonFocusRequester).focusable().testTag("decoder_button"),
+                )
+            }
+        }
         PlayerCircleAction(
             icon = ChromeIcon.MORE,
             description = "More playback tools",
@@ -326,14 +371,13 @@ private fun PlayerQuickRail(
     coordinator: PlayerCoordinatorState,
     playback: PlaybackUiState,
     localVideoProcessingAvailable: Boolean,
-    audioAvailable: Boolean,
     sleepTimerAvailable: Boolean,
     outputAvailable: Boolean,
+    primaryActionsInTopBar: Boolean,
     subtitleButtonFocusRequester: FocusRequester,
     decoderButtonFocusRequester: FocusRequester,
     onOpenMenu: (PlayerMenu) -> Unit,
     onSubtitles: () -> Unit,
-    onAudio: () -> Unit,
     onSleepTimer: () -> Unit,
     onOutput: () -> Unit,
     onRotate: () -> Unit,
@@ -350,26 +394,33 @@ private fun PlayerQuickRail(
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (!primaryActionsInTopBar) {
+            Row(
+                modifier = Modifier.testTag("quick_primary_actions"),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RailAction(
+                    ChromeIcon.SUBTITLES,
+                    "CC",
+                    "Subtitles",
+                    onSubtitles,
+                    tag = "subtitle_button",
+                    modified = playback.subtitles.enabled,
+                    modifier = Modifier.focusRequester(subtitleButtonFocusRequester).focusable(),
+                )
+                RailAction(
+                    ChromeIcon.DECODER,
+                    decoderCompactLabel(coordinator.decoder.requestedMode),
+                    "Decoder",
+                    { onOpenMenu(PlayerMenu.DECODER) },
+                    tag = "decoder_button",
+                    enabled = localVideoProcessingAvailable,
+                    modifier = Modifier.focusRequester(decoderButtonFocusRequester).focusable(),
+                )
+            }
+        }
         RailAction(ChromeIcon.SPEED, "${formatSpeed(playback.playbackSpeed)}×", "Playback speed", { onOpenMenu(PlayerMenu.SPEED) }, "speed_button", playback.playbackSpeed != 1f)
-        if (audioAvailable) RailAction(ChromeIcon.AUDIO, "Audio", "Audio tracks", onAudio, "audio_rail_button")
-        RailAction(
-            ChromeIcon.SUBTITLES,
-            "CC",
-            "Subtitles",
-            onSubtitles,
-            tag = "subtitle_button",
-            modified = playback.subtitles.enabled,
-            modifier = Modifier.focusRequester(subtitleButtonFocusRequester).focusable(),
-        )
-        RailAction(
-            ChromeIcon.DECODER,
-            decoderCompactLabel(coordinator.decoder.requestedMode),
-            "Decoder",
-            { onOpenMenu(PlayerMenu.DECODER) },
-            tag = "decoder_button",
-            enabled = localVideoProcessingAvailable,
-            modifier = Modifier.focusRequester(decoderButtonFocusRequester).focusable(),
-        )
         RailAction(ChromeIcon.DISPLAY, "Fit", "Display and aspect ratio", { onOpenMenu(PlayerMenu.DISPLAY) }, "display_button", coordinator.resizeMode != ResizeMode.FIT, localVideoProcessingAvailable)
         RailAction(ChromeIcon.ROTATE, "Rotate", "Rotate display", onRotate, "rotation_button", coordinator.displayRotationDegrees != 0, localVideoProcessingAvailable)
         RailAction(ChromeIcon.PLAYBACK, "Mode", "Repeat and shuffle", { onOpenMenu(PlayerMenu.PLAYBACK) }, "playback_mode_button", playback.shuffleEnabled)
