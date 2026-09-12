@@ -11,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,6 +26,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -58,16 +61,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.zubaer.maxvideoplayer.core.database.MediaHistoryEntity
 import com.zubaer.maxvideoplayer.core.database.PlaylistEntity
@@ -76,9 +85,14 @@ import com.zubaer.maxvideoplayer.core.model.MediaSourceType
 import com.zubaer.maxvideoplayer.core.model.SourceAvailability
 import kotlinx.coroutines.flow.Flow
 
+private enum class LibraryIcon {
+    BACK, SEARCH, GRID, LIST, MORE, PLAY, FOLDER, CHEVRON_RIGHT, CLEAR,
+}
+
 /**
  * Step-10 clean-room library presentation. It consumes the existing LibraryUiState and forwards the
  * existing actions; scanning, thumbnails, persistence, file operations and playback remain unchanged.
+ * Release-library controls use Compose-drawn vector-style glyphs rather than font/Unicode symbols.
  */
 @Composable
 fun ReleaseLibraryScreen(
@@ -235,7 +249,12 @@ fun ReleaseLibraryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (canNavigateBack) {
-                        TextButton(onClick = { if (state.selectedFolderKey != null) onCloseFolder() else onClosePlaylist() }) { Text("‹", fontSize = 28.sp) }
+                        LibraryIconButton(
+                            icon = LibraryIcon.BACK,
+                            description = "Back",
+                            onClick = { if (state.selectedFolderKey != null) onCloseFolder() else onClosePlaylist() },
+                            modifier = Modifier.testTag("library_back_button"),
+                        )
                     }
                     Text(
                         pageTitle,
@@ -245,19 +264,31 @@ fun ReleaseLibraryScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    TextButton(
+                    LibraryIconButton(
+                        icon = LibraryIcon.SEARCH,
+                        description = if (searchVisible) "Hide search" else "Search library",
                         onClick = {
                             searchVisible = !searchVisible
                             if (!searchVisible) onQuery("")
                         },
                         modifier = Modifier.testTag("library_search_button"),
-                    ) { Text("⌕", fontSize = 23.sp) }
-                    TextButton(
+                        iconTag = "library_search_icon",
+                    )
+                    LibraryIconButton(
+                        icon = if (state.viewMode == LibraryViewMode.LIST) LibraryIcon.GRID else LibraryIcon.LIST,
+                        description = if (state.viewMode == LibraryViewMode.LIST) "Switch to grid view" else "Switch to list view",
                         onClick = { onViewMode(if (state.viewMode == LibraryViewMode.LIST) LibraryViewMode.GRID else LibraryViewMode.LIST) },
                         modifier = Modifier.testTag("library_view_button"),
-                    ) { Text(if (state.viewMode == LibraryViewMode.LIST) "▦" else "☷", fontSize = 19.sp) }
+                        iconTag = "library_view_icon",
+                    )
                     Box {
-                        TextButton(onClick = { moreExpanded = true }, modifier = Modifier.testTag("library_more_button")) { Text("⋮", fontSize = 24.sp) }
+                        LibraryIconButton(
+                            icon = LibraryIcon.MORE,
+                            description = "More library actions",
+                            onClick = { moreExpanded = true },
+                            modifier = Modifier.testTag("library_more_button"),
+                            iconTag = "library_more_icon",
+                        )
                         DropdownMenu(expanded = moreExpanded, onDismissRequest = { moreExpanded = false }) {
                             DropdownMenuItem(text = { Text("Open file") }, onClick = { moreExpanded = false; fileLauncher.launch(arrayOf("video/*", "audio/*")) })
                             DropdownMenuItem(text = { Text("Add folder") }, onClick = { moreExpanded = false; treeLauncher.launch(null) })
@@ -313,7 +344,15 @@ fun ReleaseLibraryScreen(
                         singleLine = true,
                         placeholder = { Text("Search videos, filenames or folders") },
                         trailingIcon = {
-                            if (state.query.isNotEmpty()) TextButton(onClick = { onQuery("") }, modifier = Modifier.testTag("clear_search_button")) { Text("×") }
+                            if (state.query.isNotEmpty()) {
+                                LibraryIconButton(
+                                    icon = LibraryIcon.CLEAR,
+                                    description = "Clear search",
+                                    onClick = { onQuery("") },
+                                    modifier = Modifier.testTag("clear_search_button"),
+                                    iconTag = "clear_search_icon",
+                                )
+                            }
                         },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
@@ -366,7 +405,12 @@ fun ReleaseLibraryScreen(
                 FloatingActionButton(
                     onClick = { onPlay(playbackRequest(firstPlayable)) },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp).testTag("library_floating_play"),
-                ) { Text("▶", fontSize = 22.sp) }
+                ) {
+                    LibraryGlyph(
+                        icon = LibraryIcon.PLAY,
+                        modifier = Modifier.size(24.dp).testTag("library_floating_play_icon"),
+                    )
+                }
             }
         }
     }
@@ -401,13 +445,23 @@ private fun ReleaseFolderBrowser(
                 Box(
                     modifier = Modifier.width(116.dp).aspectRatio(16f / 10f).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
-                ) { Text("▰", fontSize = 30.sp, color = MaterialTheme.colorScheme.primary) }
+                ) {
+                    LibraryGlyph(
+                        icon = LibraryIcon.FOLDER,
+                        modifier = Modifier.size(34.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                     Text(folder.name, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text("${folder.videos.size} videos", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 }
                 Box {
-                    TextButton(onClick = { menu = true }) { Text("⋮", fontSize = 22.sp) }
+                    LibraryIconButton(
+                        icon = LibraryIcon.MORE,
+                        description = "Folder options",
+                        onClick = { menu = true },
+                    )
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Open") }, onClick = { menu = false; onOpenFolder(folder.key) })
                         DropdownMenuItem(text = { Text("Exclude folder") }, onClick = { menu = false; onExcludeFolder(folder) })
@@ -452,9 +506,13 @@ private fun ReleasePlaylistsRoot(playlists: List<PlaylistEntity>, onCreatePlayli
         LazyColumn(Modifier.fillMaxSize().testTag("playlist_list"), contentPadding = PaddingValues(bottom = 88.dp)) {
             if (playlists.isEmpty()) item { Text("No playlists yet.", modifier = Modifier.padding(18.dp)) }
             items(playlists, key = { it.id }) { playlist ->
-                Row(Modifier.fillMaxWidth().clickable { onOpenPlaylist(playlist.id) }.padding(vertical = 14.dp)) {
+                Row(Modifier.fillMaxWidth().clickable { onOpenPlaylist(playlist.id) }.padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(playlist.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("›")
+                    LibraryGlyph(
+                        icon = LibraryIcon.CHEVRON_RIGHT,
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 HorizontalDivider()
             }
@@ -710,7 +768,11 @@ private fun ReleaseMediaMenu(
     val selectedPlaylistId = state.selectedPlaylistId
 
     Box {
-        TextButton(onClick = { menu = true }) { Text("⋮", fontSize = 22.sp) }
+        LibraryIconButton(
+            icon = LibraryIcon.MORE,
+            description = "Media options",
+            onClick = { menu = true },
+        )
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(text = { Text("Play") }, enabled = media.availability == SourceAvailability.AVAILABLE, onClick = { menu = false; onPlay(media) })
             DropdownMenuItem(text = { Text(if (selected) "Unselect" else "Select") }, onClick = { menu = false; onToggleSelection() })
@@ -762,9 +824,9 @@ private fun ReleaseThumbnail(media: AppMedia, repository: ThumbnailRepository, m
         media.durationMs?.let { duration ->
             Text(
                 formatDuration(duration),
-                color = androidx.compose.ui.graphics.Color.White,
+                color = Color.White,
                 style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp),
             )
         }
     }
@@ -802,6 +864,117 @@ private fun ReleaseEmptyState(title: String, subtitle: String, onOpenFile: () ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onOpenFile, modifier = Modifier.testTag("open_file_button")) { Text("Open file") }
                 TextButton(onClick = onAddFolder, modifier = Modifier.testTag("add_folder_button")) { Text("Add folder") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryIconButton(
+    icon: LibraryIcon,
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    iconTag: String? = null,
+) {
+    TextButton(
+        onClick = onClick,
+        contentPadding = PaddingValues(10.dp),
+        modifier = modifier
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .semantics { contentDescription = description },
+    ) {
+        LibraryGlyph(
+            icon = icon,
+            modifier = Modifier
+                .size(22.dp)
+                .then(if (iconTag == null) Modifier else Modifier.testTag(iconTag)),
+        )
+    }
+}
+
+@Composable
+private fun LibraryGlyph(
+    icon: LibraryIcon,
+    modifier: Modifier = Modifier,
+    color: Color = androidx.compose.material3.LocalContentColor.current,
+) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = (w * 0.09f).coerceAtLeast(1.5f)
+        val style = Stroke(width = stroke, cap = StrokeCap.Round)
+        fun line(x1: Float, y1: Float, x2: Float, y2: Float) =
+            drawLine(color, Offset(w * x1, h * y1), Offset(w * x2, h * y2), strokeWidth = stroke, cap = StrokeCap.Round)
+
+        when (icon) {
+            LibraryIcon.BACK -> {
+                line(.70f, .18f, .34f, .50f)
+                line(.34f, .50f, .70f, .82f)
+            }
+            LibraryIcon.SEARCH -> {
+                drawCircle(color, radius = w * .27f, center = Offset(w * .42f, h * .42f), style = style)
+                line(.62f, .62f, .84f, .84f)
+            }
+            LibraryIcon.GRID -> {
+                listOf(.16f to .16f, .56f to .16f, .16f to .56f, .56f to .56f).forEach { (x, y) ->
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(w * x, h * y),
+                        size = androidx.compose.ui.geometry.Size(w * .28f, h * .28f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .04f),
+                    )
+                }
+            }
+            LibraryIcon.LIST -> {
+                listOf(.25f, .50f, .75f).forEach { y ->
+                    drawCircle(color, radius = w * .055f, center = Offset(w * .20f, h * y))
+                    line(.34f, y, .82f, y)
+                }
+            }
+            LibraryIcon.MORE -> {
+                drawCircle(color, w * .07f, Offset(w * .25f, h * .50f))
+                drawCircle(color, w * .07f, Offset(w * .50f, h * .50f))
+                drawCircle(color, w * .07f, Offset(w * .75f, h * .50f))
+            }
+            LibraryIcon.PLAY -> {
+                val path = Path().apply {
+                    moveTo(w * .30f, h * .18f)
+                    lineTo(w * .80f, h * .50f)
+                    lineTo(w * .30f, h * .82f)
+                    close()
+                }
+                drawPath(path, color)
+            }
+            LibraryIcon.FOLDER -> {
+                drawRoundRect(
+                    color = color.copy(alpha = .16f),
+                    topLeft = Offset(w * .10f, h * .30f),
+                    size = androidx.compose.ui.geometry.Size(w * .80f, h * .52f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .08f),
+                )
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * .10f, h * .30f),
+                    size = androidx.compose.ui.geometry.Size(w * .80f, h * .52f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .08f),
+                    style = style,
+                )
+                val tab = Path().apply {
+                    moveTo(w * .18f, h * .30f)
+                    lineTo(w * .34f, h * .18f)
+                    lineTo(w * .56f, h * .18f)
+                    lineTo(w * .68f, h * .30f)
+                }
+                drawPath(tab, color, style = style)
+            }
+            LibraryIcon.CHEVRON_RIGHT -> {
+                line(.34f, .18f, .70f, .50f)
+                line(.70f, .50f, .34f, .82f)
+            }
+            LibraryIcon.CLEAR -> {
+                line(.24f, .24f, .76f, .76f)
+                line(.76f, .24f, .24f, .76f)
             }
         }
     }
