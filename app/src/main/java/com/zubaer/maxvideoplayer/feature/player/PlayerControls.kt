@@ -65,12 +65,13 @@ private enum class PlayerPanelFocusReturn { SUBTITLE, AUDIO, DECODER, MORE }
 private enum class ChromeIcon {
     BACK, SUBTITLES, AUDIO, MORE, ROTATE, PLAYBACK, ORIENTATION, PIP, FULLSCREEN,
     EXIT_FULLSCREEN, LOCK, PREVIOUS, PLAY, PAUSE, REPLAY, NEXT, DISPLAY, INFO,
-    DECODER, SPEED, CAST, TOOLS,
+    DECODER, SPEED, CAST, TOOLS, SLEEP,
 }
 
 /**
  * Step-10 release-hardened player chrome. Playback state and transport remain service-owned; this
- * composable only presents controls and forwards existing actions.
+ * composable only presents controls and forwards existing actions. All phone player launchers are
+ * owned by this chrome so independent host overlays cannot compete for the same top region.
  */
 @Composable
 fun PlayerControlsOverlay(
@@ -158,19 +159,16 @@ fun PlayerControlsOverlay(
         ) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 PlayerTopBar(
-                    coordinator = coordinator,
                     playback = playback,
                     fallbackTitle = fallbackTitle,
                     localVideoProcessingAvailable = localVideoProcessingAvailable,
                     audioAvailable = hostState.onAudio != null,
-                    subtitleButtonFocusRequester = subtitleButtonFocusRequester,
+                    outputAvailable = hostState.onOutputDevice != null,
                     audioButtonFocusRequester = audioButtonFocusRequester,
-                    decoderButtonFocusRequester = decoderButtonFocusRequester,
                     moreButtonFocusRequester = moreButtonFocusRequester,
                     onBack = onBack,
-                    onSubtitles = openSubtitlesWithFocusReturn,
                     onAudio = openAudioWithFocusReturn,
-                    onDecoder = { openMenuWithFocusReturn(PlayerMenu.DECODER) },
+                    onOutput = { hostState.onOutputDevice?.invoke() },
                     onMore = { openMenuWithFocusReturn(PlayerMenu.SETTINGS) },
                 )
 
@@ -179,9 +177,15 @@ fun PlayerControlsOverlay(
                     playback = playback,
                     localVideoProcessingAvailable = localVideoProcessingAvailable,
                     audioAvailable = hostState.onAudio != null,
+                    sleepTimerAvailable = hostState.onSleepTimer != null,
+                    outputAvailable = hostState.onOutputDevice != null,
+                    subtitleButtonFocusRequester = subtitleButtonFocusRequester,
+                    decoderButtonFocusRequester = decoderButtonFocusRequester,
                     onOpenMenu = openMenuWithFocusReturn,
                     onSubtitles = openSubtitlesWithFocusReturn,
                     onAudio = openAudioWithFocusReturn,
+                    onSleepTimer = { hostState.onSleepTimer?.invoke() },
+                    onOutput = { hostState.onOutputDevice?.invoke() },
                     onRotate = onRotate,
                     onPip = onPip,
                     onFullscreen = onFullscreen,
@@ -194,6 +198,8 @@ fun PlayerControlsOverlay(
                     playback = playback,
                     localVideoProcessingAvailable = localVideoProcessingAvailable,
                     audioAvailable = hostState.onAudio != null,
+                    sleepTimerAvailable = hostState.onSleepTimer != null,
+                    outputAvailable = hostState.onOutputDevice != null,
                     onPlayPause = onPlayPause,
                     onPrevious = onPrevious,
                     onNext = onNext,
@@ -205,6 +211,8 @@ fun PlayerControlsOverlay(
                     onOpenMenu = openMenuWithFocusReturn,
                     onSubtitles = openSubtitlesWithFocusReturn,
                     onAudio = openAudioWithFocusReturn,
+                    onSleepTimer = { hostState.onSleepTimer?.invoke() },
+                    onOutput = { hostState.onOutputDevice?.invoke() },
                     onRotate = onRotate,
                     onLock = onLock,
                     onPip = onPip,
@@ -249,19 +257,16 @@ fun PlayerControlsOverlay(
 
 @Composable
 private fun PlayerTopBar(
-    coordinator: PlayerCoordinatorState,
     playback: PlaybackUiState,
     fallbackTitle: String,
     localVideoProcessingAvailable: Boolean,
     audioAvailable: Boolean,
-    subtitleButtonFocusRequester: FocusRequester,
+    outputAvailable: Boolean,
     audioButtonFocusRequester: FocusRequester,
-    decoderButtonFocusRequester: FocusRequester,
     moreButtonFocusRequester: FocusRequester,
     onBack: () -> Unit,
-    onSubtitles: () -> Unit,
     onAudio: () -> Unit,
-    onDecoder: () -> Unit,
+    onOutput: () -> Unit,
     onMore: () -> Unit,
 ) {
     Row(
@@ -290,8 +295,14 @@ private fun PlayerTopBar(
                 )
             }
         }
-        if (playback.playbackTarget == PlaybackTarget.CAST_DEVICE) {
-            PlayerStatusChip(icon = ChromeIcon.CAST, label = "Cast", description = "Playing on Cast receiver", tag = "cast_status_chip")
+        if (outputAvailable) {
+            PlayerCircleAction(
+                icon = ChromeIcon.CAST,
+                label = if (playback.playbackTarget == PlaybackTarget.CAST_DEVICE) "Cast" else null,
+                description = if (playback.playbackTarget == PlaybackTarget.CAST_DEVICE) "Cast output active; choose playback output" else "Choose playback output or Cast receiver",
+                onClick = onOutput,
+                modifier = Modifier.testTag("output_device_button"),
+            )
         }
         if (audioAvailable) {
             PlayerCircleAction(
@@ -301,21 +312,6 @@ private fun PlayerTopBar(
                 modifier = Modifier.focusRequester(audioButtonFocusRequester).focusable().testTag("audio_button"),
             )
         }
-        PlayerCircleAction(
-            icon = ChromeIcon.SUBTITLES,
-            label = if (playback.subtitles.enabled) "On" else null,
-            description = "Subtitle tracks",
-            onClick = onSubtitles,
-            modifier = Modifier.focusRequester(subtitleButtonFocusRequester).focusable().testTag("subtitle_button"),
-        )
-        PlayerCircleAction(
-            icon = ChromeIcon.DECODER,
-            label = if (localVideoProcessingAvailable) decoderCompactLabel(coordinator.decoder.requestedMode) else null,
-            description = if (localVideoProcessingAvailable) "Decoder: ${decoderFullLabel(coordinator.decoder.requestedMode)}" else "Decoder controlled by Cast receiver",
-            onClick = onDecoder,
-            enabled = localVideoProcessingAvailable,
-            modifier = Modifier.focusRequester(decoderButtonFocusRequester).focusable().testTag("decoder_button"),
-        )
         PlayerCircleAction(
             icon = ChromeIcon.MORE,
             description = "More playback tools",
@@ -331,9 +327,15 @@ private fun PlayerQuickRail(
     playback: PlaybackUiState,
     localVideoProcessingAvailable: Boolean,
     audioAvailable: Boolean,
+    sleepTimerAvailable: Boolean,
+    outputAvailable: Boolean,
+    subtitleButtonFocusRequester: FocusRequester,
+    decoderButtonFocusRequester: FocusRequester,
     onOpenMenu: (PlayerMenu) -> Unit,
     onSubtitles: () -> Unit,
     onAudio: () -> Unit,
+    onSleepTimer: () -> Unit,
+    onOutput: () -> Unit,
     onRotate: () -> Unit,
     onPip: () -> Unit,
     onFullscreen: () -> Unit,
@@ -343,14 +345,31 @@ private fun PlayerQuickRail(
             .fillMaxWidth()
             .background(Color.Black.copy(alpha = 0.20f))
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .testTag("player_tool_rail"),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RailAction(ChromeIcon.SPEED, "${formatSpeed(playback.playbackSpeed)}×", "Playback speed", { onOpenMenu(PlayerMenu.SPEED) }, "speed_button", playback.playbackSpeed != 1f)
         if (audioAvailable) RailAction(ChromeIcon.AUDIO, "Audio", "Audio tracks", onAudio, "audio_rail_button")
-        RailAction(ChromeIcon.SUBTITLES, "CC", "Subtitles", onSubtitles, modified = playback.subtitles.enabled)
-        RailAction(ChromeIcon.DECODER, decoderCompactLabel(coordinator.decoder.requestedMode), "Decoder", { onOpenMenu(PlayerMenu.DECODER) }, enabled = localVideoProcessingAvailable)
+        RailAction(
+            ChromeIcon.SUBTITLES,
+            "CC",
+            "Subtitles",
+            onSubtitles,
+            tag = "subtitle_button",
+            modified = playback.subtitles.enabled,
+            modifier = Modifier.focusRequester(subtitleButtonFocusRequester).focusable(),
+        )
+        RailAction(
+            ChromeIcon.DECODER,
+            decoderCompactLabel(coordinator.decoder.requestedMode),
+            "Decoder",
+            { onOpenMenu(PlayerMenu.DECODER) },
+            tag = "decoder_button",
+            enabled = localVideoProcessingAvailable,
+            modifier = Modifier.focusRequester(decoderButtonFocusRequester).focusable(),
+        )
         RailAction(ChromeIcon.DISPLAY, "Fit", "Display and aspect ratio", { onOpenMenu(PlayerMenu.DISPLAY) }, "display_button", coordinator.resizeMode != ResizeMode.FIT, localVideoProcessingAvailable)
         RailAction(ChromeIcon.ROTATE, "Rotate", "Rotate display", onRotate, "rotation_button", coordinator.displayRotationDegrees != 0, localVideoProcessingAvailable)
         RailAction(ChromeIcon.PLAYBACK, "Mode", "Repeat and shuffle", { onOpenMenu(PlayerMenu.PLAYBACK) }, "playback_mode_button", playback.shuffleEnabled)
@@ -361,6 +380,8 @@ private fun PlayerQuickRail(
         RailAction(ChromeIcon.PIP, "PiP", "Picture in picture", onPip, "pip_button")
         RailAction(if (coordinator.fullscreen) ChromeIcon.EXIT_FULLSCREEN else ChromeIcon.FULLSCREEN, if (coordinator.fullscreen) "Window" else "Full", "Fullscreen", onFullscreen, "fullscreen_button", coordinator.fullscreen)
         RailAction(ChromeIcon.INFO, "Info", "Media information", { onOpenMenu(PlayerMenu.INFO) }, "info_button")
+        if (sleepTimerAvailable) RailAction(ChromeIcon.SLEEP, "Sleep", "Sleep timer", onSleepTimer, "sleep_timer_button")
+        if (outputAvailable) RailAction(ChromeIcon.CAST, if (playback.playbackTarget == PlaybackTarget.CAST_DEVICE) "Cast" else "Output", "Playback output and Cast", onOutput, "output_rail_button")
         RailAction(ChromeIcon.MORE, "More", "More playback tools", { onOpenMenu(PlayerMenu.SETTINGS) })
     }
 }
@@ -371,6 +392,8 @@ private fun PlayerBottomBar(
     playback: PlaybackUiState,
     localVideoProcessingAvailable: Boolean,
     audioAvailable: Boolean,
+    sleepTimerAvailable: Boolean,
+    outputAvailable: Boolean,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -382,6 +405,8 @@ private fun PlayerBottomBar(
     onOpenMenu: (PlayerMenu) -> Unit,
     onSubtitles: () -> Unit,
     onAudio: () -> Unit,
+    onSleepTimer: () -> Unit,
+    onOutput: () -> Unit,
     onRotate: () -> Unit,
     onLock: () -> Unit,
     onPip: () -> Unit,
@@ -522,6 +547,8 @@ private fun PlayerBottomBar(
                 ExtendedTool(ChromeIcon.PIP, "PiP", "Window", onPip)
                 ExtendedTool(if (coordinator.fullscreen) ChromeIcon.EXIT_FULLSCREEN else ChromeIcon.FULLSCREEN, "Fullscreen", if (coordinator.fullscreen) "Exit" else "Enter", onFullscreen)
                 ExtendedTool(ChromeIcon.INFO, "Info", "Media", { onOpenMenu(PlayerMenu.INFO) })
+                if (sleepTimerAvailable) ExtendedTool(ChromeIcon.SLEEP, "Sleep", "Timer", onSleepTimer)
+                if (outputAvailable) ExtendedTool(ChromeIcon.CAST, "Output", if (playback.playbackTarget == PlaybackTarget.CAST_DEVICE) "Cast" else "Device", onOutput)
                 ExtendedTool(ChromeIcon.MORE, "More", "Tools", { onOpenMenu(PlayerMenu.SETTINGS) })
             }
         }
@@ -560,25 +587,6 @@ private fun PlayerCircleAction(
 }
 
 @Composable
-private fun PlayerStatusChip(icon: ChromeIcon, label: String, description: String, tag: String) {
-    Surface(
-        color = MaxDesignTokens.PlayerControl,
-        contentColor = MaxDesignTokens.PlayerText,
-        shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.testTag(tag).semantics { contentDescription = description },
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PlayerGlyph(icon, Modifier.size(18.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
-        }
-    }
-}
-
-@Composable
 private fun RailAction(
     icon: ChromeIcon,
     label: String,
@@ -587,6 +595,7 @@ private fun RailAction(
     tag: String? = null,
     modified: Boolean = false,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         PlayerCircleAction(
@@ -595,7 +604,7 @@ private fun RailAction(
             description = description + if (modified) ", modified" else "",
             onClick = onClick,
             enabled = enabled,
-            modifier = if (tag == null) Modifier else Modifier.testTag(tag),
+            modifier = modifier.then(if (tag == null) Modifier else Modifier.testTag(tag)),
         )
         if (modified) {
             Canvas(Modifier.size(5.dp)) { drawCircle(Color(0xFF9DC8EE)) }
@@ -656,6 +665,7 @@ private fun PlayerGlyph(icon: ChromeIcon, modifier: Modifier = Modifier) {
             ChromeIcon.SPEED -> { drawArc(color,180f,180f,false,Offset(w*.14f,h*.24f),androidx.compose.ui.geometry.Size(w*.72f,h*.72f),style=style); line(.50f,.60f,.72f,.38f) }
             ChromeIcon.CAST -> { drawRoundRect(color,Offset(w*.16f,h*.18f),androidx.compose.ui.geometry.Size(w*.70f,h*.56f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.05f),style=style); drawArc(color,270f,90f,false,Offset(w*.08f,h*.58f),androidx.compose.ui.geometry.Size(w*.22f,h*.22f),style=style); drawArc(color,270f,90f,false,Offset(w*.08f,h*.46f),androidx.compose.ui.geometry.Size(w*.40f,h*.40f),style=style); drawCircle(color,w*.045f,Offset(w*.12f,h*.84f)) }
             ChromeIcon.TOOLS -> { line(.18f,.28f,.82f,.28f); line(.18f,.50f,.82f,.50f); line(.18f,.72f,.82f,.72f); drawCircle(color,w*.08f,Offset(w*.36f,h*.28f)); drawCircle(color,w*.08f,Offset(w*.66f,h*.50f)); drawCircle(color,w*.08f,Offset(w*.46f,h*.72f)) }
+            ChromeIcon.SLEEP -> { drawArc(color,72f,216f,false,Offset(w*.18f,h*.16f),androidx.compose.ui.geometry.Size(w*.64f,h*.64f),style=style); drawArc(color,105f,150f,false,Offset(w*.34f,h*.10f),androidx.compose.ui.geometry.Size(w*.48f,h*.62f),style=style) }
         }
     }
 }
